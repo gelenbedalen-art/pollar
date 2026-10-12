@@ -58,6 +58,7 @@ function request(overrides = {}) {
     unsignedPayload: UNSIGNED_XDR,
     payloadHash: HASH,
     intent: 'sign_and_send',
+    refreshable: false,
     operation: 'payment',
     summary: 'Send 1.5 XLM',
     details: { amount: '1.5', destination: 'GD6RO...' },
@@ -153,6 +154,25 @@ function request(overrides = {}) {
   const calls = [];
   let relayStampPublicKey = null;
   let turnkeyPayload = HASH;
+  // What Turnkey "holds" for the other kinds the device verifies.
+  const SOLANA_FROM = 'HUwbU1P7nxJvACyYMYChUCUZ1tCQqCyjWeT27gPYYSaU';
+  const SOLANA_UNSIGNED = 'ab'.repeat(40);
+  let turnkeySolanaTx = SOLANA_UNSIGNED;
+  const ACCOUNT_PAYLOAD = {
+    walletId: 'wallet-tk',
+    accounts: [
+      {
+        curve: 'CURVE_ED25519',
+        pathFormat: 'PATH_FORMAT_BIP32',
+        path: "m/44'/501'/0'/0'",
+        addressFormat: 'ADDRESS_FORMAT_SOLANA',
+        name: 'SOLANA',
+      },
+    ],
+  };
+  let turnkeyAccounts = ACCOUNT_PAYLOAD;
+  let refreshCalls = 0;
+  let refreshedRequest = null;
   let approvedRequest = request({
     status: 'APPROVED',
     signedXdr: ONE_SIG_XDR,
@@ -194,19 +214,32 @@ function request(overrides = {}) {
     }
     if (url.pathname === '/v2/cosign/requests')
       return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { requests: [request()] } });
+    if (url.pathname === '/v2/cosign/requests/req-1/refresh') {
+      refreshCalls++;
+      return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { request: refreshedRequest ?? request() } });
+    }
     if (url.pathname === '/v2/cosign/relay') {
       const body = JSON.parse(await req.text());
       const stampJson = JSON.parse(Buffer.from(body.stamp, 'base64url').toString());
       relayStampPublicKey = stampJson.publicKey;
       const inner = JSON.parse(body.body);
       if (body.path === '/public/v1/query/get_activity') {
+        const intent =
+          inner.activityId === 'act-sol'
+            ? {
+                signTransactionIntentV2: {
+                  signWith: SOLANA_FROM,
+                  unsignedTransaction: turnkeySolanaTx,
+                  type: 'TRANSACTION_TYPE_SOLANA',
+                },
+              }
+            : inner.activityId === 'act-acc'
+              ? { createWalletAccountsIntent: turnkeyAccounts }
+              : { signRawPayloadIntentV2: { signWith: SOURCE, payload: turnkeyPayload } };
         return json(200, {
           success: true,
           code: 'SDK_COSIGN_REQUEST',
-          content: {
-            status: 200,
-            body: { activity: { id: inner.activityId, intent: { signRawPayloadIntentV2: { payload: turnkeyPayload } } } },
-          },
+          content: { status: 200, body: { activity: { id: inner.activityId, intent } } },
         });
       }
       if (body.path === '/public/v1/submit/approve_activity') {
@@ -292,6 +325,63 @@ function request(overrides = {}) {
     'cosign store dropped the resolved request',
     client.getCosignState().pending.length === 0 && client.getCosignState().lastResolved?.id === 'req-1',
   );
+
+  // Refresh: a request Pollar composed is rebuilt right before the vote; one the
+  // client composed is not.
+  check('approve did not refresh a request the client composed', refreshCalls === 0);
+  refreshedRequest = request({ refreshable: true, activityId: 'act-2', fingerprint: 'fp-2' });
+  await client.signAndSubmitTx(UNSIGNED_XDR);
+  const approvedAfterRefresh = await client.cosign.approve(request({ refreshable: true }));
+  check('approve refreshes a refreshable request first', refreshCalls === 1);
+  check('approve then verified and voted on the refreshed activity', approvedAfterRefresh.status === 'APPROVED');
+  refreshedRequest = null;
+
+  // Solana: the device compares the serialized unsigned transaction with the intent.
+  const solanaRequest = request({
+    id: 'req-sol',
+    network: 'SOLANA',
+    activityId: 'act-sol',
+    fingerprint: 'fp-sol',
+    signWith: SOLANA_FROM,
+    unsignedPayload: SOLANA_UNSIGNED,
+    payloadHash: crypto.createHash('sha256').update(SOLANA_UNSIGNED).digest('hex'),
+    refreshable: true,
+  });
+  const solanaOk = await client.cosign.verify(solanaRequest);
+  check(
+    'verify accepts a Solana request whose unsigned transaction Turnkey holds byte for byte',
+    solanaOk.ok === true,
+    solanaOk,
+  );
+  turnkeySolanaTx = 'cd'.repeat(40);
+  const solanaBad = await client.cosign.verify(solanaRequest);
+  check('verify refuses a Solana request when Turnkey holds another transaction', solanaBad.ok === false);
+  turnkeySolanaTx = SOLANA_UNSIGNED;
+  const solanaWrongSigner = await client.cosign.verify({
+    ...solanaRequest,
+    signWith: 'SomeoneElse111111111111111111111111111111111',
+  });
+  check('verify refuses a Solana request Turnkey would sign with another account', solanaWrongSigner.ok === false);
+
+  // ACCOUNT: the device compares wallet id and derivation parameters.
+  const accountRequest = request({
+    id: 'req-acc',
+    kind: 'ACCOUNT',
+    network: 'SOLANA',
+    intent: 'add_accounts',
+    activityId: 'act-acc',
+    fingerprint: 'fp-acc',
+    signWith: 'wallet-tk',
+    unsignedPayload: JSON.stringify(ACCOUNT_PAYLOAD),
+    payloadHash: crypto.createHash('sha256').update(JSON.stringify(ACCOUNT_PAYLOAD)).digest('hex'),
+    refreshable: true,
+  });
+  const accountOk = await client.cosign.verify(accountRequest);
+  check('verify accepts an account derivation whose parameters match the intent', accountOk.ok === true, accountOk);
+  turnkeyAccounts = { ...ACCOUNT_PAYLOAD, accounts: [{ ...ACCOUNT_PAYLOAD.accounts[0], path: "m/44'/501'/1'/0'" }] };
+  const accountBad = await client.cosign.verify(accountRequest);
+  check('verify refuses an account derivation with a different path', accountBad.ok === false);
+  turnkeyAccounts = ACCOUNT_PAYLOAD;
 
   // A rejected vote ends the tx with an error state.
   approvedRequest = request({ status: 'REJECTED', failureReason: 'user said no', resolvedAt: new Date().toISOString() });

@@ -1467,6 +1467,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cosign/requests/{id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rebuild a pending request right before approving it
+         * @description Rebuilds the payload with a fresh blockhash, sequence or sponsor signature and re-casts Pollar's vote on a new Turnkey activity; the superseded activity is rejected. The request keeps its id. A request the client composed itself is returned unchanged.
+         */
+        post: operations["postCosignRequestsByIdRefresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cosign/requests/{id}/cancel": {
         parameters: {
             query?: never;
@@ -2307,7 +2327,7 @@ export interface operations {
                                 request: {
                                     id: string;
                                     /** @enum {string} */
-                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
                                     /** @enum {string} */
                                     network: "STELLAR" | "POLYGON" | "SOLANA";
                                     /** @enum {string} */
@@ -2318,8 +2338,9 @@ export interface operations {
                                     signWith: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
+                                    refreshable: boolean;
                                     /** @enum {string} */
-                                    intent: "sign" | "sign_and_send" | "account_create";
+                                    intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
                                     operation?: string;
                                     summary?: string;
                                     details?: {
@@ -2462,7 +2483,7 @@ export interface operations {
                                 request: {
                                     id: string;
                                     /** @enum {string} */
-                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
                                     /** @enum {string} */
                                     network: "STELLAR" | "POLYGON" | "SOLANA";
                                     /** @enum {string} */
@@ -2473,8 +2494,9 @@ export interface operations {
                                     signWith: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
+                                    refreshable: boolean;
                                     /** @enum {string} */
-                                    intent: "sign" | "sign_and_send" | "account_create";
+                                    intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
                                     operation?: string;
                                     summary?: string;
                                     details?: {
@@ -3036,7 +3058,7 @@ export interface operations {
                                 request: {
                                     id: string;
                                     /** @enum {string} */
-                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
                                     /** @enum {string} */
                                     network: "STELLAR" | "POLYGON" | "SOLANA";
                                     /** @enum {string} */
@@ -3047,8 +3069,9 @@ export interface operations {
                                     signWith: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
+                                    refreshable: boolean;
                                     /** @enum {string} */
-                                    intent: "sign" | "sign_and_send" | "account_create";
+                                    intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
                                     operation?: string;
                                     summary?: string;
                                     details?: {
@@ -11778,7 +11801,7 @@ export interface operations {
                             requests: {
                                 id: string;
                                 /** @enum {string} */
-                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
                                 /** @enum {string} */
                                 network: "STELLAR" | "POLYGON" | "SOLANA";
                                 /** @enum {string} */
@@ -11789,8 +11812,9 @@ export interface operations {
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
+                                refreshable: boolean;
                                 /** @enum {string} */
-                                intent: "sign" | "sign_and_send" | "account_create";
+                                intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
                                 operation?: string;
                                 summary?: string;
                                 details?: {
@@ -11859,7 +11883,7 @@ export interface operations {
                             request: {
                                 id: string;
                                 /** @enum {string} */
-                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
                                 /** @enum {string} */
                                 network: "STELLAR" | "POLYGON" | "SOLANA";
                                 /** @enum {string} */
@@ -11870,8 +11894,104 @@ export interface operations {
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
+                                refreshable: boolean;
                                 /** @enum {string} */
-                                intent: "sign" | "sign_and_send" | "account_create";
+                                intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
+                                operation?: string;
+                                summary?: string;
+                                details?: {
+                                    [key: string]: unknown;
+                                };
+                                signedXdr?: string;
+                                submit?: {
+                                    hash: string;
+                                    /** @enum {string} */
+                                    status: "PENDING" | "SUCCESS" | "FAILED";
+                                    resultCode?: string;
+                                    message?: string;
+                                };
+                                txRecordId?: string;
+                                failureReason?: string;
+                                expiresAt: string;
+                                createdAt: string;
+                                resolvedAt: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postCosignRequestsByIdRefresh: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request, refreshed when it could be */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_REQUEST";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            request: {
+                                id: string;
+                                /** @enum {string} */
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
+                                /** @enum {string} */
+                                network: "STELLAR" | "POLYGON" | "SOLANA";
+                                /** @enum {string} */
+                                status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                subOrgId: string;
+                                activityId: string;
+                                fingerprint: string;
+                                signWith: string;
+                                unsignedPayload: string;
+                                payloadHash: string;
+                                refreshable: boolean;
+                                /** @enum {string} */
+                                intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
                                 operation?: string;
                                 summary?: string;
                                 details?: {
@@ -11953,7 +12073,7 @@ export interface operations {
                             request: {
                                 id: string;
                                 /** @enum {string} */
-                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
                                 /** @enum {string} */
                                 network: "STELLAR" | "POLYGON" | "SOLANA";
                                 /** @enum {string} */
@@ -11964,8 +12084,9 @@ export interface operations {
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
+                                refreshable: boolean;
                                 /** @enum {string} */
-                                intent: "sign" | "sign_and_send" | "account_create";
+                                intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
                                 operation?: string;
                                 summary?: string;
                                 details?: {
@@ -12071,7 +12192,7 @@ export interface operations {
                             request?: {
                                 id: string;
                                 /** @enum {string} */
-                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
                                 /** @enum {string} */
                                 network: "STELLAR" | "POLYGON" | "SOLANA";
                                 /** @enum {string} */
@@ -12082,8 +12203,9 @@ export interface operations {
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
+                                refreshable: boolean;
                                 /** @enum {string} */
-                                intent: "sign" | "sign_and_send" | "account_create";
+                                intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
                                 operation?: string;
                                 summary?: string;
                                 details?: {
