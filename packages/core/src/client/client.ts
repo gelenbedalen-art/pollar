@@ -1,4 +1,3 @@
-import { assertRampStellarAccount } from '../ramps/stellar-account';
 import { RampSigningRegistry, type RampSigningHandler, type RampSnapshot } from '../ramps/workflow';
 import type { RampChain, RampContinuationBody } from '../types';
 import { createApiClient, fetchWithTimeout, PollarApiClient } from '../api/client';
@@ -3856,25 +3855,7 @@ export class PollarClient {
       ['completed', 'failed', 'refunded'].includes(fresh.lifecycleState ?? fresh.status)
     )
       throw new Error('The ramp action changed. Refresh before signing.');
-    let handler = this._rampSigners.resolve(action.chain, action.payload.encoding);
-    if (!handler && action.chain === 'STELLAR' && action.payload.encoding === 'xdr') {
-      handler = async (saved) => {
-        const wallet = this.getWallet();
-        if (!wallet || (wallet.chain ?? 'STELLAR') !== saved.chain || this.getNetwork() !== saved.network)
-          throw new Error('Connect the wallet and network required by this ramp action.');
-        await assertRampStellarAccount(saved, wallet.address);
-        const connected = this.getWallet();
-        if (
-          connected?.address !== wallet.address ||
-          (connected?.chain ?? 'STELLAR') !== saved.chain ||
-          this.getNetwork() !== saved.network
-        )
-          throw new Error('The connected wallet changed. Refresh before signing.');
-        const signed = await this.signTx(saved.payload.value, { skipSponsorship: saved.purpose === 'authentication' });
-        if (signed.status !== 'signed') throw new Error(signed.message ?? signed.details ?? 'Signing was cancelled.');
-        return signed.signedXdr;
-      };
-    }
+    const handler = this._rampSigners.resolve(action.chain, action.payload.encoding);
     if (!handler) throw new Error(`Register a ramp signing handler for ${action.chain}/${action.payload.encoding}.`);
     const signedPayload = await handler(action);
     return this.continueRamp(txId, { actionId: action.actionId, transactionVersion: fresh.transactionVersion!, signedPayload });

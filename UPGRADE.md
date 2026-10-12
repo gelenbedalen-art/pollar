@@ -53,14 +53,31 @@ strings retain their precision and formatting.
 bank types. Custom templates should handle unknown strings and retain known-type
 formatting where applicable; exhaustive switches need a fallback.
 
-Supported ramp chains register a signer with `registerRampSigningHandler(chain, encoding,
-handler)` and remove it with the returned cleanup function. Call `signRampAction`
-only from an explicit user action. Its built-in Stellar signer verifies the wallet
-account from the transaction source, or the first SEP-10 manageData operation for
-an authentication challenge. It also verifies chain and network. Restoring or
-polling a workflow does not sign. UI workflow helpers exported from core are
-`describeRampAction`, `mergeRampSnapshot` and `mergeRampCountries`, with
-`RampSnapshot` and `RampSigningHandler` types; registry and URL internals are private.
+Every chain/encoding pair, including `STELLAR`/`xdr`, requires an explicitly
+registered signer through `registerRampSigningHandler(chain, encoding, handler)`.
+Remove it with the returned cleanup function. Core has no built-in ramp signer
+and does not decode chain-specific payloads or include an XDR library. An
+unregistered pair fails before signing or continuing the transaction.
+
+The registered integration must validate the requested payload against the
+authorized wallet account, chain and network before signing, reject cancellation,
+and return the signed payload without broadcasting. Call `signRampAction` only
+from an explicit user action; it refreshes the saved action and delegates to that
+handler. Restoring or polling a workflow does not sign. Existing legacy ramp
+signature methods remain available.
+
+For example, with your application's existing chain-specific wallet integration:
+
+```ts
+const removeSigner = client.registerRampSigningHandler('STELLAR', 'xdr', async (action) => {
+  await walletIntegration.validateRampAction(action);
+  return walletIntegration.signRampAction(action);
+});
+```
+
+UI workflow helpers exported from core are `describeRampAction`,
+`mergeRampSnapshot` and `mergeRampCountries`, with `RampSnapshot` and
+`RampSigningHandler` types; registry and URL internals are private.
 
 ## 0.11.3 -> 0.11.4
 

@@ -10,8 +10,10 @@
   `RampChain` catalog (`STELLAR`, `POLYGON`, `SOLANA`); preserve exact
   quote amounts; and resume saved, versioned workflows without signing on restore.
 - `getRampRoutes`, `continueRamp`, `registerRampSigningHandler` and
-  `signRampAction` support explicit workflow actions. Built-in Stellar signing
-  checks the connected chain, network and required account before invoking a wallet.
+  `signRampAction` support explicit workflow actions. Every chain/encoding pair
+  requires a registered handler that validates the payload, wallet account and
+  network before signing. Core no longer includes the Stellar XDR parser or a
+  built-in ramp signer; no new network-specific dependency is required.
 - Native provider configuration/platform/Privy adapter changes clean up and replace
   the owned client. Login Back and Retry keep their modal open; logout still clears
   saved ramp state. Native route choices follow the theme and show selection.

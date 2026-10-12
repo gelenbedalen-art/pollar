@@ -1,6 +1,11 @@
 import { assertRampChain } from './chains';
 import type { RampChain, RampAction, RampRoute, RampCountry, RampsTransactionResponse } from '../types';
 export type RampSigningAction = Extract<RampAction, { kind: 'sign_transaction' }>;
+/**
+ * The integration must validate the payload, required account and network before
+ * signing. Reject invalid requests or cancellation; return the signed payload
+ * without broadcasting. Core treats the chain's payload encoding as opaque.
+ */
 export type RampSigningHandler = (action: RampSigningAction) => Promise<string>;
 export class RampSigningRegistry {
   private readonly handlers = new Map<string, RampSigningHandler>();

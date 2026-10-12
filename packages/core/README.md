@@ -770,7 +770,7 @@ lowercase names, unknown chains and CAIP-2 identifiers are rejected. Adding
 another chain requires a backend enum migration and an updated SDK contract.
 Exact amount strings keep their precision and formatting.
 
-Call `continueRamp(txId, { actionId, transactionVersion, signedPayload?, fields? })` only after user interaction. `signRampAction(txId, snapshot)` refreshes the action, signs it through the matching handler and sends it to backend orchestration. Stellar XDR signing is included. Register a supported chain/encoding with `registerRampSigningHandler(chain, encoding, async action => signedPayload)`; handlers must use the authorized wallet/network and return a signed payload without broadcasting it. Polling and restoring state never invoke signing.
+Call `continueRamp(txId, { actionId, transactionVersion, signedPayload?, fields? })` only after user interaction. `signRampAction(txId, snapshot)` refreshes the action, signs it through the matching handler and sends it to backend orchestration. Every chain/encoding pair requires a registered signing handler, including `STELLAR`/`xdr`; core treats payloads as opaque and has no built-in ramp signer. Register a supported chain/encoding with `registerRampSigningHandler(chain, encoding, async action => signedPayload)`; handlers must validate the payload and authorized wallet account, chain and network before returning a signed payload without broadcasting it. Polling and restoring state never invoke signing.
 
 Existing ramp methods remain compatible. Generic identifiers do not make unimplemented routes executable; the backend advertises only configured integrations with required evidence readers.
 
