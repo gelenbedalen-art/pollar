@@ -335,6 +335,13 @@ export function RampWidget({ onClose }: RampWidgetProps) {
    */
   async function resumeWithSignature(id: string, ps: NonNullable<RampResult['pendingSignature']>) {
     const outcome = await signTx(ps.unsignedXdr);
+    if (outcome.status === 'cosign_pending') {
+      // A co-signed wallet answers with the request the user's device must
+      // approve; the ramp resumes once the signed XDR comes back through it.
+      setErrorMsg('Approve the signature on your device, then resume.');
+      setStep('error');
+      return;
+    }
     if (outcome.status !== 'signed') {
       setErrorMsg(outcome.message ?? outcome.details ?? 'Signing was cancelled.');
       setStep('error');

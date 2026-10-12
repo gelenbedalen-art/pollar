@@ -56,10 +56,12 @@ export async function authenticate(clientSessionId: string, deps: FlowDeps, expe
   // HTTP-level `error` is not handled here; the `else` branch below catches
   // both "request failed" (data === undefined) and "request OK but body
   // wasn't a valid session" via the same generic path.
+  const devicePublicKey = await deps.getDevicePublicKey?.();
   const body = {
     clientSessionId,
     dpopJwk,
     ...(deps.deviceLabel ? { deviceLabel: deps.deviceLabel } : {}),
+    ...(devicePublicKey ? { devicePublicKey } : {}),
   };
   // The login budget, not the client default: this call does the server-side
   // work the rest of the flow only waited for. The header is read and stripped

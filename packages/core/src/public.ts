@@ -16,11 +16,16 @@ export { createLocalStorageAdapter, createMemoryAdapter } from './storage/web';
 export type { LocalStorageAdapterOptions } from './storage/web';
 
 // --- KeyManager + DPoP --------------------------------------------------------
-export type { KeyManager, PublicEcJwk } from './keys/types';
+export type { KeyManager, KeyManagerOptions, PublicEcJwk } from './keys/types';
 export { defaultKeyManager } from './keys/factory';
 export { WebCryptoKeyManager } from './keys/web-crypto';
 export { computeJwkThumbprint, canonicalEcJwk } from './keys/thumbprint';
 export { buildProof, normalizeHtu } from './dpop';
+
+// --- Turnkey co-signed wallets ---------------------------------------------
+export { CosignManager } from './cosign/manager';
+export { compressedPublicKeyHex, rawSignatureToDer, encodeStamp } from './cosign/encoding';
+export { stellarTransactionHashHex } from './cosign/stellar-hash';
 export type { BuildProofArgs } from './dpop';
 
 export { FreighterAdapter, AlbedoAdapter, WalletType, isInteractiveAuthAdapter } from './wallets';

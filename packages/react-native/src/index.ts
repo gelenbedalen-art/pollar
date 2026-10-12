@@ -18,6 +18,7 @@ export { ProviderRegistrationModal } from './components/provider-registration-mo
 export { KycStatus } from './components/kyc-modal/KycStatus';
 export { RampWidget } from './components/ramp-widget/RampWidget';
 export { CardModal } from './components/card-modal/CardModal';
+export { CosignModal } from './components/cosign-modal/CosignModal';
 export { RouteDisplay } from './components/ramp-widget/RouteDisplay';
 export { WalletBalanceModal } from './components/wallet-balance-modal/WalletBalanceModal';
 
@@ -28,6 +29,8 @@ export type { KycStep } from './components/kyc-modal/KycModal';
 export { RampWidgetTemplate } from './components/ramp-widget/RampWidget';
 export type { RampStep } from './components/ramp-widget/RampWidget';
 export { TransactionModalTemplate } from './components/transaction-modal/TransactionModalUI';
+export { CosignModalTemplate } from './components/cosign-modal/CosignModalUI';
+export type { CosignModalTemplateProps } from './components/cosign-modal/CosignModalUI';
 export type { TransactionModalTemplateProps } from './components/transaction-modal/TransactionModalUI';
 export { TxHistoryModalTemplate } from './components/tx-history-modal/TxHistoryModalUI';
 export { WalletBalanceModalTemplate } from './components/wallet-balance-modal/WalletBalanceModalUI';

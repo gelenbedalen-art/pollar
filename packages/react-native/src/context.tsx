@@ -1,5 +1,6 @@
 import {
   BuildOutcome,
+  CosignState,
   NetworkState,
   PollarAdapters,
   PollarClient,
@@ -22,6 +23,7 @@ import { LoginModal } from './components/login-modal/LoginModal';
 import { RampWidget } from './components/ramp-widget/RampWidget';
 import { CardModal } from './components/card-modal/CardModal';
 import { TransactionModal } from './components/transaction-modal/TransactionModal';
+import { CosignModal } from './components/cosign-modal/CosignModal';
 import { TxHistoryModal } from './components/tx-history-modal/TxHistoryModal';
 import { WalletBalanceModal } from './components/wallet-balance-modal/WalletBalanceModal';
 import type { PollarConfig, PollarStyles } from './types';
@@ -99,6 +101,11 @@ interface PollarContextValue {
   openTxHistoryModal: () => void;
   // wallet balance
   openWalletBalanceModal: () => void;
+  // cosign (Turnkey co-signed wallets)
+  /** Requests waiting for this device's vote. */
+  cosign: CosignState;
+  /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
+  openCosignModal: () => void;
   // adapters
   adapters?: PollarAdapters;
 }
@@ -217,6 +224,16 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
   const [cardModalOpen, setCardModalOpen] = useState(false);
   const [txHistoryModalOpen, setTxHistoryModalOpen] = useState(false);
   const [walletBalanceModalOpen, setWalletBalanceModalOpen] = useState(false);
+  const [cosign, setCosign] = useState<CosignState>({ pending: [] });
+  const [cosignModalOpen, setCosignModalOpen] = useState(false);
+  useEffect(() => pollarClient.onCosignStateChange(setCosign), [pollarClient]);
+  // A signing call that came back pending needs the user's vote now; open the
+  // prompt when a new request appears, never when one merely resolves.
+  const cosignPendingCount = useRef(0);
+  useEffect(() => {
+    if (cosign.pending.length > cosignPendingCount.current) setCosignModalOpen(true);
+    cosignPendingCount.current = cosign.pending.length;
+  }, [cosign.pending.length]);
 
   // When the session ends (logout, revoked, ended elsewhere) every modal that acts
   // on it closes, so none keeps the previous user's data on screen; reopening loads
@@ -232,6 +249,7 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
         setCardModalOpen(false);
         setTxHistoryModalOpen(false);
         setWalletBalanceModalOpen(false);
+        setCosignModalOpen(false);
       }),
     [pollarClient],
   );
@@ -264,6 +282,8 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
       openTxHistoryModal: () => setTxHistoryModalOpen(true),
       openWalletBalanceModal: () => setWalletBalanceModalOpen(true),
       walletBalance,
+      cosign,
+      openCosignModal: () => setCosignModalOpen(true),
       refreshBalance: () => pollarClient.refreshBalance(),
       network: networkState.step === 'connected' ? networkState.network : 'testnet',
       setNetwork: (network: StellarNetwork) => pollarClient.setNetwork(network),
@@ -281,6 +301,7 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
       txHistory,
       networkState,
       walletBalance,
+      cosign,
       adapters,
     ],
   );
@@ -296,6 +317,11 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
       {transactionModalOpen && (
         <ModalErrorBoundary onClose={() => setTransactionModalOpen(false)}>
           <TransactionModal onClose={() => setTransactionModalOpen(false)} />
+        </ModalErrorBoundary>
+      )}
+      {cosignModalOpen && (
+        <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
+          <CosignModal onClose={() => setCosignModalOpen(false)} />
         </ModalErrorBoundary>
       )}
       {kycModalOpen && (

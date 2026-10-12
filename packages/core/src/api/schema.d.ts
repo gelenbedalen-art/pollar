@@ -1427,6 +1427,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cosign/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My pending co-sign requests
+         * @description Signing activities Pollar opened on my co-signed (Turnkey) wallet that still wait for my device's vote.
+         */
+        get: operations["getCosignRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cosign/requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One co-sign request
+         * @description With `?sync=1` the activity is re-read from Turnkey first, so a vote cast outside the relay is picked up.
+         */
+        get: operations["getCosignRequestsById"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cosign/requests/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a pending co-sign request
+         * @description Pollar rejects the activity in Turnkey. Final: a rejected activity can never be approved.
+         */
+        post: operations["postCosignRequestsByIdCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cosign/relay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forward a device-stamped Turnkey request
+         * @description The device signs the exact JSON body with its P-256 key (`X-Stamp`); Pollar checks the key is one of the user's enrolled devices and that the body targets their own sub-organization, then forwards it to Turnkey unchanged. Used to approve or reject a request, to read the sub-organization back for verification, and to enroll another device.
+         */
+        post: operations["postCosignRelay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cosign/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My enrolled devices */
+        get: operations["getCosignDevices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/distribution/rules": {
         parameters: {
             query?: never;
@@ -2192,6 +2289,61 @@ export interface operations {
                     };
                 };
             };
+            /** @description Co-signed (Turnkey) wallet: the request the user's device must approve before a signature exists */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_PENDING";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            pendingSignature: {
+                                /** @constant */
+                                kind: "cosign";
+                                request: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                    /** @enum {string} */
+                                    network: "STELLAR" | "POLYGON" | "SOLANA";
+                                    /** @enum {string} */
+                                    status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                    subOrgId: string;
+                                    activityId: string;
+                                    fingerprint: string;
+                                    signWith: string;
+                                    unsignedPayload: string;
+                                    payloadHash: string;
+                                    /** @enum {string} */
+                                    intent: "sign" | "sign_and_send" | "account_create";
+                                    operation?: string;
+                                    summary?: string;
+                                    details?: {
+                                        [key: string]: unknown;
+                                    };
+                                    signedXdr?: string;
+                                    submit?: {
+                                        hash: string;
+                                        /** @enum {string} */
+                                        status: "PENDING" | "SUCCESS" | "FAILED";
+                                        resultCode?: string;
+                                        message?: string;
+                                    };
+                                    txRecordId?: string;
+                                    failureReason?: string;
+                                    expiresAt: string;
+                                    createdAt: string;
+                                    resolvedAt: string | null;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
             /** @description Validation error */
             400: {
                 headers: {
@@ -2288,6 +2440,61 @@ export interface operations {
                             signedXdr: string;
                             idempotencyKey: string;
                             sponsored: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description Co-signed (Turnkey) wallet: the request the user's device must approve before a signature exists */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_PENDING";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            pendingSignature: {
+                                /** @constant */
+                                kind: "cosign";
+                                request: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                    /** @enum {string} */
+                                    network: "STELLAR" | "POLYGON" | "SOLANA";
+                                    /** @enum {string} */
+                                    status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                    subOrgId: string;
+                                    activityId: string;
+                                    fingerprint: string;
+                                    signWith: string;
+                                    unsignedPayload: string;
+                                    payloadHash: string;
+                                    /** @enum {string} */
+                                    intent: "sign" | "sign_and_send" | "account_create";
+                                    operation?: string;
+                                    summary?: string;
+                                    details?: {
+                                        [key: string]: unknown;
+                                    };
+                                    signedXdr?: string;
+                                    submit?: {
+                                        hash: string;
+                                        /** @enum {string} */
+                                        status: "PENDING" | "SUCCESS" | "FAILED";
+                                        resultCode?: string;
+                                        message?: string;
+                                    };
+                                    txRecordId?: string;
+                                    failureReason?: string;
+                                    expiresAt: string;
+                                    createdAt: string;
+                                    resolvedAt: string | null;
+                                };
+                            };
                         };
                     };
                 };
@@ -2811,6 +3018,61 @@ export interface operations {
                     };
                 };
             };
+            /** @description Co-signed (Turnkey) wallet: the request the user's device must approve before a signature exists */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_PENDING";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            pendingSignature: {
+                                /** @constant */
+                                kind: "cosign";
+                                request: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                    /** @enum {string} */
+                                    network: "STELLAR" | "POLYGON" | "SOLANA";
+                                    /** @enum {string} */
+                                    status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                    subOrgId: string;
+                                    activityId: string;
+                                    fingerprint: string;
+                                    signWith: string;
+                                    unsignedPayload: string;
+                                    payloadHash: string;
+                                    /** @enum {string} */
+                                    intent: "sign" | "sign_and_send" | "account_create";
+                                    operation?: string;
+                                    summary?: string;
+                                    details?: {
+                                        [key: string]: unknown;
+                                    };
+                                    signedXdr?: string;
+                                    submit?: {
+                                        hash: string;
+                                        /** @enum {string} */
+                                        status: "PENDING" | "SUCCESS" | "FAILED";
+                                        resultCode?: string;
+                                        message?: string;
+                                    };
+                                    txRecordId?: string;
+                                    failureReason?: string;
+                                    expiresAt: string;
+                                    createdAt: string;
+                                    resolvedAt: string | null;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
             /** @description Validation error */
             400: {
                 headers: {
@@ -3093,7 +3355,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": unknown;
+            };
+        };
         responses: {
             /** @description The wallet the user already had */
             200: {
@@ -4030,6 +4296,7 @@ export interface operations {
                         y: string;
                     };
                     deviceLabel?: string;
+                    devicePublicKey?: string;
                 };
             };
         };
@@ -11472,6 +11739,474 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    getCosignRequests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending requests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_REQUEST";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            requests: {
+                                id: string;
+                                /** @enum {string} */
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                /** @enum {string} */
+                                network: "STELLAR" | "POLYGON" | "SOLANA";
+                                /** @enum {string} */
+                                status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                subOrgId: string;
+                                activityId: string;
+                                fingerprint: string;
+                                signWith: string;
+                                unsignedPayload: string;
+                                payloadHash: string;
+                                /** @enum {string} */
+                                intent: "sign" | "sign_and_send" | "account_create";
+                                operation?: string;
+                                summary?: string;
+                                details?: {
+                                    [key: string]: unknown;
+                                };
+                                signedXdr?: string;
+                                submit?: {
+                                    hash: string;
+                                    /** @enum {string} */
+                                    status: "PENDING" | "SUCCESS" | "FAILED";
+                                    resultCode?: string;
+                                    message?: string;
+                                };
+                                txRecordId?: string;
+                                failureReason?: string;
+                                expiresAt: string;
+                                createdAt: string;
+                                resolvedAt: string | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    getCosignRequestsById: {
+        parameters: {
+            query?: {
+                sync?: "0" | "1";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_REQUEST";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            request: {
+                                id: string;
+                                /** @enum {string} */
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                /** @enum {string} */
+                                network: "STELLAR" | "POLYGON" | "SOLANA";
+                                /** @enum {string} */
+                                status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                subOrgId: string;
+                                activityId: string;
+                                fingerprint: string;
+                                signWith: string;
+                                unsignedPayload: string;
+                                payloadHash: string;
+                                /** @enum {string} */
+                                intent: "sign" | "sign_and_send" | "account_create";
+                                operation?: string;
+                                summary?: string;
+                                details?: {
+                                    [key: string]: unknown;
+                                };
+                                signedXdr?: string;
+                                submit?: {
+                                    hash: string;
+                                    /** @enum {string} */
+                                    status: "PENDING" | "SUCCESS" | "FAILED";
+                                    resultCode?: string;
+                                    message?: string;
+                                };
+                                txRecordId?: string;
+                                failureReason?: string;
+                                expiresAt: string;
+                                createdAt: string;
+                                resolvedAt: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postCosignRequestsByIdCancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_REJECTED";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            request: {
+                                id: string;
+                                /** @enum {string} */
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                /** @enum {string} */
+                                network: "STELLAR" | "POLYGON" | "SOLANA";
+                                /** @enum {string} */
+                                status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                subOrgId: string;
+                                activityId: string;
+                                fingerprint: string;
+                                signWith: string;
+                                unsignedPayload: string;
+                                payloadHash: string;
+                                /** @enum {string} */
+                                intent: "sign" | "sign_and_send" | "account_create";
+                                operation?: string;
+                                summary?: string;
+                                details?: {
+                                    [key: string]: unknown;
+                                };
+                                signedXdr?: string;
+                                submit?: {
+                                    hash: string;
+                                    /** @enum {string} */
+                                    status: "PENDING" | "SUCCESS" | "FAILED";
+                                    resultCode?: string;
+                                    message?: string;
+                                };
+                                txRecordId?: string;
+                                failureReason?: string;
+                                expiresAt: string;
+                                createdAt: string;
+                                resolvedAt: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postCosignRelay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    path: "/public/v1/submit/approve_activity" | "/public/v1/submit/reject_activity" | "/public/v1/submit/create_api_keys" | "/public/v1/submit/delete_api_keys" | "/public/v1/submit/create_authenticators" | "/public/v1/query/get_activity" | "/public/v1/query/get_organization" | "/public/v1/query/get_whoami" | "/public/v1/query/get_api_keys";
+                    body: string;
+                    stamp: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Turnkey's answer, plus the updated request when the call was a vote */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_REQUEST";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            status: number;
+                            body: unknown;
+                            request?: {
+                                id: string;
+                                /** @enum {string} */
+                                kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE";
+                                /** @enum {string} */
+                                network: "STELLAR" | "POLYGON" | "SOLANA";
+                                /** @enum {string} */
+                                status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                subOrgId: string;
+                                activityId: string;
+                                fingerprint: string;
+                                signWith: string;
+                                unsignedPayload: string;
+                                payloadHash: string;
+                                /** @enum {string} */
+                                intent: "sign" | "sign_and_send" | "account_create";
+                                operation?: string;
+                                summary?: string;
+                                details?: {
+                                    [key: string]: unknown;
+                                };
+                                signedXdr?: string;
+                                submit?: {
+                                    hash: string;
+                                    /** @enum {string} */
+                                    status: "PENDING" | "SUCCESS" | "FAILED";
+                                    resultCode?: string;
+                                    message?: string;
+                                };
+                                txRecordId?: string;
+                                failureReason?: string;
+                                expiresAt: string;
+                                createdAt: string;
+                                resolvedAt: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    getCosignDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Devices and quorum state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_DEVICES";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            subOrgId: string | null;
+                            quorumState: ("SETUP_1_OF_2" | "ACTIVE_2_OF_2" | "VERIFIED" | "BROKEN") | null;
+                            devices: {
+                                id: string;
+                                publicKey: string;
+                                label: string | null;
+                                /** @enum {string} */
+                                enrolledVia: "ONBOARDING" | "PASSKEY" | "DEVICE" | "OTP";
+                                lastSeenAt: string | null;
+                                createdAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

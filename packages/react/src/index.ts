@@ -26,6 +26,8 @@ export type { ChainSelectProps } from './components/ChainSelect';
 // should use this rather than `chainsOf(wallets)` on its own, which cannot know
 // the configured order.
 export { useChains } from './useChains';
+export { useCosign } from './useCosign';
+export type { UseCosignResult } from './useCosign';
 export type { UseChainsResult } from './useChains';
 
 // --- Modals -------------------------------------------------------------------
@@ -44,6 +46,7 @@ export { EarnModal } from './components/earn-modal/EarnModal';
 export { CardModal } from './components/card-modal/CardModal';
 export { ReceiveModal } from './components/receive-modal/ReceiveModal';
 export { SessionsModal } from './components/sessions-modal/SessionsModal';
+export { CosignModal } from './components/cosign-modal/CosignModal';
 export { DistributionRulesModal } from './components/distribution-rules-modal/DistributionRulesModal';
 
 // --- Modal theming ------------------------------------------------------------
@@ -78,5 +81,7 @@ export type { SwapModalTemplateProps, SwapAssetOption } from './components/swap-
 export { ReceiveModalTemplate } from './components/receive-modal/ReceiveModalTemplate';
 export type { ReceiveModalTemplateProps } from './components/receive-modal/ReceiveModalTemplate';
 export { SessionsModalTemplate } from './components/sessions-modal/SessionsModalTemplate';
+export { CosignModalTemplate } from './components/cosign-modal/CosignModalTemplate';
+export type { CosignModalTemplateProps } from './components/cosign-modal/CosignModalTemplate';
 export type { SessionsModalTemplateProps, SessionsState } from './components/sessions-modal/SessionsModalTemplate';
 export { DistributionRulesModalTemplate } from './components/distribution-rules-modal/DistributionRulesModalTemplate';

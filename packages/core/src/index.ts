@@ -11,6 +11,6 @@
 import { _setDefaultKeyManagerFactory } from './keys/factory';
 import { WebCryptoKeyManager } from './keys/web-crypto';
 
-_setDefaultKeyManagerFactory((_storage, apiKey) => new WebCryptoKeyManager(apiKey));
+_setDefaultKeyManagerFactory((_storage, apiKey, options) => new WebCryptoKeyManager(apiKey, options));
 
 export * from './public';

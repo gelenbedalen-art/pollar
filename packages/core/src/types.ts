@@ -332,7 +332,45 @@ export interface PollarClientConfig {
    * browser-only for now.
    */
   passkeySign?: PasskeySigner;
+  /**
+   * The device key of a Turnkey co-signed wallet. Defaults to a second
+   * `defaultKeyManager` under the `cosign` namespace, kept across logouts so
+   * the user's vote survives signing out. Pass your own to hold it in
+   * hardware-backed storage.
+   */
+  cosignKeyManager?: KeyManager;
 }
+
+// --- Turnkey co-signed wallets (client.cosign.*) --------------------------------
+
+/** A signing activity Pollar opened on the user's co-signed wallet. */
+export type CosignRequest =
+  pollarPaths['/cosign/requests/{id}']['get']['responses'][200]['content']['application/json']['content']['request'];
+export type CosignDevicesContent =
+  pollarPaths['/cosign/devices']['get']['responses'][200]['content']['application/json']['content'];
+export type CosignDevice = CosignDevicesContent['devices'][number];
+export type CosignRelayContent =
+  pollarPaths['/cosign/relay']['post']['responses'][200]['content']['application/json']['content'];
+export type CosignRelayPath = NonNullable<
+  pollarPaths['/cosign/relay']['post']['requestBody']
+>['content']['application/json']['path'];
+/** The 202 a signing call answers with for a co-signed wallet. */
+export type CosignPendingContent = pollarPaths['/tx/sign']['post']['responses'][202]['content']['application/json']['content'];
+
+/** The requests waiting for this device's vote, as `client.cosign` knows them. */
+export interface CosignState {
+  pending: CosignRequest[];
+  /** The last request that reached a final state, for a UI to show the outcome. */
+  lastResolved?: CosignRequest;
+}
+
+export type CosignVerification =
+  | { ok: true; localHash: string; turnkeyPayload: string | null }
+  | { ok: false; reason: string; localHash?: string; turnkeyPayload?: string | null };
+
+export type CosignQuorumReport =
+  | { ok: true; threshold: number; rootUsers: number; deviceRegistered: boolean }
+  | { ok: false; reason: string; threshold?: number; rootUsers?: number; deviceRegistered?: boolean };
 
 /**
  * Runs the device WebAuthn ceremony for a server-issued challenge and returns
@@ -546,6 +584,8 @@ export type TransactionState =
   // --- Compound phases (embedded-only - backend swallows the boundaries) --
   | { step: 'signing-submitting'; buildData?: TxBuildContent }
   | { step: 'building-signing-submitting' }
+  // --- Co-signed wallet: waiting for the user's device to vote --------------
+  | { step: 'awaiting_cosign'; request: CosignRequest; buildData?: TxBuildContent }
   // --- Post-Horizon-ack, pre-ledger-confirm (shared) --------------------
   | { step: 'submitted'; buildData?: TxBuildContent; hash: string }
   // --- Terminal success (shared) ----------------------------------------
@@ -585,6 +625,9 @@ export type BuildOutcome =
 
 export type SignOutcome =
   | { status: 'signed'; signedXdr: string; submissionToken?: string; expiresAt?: number; sponsored?: boolean }
+  // A co-signed (Turnkey) wallet: no signature exists until the user's device
+  // votes. The request is what `client.cosign.approve()` takes.
+  | { status: 'cosign_pending'; request: CosignRequest }
   | { status: 'error'; details?: string; code?: string; message?: string };
 
 /**
@@ -673,6 +716,7 @@ export type SendPaymentParams =
 export type SubmitOutcome =
   | { status: 'success'; hash: string; buildData?: TxBuildContent }
   | { status: 'pending'; hash: string; buildData?: TxBuildContent }
+  | { status: 'cosign_pending'; request: CosignRequest; buildData?: TxBuildContent }
   | {
       status: 'error';
       hash?: string;
@@ -692,6 +736,7 @@ export type SubmitOutcome =
 export type TrustlineOutcome =
   | { status: 'success'; hash?: string }
   | { status: 'pending'; hash?: string }
+  | { status: 'cosign_pending'; request: CosignRequest; buildData?: TxBuildContent }
   | { status: 'error'; details?: string };
 
 export const AUTH_ERROR_CODES = {

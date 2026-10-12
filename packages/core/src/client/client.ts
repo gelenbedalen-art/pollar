@@ -48,6 +48,8 @@ import {
   submitRampSignature,
 } from '../api/endpoints/ramps';
 import { buildProof } from '../dpop';
+import { CosignManager } from '../cosign/manager';
+import type { CosignRequest, CosignState } from '../types';
 import { defaultKeyManager } from '../keys/factory';
 import type { KeyManager } from '../keys/types';
 import { hashApiKey } from '../lib/api-key-hash';
@@ -505,6 +507,10 @@ export class PollarClient {
    * in the constructor so it exists on both client and server runtimes.
    */
   readonly stellar: StellarSepApi;
+  /** The user's half of a Turnkey co-signed wallet: pending requests, votes, devices. */
+  readonly cosign: CosignManager;
+  private _cosignState: CosignState = { pending: [] };
+  private _cosignStateListeners = new Set<(state: CosignState) => void>();
   private _loginController: AbortController | null = null;
   /** Aborts an in-flight `/auth/session/resume` on destroy() or session clear. */
   private _resumeController: AbortController | null = null;
@@ -620,6 +626,16 @@ export class PollarClient {
       resignRetry: (request) => this._resignForRetry(request),
     });
     this._wireMiddlewares();
+
+    // The co-signing device key is a key of its own: the DPoP key is reset on
+    // logout, and the user's vote must outlive a logout.
+    this.cosign = new CosignManager({
+      api: this._api,
+      keyManager: config.cosignKeyManager ?? defaultKeyManager(this._storage, config.apiKey, { namespace: 'cosign' }),
+      logger: this._log,
+      networkPassphrase: () => this._networkPassphrase(),
+      onRequest: (request) => this._noteCosignRequest(request),
+    });
 
     // Stellar SEP ownership-proof namespace. Thin object over the private
     // dispatchers so the public surface reads `client.stellar.sep53.signMessage(...)`.
@@ -839,6 +855,7 @@ export class PollarClient {
     this._enabledAssetsStateListeners.clear();
     this._networkStateListeners.clear();
     this._storageDegradeListeners.clear();
+    this._cosignStateListeners.clear();
   }
 
   // --- Middlewares (DPoP + auto-refresh) ------------------------------------
@@ -2519,6 +2536,7 @@ export class PollarClient {
       if (signed.status === 'error') {
         return { status: 'error', ...(signed.details && { details: signed.details }) };
       }
+      if (signed.status === 'cosign_pending') return { status: 'cosign_pending', request: signed.request };
       return this.submitTx(signed.signedXdr);
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
@@ -2561,6 +2579,7 @@ export class PollarClient {
       if (signed.status === 'error') {
         return { status: 'error', ...(signed.details && { details: signed.details }) };
       }
+      if (signed.status === 'cosign_pending') return { status: 'cosign_pending', request: signed.request };
       return this.submitTx(signed.signedXdr);
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
@@ -2713,7 +2732,11 @@ export class PollarClient {
   async createWallet(): Promise<WalletInfo> {
     if (!this._session) throw new PollarApiError('SDK_AUTH_INVALID_TOKEN');
     const gen = this._sessionGeneration;
-    const { data, error } = await this._api.POST('/wallet/provision');
+    // Only a co-signed (Turnkey) wallet needs the device key; a custodial app ignores it.
+    const devicePublicKey = await this.cosign.publicKeyHex().catch(() => undefined);
+    const { data, error } = await this._api.POST('/wallet/provision', {
+      body: devicePublicKey ? { devicePublicKey } : {},
+    });
     const content = data?.content;
     if (error || !content) {
       const body = (typeof error === 'object' && error !== null ? error : {}) as Record<string, unknown>;
@@ -2865,7 +2888,7 @@ export class PollarClient {
       const { data, error } = await this._api.POST('/tx/sign', {
         body: { address, unsignedXdr, ...(options?.skipSponsorship && { skipSponsorship: true }) },
       });
-      if (!error && data?.success && data.content?.signedXdr) {
+      if (!error && data?.success && data.content && 'signedXdr' in data.content) {
         const { signedXdr, idempotencyKey, sponsored } = data.content;
         this._setTransactionState({
           step: 'signed',
@@ -2874,6 +2897,11 @@ export class PollarClient {
           ...(buildData && { buildData }),
         });
         return { status: 'signed', signedXdr, submissionToken: idempotencyKey, sponsored };
+      }
+      const pendingRequest = this._cosignPendingOf(data);
+      if (pendingRequest) {
+        this._setTransactionState({ step: 'awaiting_cosign', request: pendingRequest, ...(buildData && { buildData }) });
+        return { status: 'cosign_pending', request: pendingRequest };
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -3097,6 +3125,95 @@ export class PollarClient {
    * is the raw diagnostic. Lets tx flows surface a typed reason instead of an
    * opaque details string.
    */
+  /**
+   * The request a signing call answered with instead of a signature: a 2xx
+   * whose code is `SDK_COSIGN_PENDING` (openapi-fetch files every 2xx under
+   * `data`, so the 202 arrives here, not in `error`).
+   */
+  private _cosignPendingOf(data: unknown): CosignRequest | null {
+    const d = data as
+      | { code?: string; content?: { pendingSignature?: { kind?: string; request?: CosignRequest } } }
+      | undefined;
+    const request =
+      d?.code === 'SDK_COSIGN_PENDING' && d.content?.pendingSignature?.kind === 'cosign'
+        ? d.content.pendingSignature.request
+        : null;
+    if (request) this._noteCosignRequest(request);
+    return request ?? null;
+  }
+
+  /** Current pending co-sign requests, as last learned from the API. */
+  getCosignState(): CosignState {
+    return { ...this._cosignState, pending: [...this._cosignState.pending] };
+  }
+
+  /** Subscribe to co-sign state. Replays the current value on subscribe. */
+  onCosignStateChange(cb: (state: CosignState) => void): () => void {
+    this._cosignStateListeners.add(cb);
+    try {
+      cb(this.getCosignState());
+    } catch (err) {
+      this._log.error('[PollarClient] onCosignStateChange listener threw on replay', err);
+    }
+    return () => {
+      this._cosignStateListeners.delete(cb);
+    };
+  }
+
+  /**
+   * Fold a request into the co-sign store and, when it is the one the
+   * transaction state machine is waiting on, move that machine too: the vote
+   * either produced a signed XDR (split flow), submitted the transaction
+   * (atomic flows) or ended it.
+   */
+  private _noteCosignRequest(request: CosignRequest): void {
+    const pending = this._cosignState.pending.filter((r) => r.id !== request.id);
+    if (request.status === 'PENDING') pending.push(request);
+    const lastResolved = request.status !== 'PENDING' ? request : this._cosignState.lastResolved;
+    this._cosignState = { pending, ...(lastResolved ? { lastResolved } : {}) };
+    const snapshot = this.getCosignState();
+    for (const cb of this._cosignStateListeners) {
+      try {
+        cb(snapshot);
+      } catch (err) {
+        this._log.error('[PollarClient] onCosignStateChange listener threw', err);
+      }
+    }
+
+    const tx = this._transactionState;
+    if (!tx || tx.step !== 'awaiting_cosign' || tx.request.id !== request.id || request.status === 'PENDING') return;
+    const buildData = tx.buildData;
+    if (request.status !== 'APPROVED') {
+      this._setTransactionState({
+        step: 'error',
+        phase: 'signing',
+        details: request.failureReason ?? `co-sign request ${request.status.toLowerCase()}`,
+        code: `SDK_COSIGN_${request.status}`,
+        ...(buildData && { buildData }),
+      });
+      return;
+    }
+    if (request.submit) {
+      if (request.submit.status === 'SUCCESS') {
+        this._setTransactionState({ step: 'success', hash: request.submit.hash, ...(buildData && { buildData }) });
+      } else if (request.submit.status === 'PENDING') {
+        this._setTransactionState({ step: 'submitted', hash: request.submit.hash, ...(buildData && { buildData }) });
+      } else {
+        this._setTransactionState({
+          step: 'error',
+          phase: 'submitting',
+          ...(request.submit.resultCode && { details: request.submit.resultCode }),
+          ...(request.submit.message && { message: request.submit.message }),
+          ...(buildData && { buildData }),
+        });
+      }
+      return;
+    }
+    if (request.signedXdr) {
+      this._setTransactionState({ step: 'signed', signedXdr: request.signedXdr, ...(buildData && { buildData }) });
+    }
+  }
+
   private _resolveTxApiError(error: unknown, data?: unknown): { details?: string; code?: string; message?: string } {
     // On a non-2xx the failure envelope is in `error`; on a 2xx with
     // `success:false` it rides in `data` - fall back to it so the backend's
@@ -3328,6 +3445,7 @@ export class PollarClient {
           ...(signed.details && { details: signed.details }),
         };
       }
+      if (signed.status === 'cosign_pending') return { status: 'cosign_pending', request: signed.request };
       return this.submitTx(signed.signedXdr);
     }
 
@@ -3348,7 +3466,7 @@ export class PollarClient {
         body,
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
-      if (!error && data?.success && data.content?.hash) {
+      if (!error && data?.success && data.content && 'hash' in data.content) {
         const {
           hash,
           status: backendStatus,
@@ -3379,6 +3497,11 @@ export class PollarClient {
           ...outcomeExtra,
           ...(resultCode && { details: resultCode, resultCode }),
         };
+      }
+      const pendingRequest = this._cosignPendingOf(data);
+      if (pendingRequest) {
+        this._setTransactionState({ step: 'awaiting_cosign', request: pendingRequest, ...(buildData && { buildData }) });
+        return { status: 'cosign_pending', request: pendingRequest, ...outcomeExtra };
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -3475,7 +3598,7 @@ export class PollarClient {
         // longer submit budget so a real success isn't cut at the 10s default.
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
-      if (!error && data?.success && data.content) {
+      if (!error && data?.success && data.content && 'hash' in data.content) {
         // This endpoint is multichain now, so its 200 is a union and only the
         // Stellar member carries `resultCode`. This call always sends a Stellar
         // body, but the type still has to be narrowed to say so.
@@ -3495,6 +3618,11 @@ export class PollarClient {
           ...(resultCode && { details: resultCode }),
         });
         return { status: 'error', hash, ...(resultCode && { details: resultCode, resultCode }) };
+      }
+      const pendingRequest = this._cosignPendingOf(data);
+      if (pendingRequest) {
+        this._setTransactionState({ step: 'awaiting_cosign', request: pendingRequest });
+        return { status: 'cosign_pending', request: pendingRequest };
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -4348,6 +4476,11 @@ export class PollarClient {
       },
       ...(this._passkey ? { passkey: this._passkey } : {}),
       ...(this._deviceLabel ? { deviceLabel: this._deviceLabel } : {}),
+      getDevicePublicKey: () =>
+        this.cosign.publicKeyHex().catch((err: unknown) => {
+          this._log.warn('[PollarClient] Could not produce the co-signing device key; logging in without it', err);
+          return undefined;
+        }),
     };
   }
 

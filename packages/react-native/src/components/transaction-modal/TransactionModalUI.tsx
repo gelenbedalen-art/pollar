@@ -29,6 +29,7 @@ const STATUS_MESSAGES: Record<TransactionState['step'], string> = {
   submitted: 'Submitted — waiting for confirmation…',
   'signing-submitting': 'Signing and submitting transaction…',
   'building-signing-submitting': 'Processing transaction…',
+  awaiting_cosign: 'Waiting for your approval on this device…',
   success: 'Transaction sent successfully',
   error: 'Transaction failed',
 };

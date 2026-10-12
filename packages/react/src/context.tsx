@@ -47,6 +47,8 @@ import { SwapModal } from './components/swap-modal/SwapModal';
 import { EarnModal } from './components/earn-modal/EarnModal';
 import { CardModal } from './components/card-modal/CardModal';
 import { SessionsModal } from './components/sessions-modal/SessionsModal';
+import { CosignModal } from './components/cosign-modal/CosignModal';
+import type { CosignState } from '@pollar/core';
 import { TransactionModal } from './components/transaction-modal/TransactionModal';
 import { TxHistoryModal } from './components/tx-history-modal/TxHistoryModal';
 import { WalletBalanceModal } from './components/wallet-balance-modal/WalletBalanceModal';
@@ -125,6 +127,11 @@ interface PollarContextValue {
   sessions: SessionsState;
   /** Open the active-sessions modal. */
   openSessionsModal: () => void;
+  // cosign (Turnkey co-signed wallets)
+  /** Requests waiting for this device's vote. */
+  cosign: CosignState;
+  /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
+  openCosignModal: () => void;
   appConfig: PollarConfig;
   styles: PollarStyles;
   /** Remote app-config load state. 'loading' while the initial fetch is in
@@ -438,6 +445,7 @@ export function PollarProvider({
   const [transaction, setTransaction] = useState<TransactionState>({ step: 'idle' });
   const [txHistory, setTxHistory] = useState<TxHistoryState>({ step: 'idle' });
   const [sessions, setSessions] = useState<SessionsState>({ step: 'idle' });
+  const [cosign, setCosign] = useState<CosignState>({ pending: [] });
   const [walletBalance, setWalletBalance] = useState<WalletBalanceState>({ step: 'idle' });
   const [enabledAssets, setEnabledAssets] = useState<EnabledAssetsState>({ step: 'idle' });
   const [resolvedConfig, setResolvedConfig] = useState<PollarConfig>(() => appConfigProp ?? DEFAULT_APP_CONFIG);
@@ -464,6 +472,10 @@ export function PollarProvider({
 
   useEffect(() => {
     return pollarClient.onTxHistoryStateChange(setTxHistory);
+  }, [pollarClient]);
+
+  useEffect(() => {
+    return pollarClient.onCosignStateChange(setCosign);
   }, [pollarClient]);
 
   useEffect(() => {
@@ -611,6 +623,14 @@ export function PollarProvider({
   const [cardModalKey, setCardModalKey] = useState(0);
   const [receiveModalOpen, setReceiveModalOpen] = useState(false);
   const [sessionsModalOpen, setSessionsModalOpen] = useState(false);
+  const [cosignModalOpen, setCosignModalOpen] = useState(false);
+  // A signing call that came back pending needs the user's vote now; open the
+  // prompt the moment a new request appears, never when one merely resolves.
+  const cosignPendingCount = useRef(0);
+  useEffect(() => {
+    if (cosign.pending.length > cosignPendingCount.current) setCosignModalOpen(true);
+    cosignPendingCount.current = cosign.pending.length;
+  }, [cosign.pending.length]);
   const [distributionRulesModalOpen, setDistributionRulesModalOpen] = useState(false);
 
   // When the session ends (logout, revoked, ended in another tab) every modal that
@@ -633,6 +653,7 @@ export function PollarProvider({
         setCardModalOpen(false);
         setReceiveModalOpen(false);
         setSessionsModalOpen(false);
+        setCosignModalOpen(false);
         setDistributionRulesModalOpen(false);
       }),
     [pollarClient],
@@ -735,6 +756,9 @@ export function PollarProvider({
       // sessions
       sessions,
       openSessionsModal: () => setSessionsModalOpen(true),
+      // cosign
+      cosign,
+      openCosignModal: () => setCosignModalOpen(true),
       // distribution
       openDistributionRulesModal: () => setDistributionRulesModalOpen(true),
       // network
@@ -765,6 +789,7 @@ export function PollarProvider({
     transaction,
     txHistory,
     sessions,
+    cosign,
     walletBalance,
     refreshWalletBalance,
     enabledAssets,
@@ -860,6 +885,11 @@ export function PollarProvider({
       {sessionsModalOpen && (
         <ModalErrorBoundary onClose={() => setSessionsModalOpen(false)}>
           <SessionsModal onClose={() => setSessionsModalOpen(false)} />
+        </ModalErrorBoundary>
+      )}
+      {cosignModalOpen && (
+        <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
+          <CosignModal onClose={() => setCosignModalOpen(false)} />
         </ModalErrorBoundary>
       )}
       {distributionRulesModalOpen && (

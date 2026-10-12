@@ -1,0 +1,161 @@
+.pollar-cosign-modal {
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  padding-bottom: 0.75rem;
+}
+
+html.dark .pollar-cosign-modal {
+  --pollar-bg: #1a1a1a !important;
+  --pollar-border: #374151 !important;
+  --pollar-text: #ffffff !important;
+  --pollar-muted: #9ca3af !important;
+  --pollar-input-bg: #374151 !important;
+  --pollar-error-bg: #2a1515 !important;
+  --pollar-error-border: #7f1d1d !important;
+  --pollar-error-text: #f87171 !important;
+  --pollar-success-text: #4ade80 !important;
+}
+
+.pollar-cosign-muted {
+  color: var(--pollar-muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.pollar-cosign-empty {
+  padding: 1.5rem 0.25rem;
+  text-align: center;
+}
+
+.pollar-cosign-empty-title {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+  color: var(--pollar-text);
+}
+
+.pollar-cosign-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pollar-cosign-item {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--pollar-border);
+  border-radius: var(--pollar-card-border-radius, 10px);
+  background: transparent;
+  color: var(--pollar-text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.pollar-cosign-item-active {
+  border-color: var(--pollar-accent);
+  background: color-mix(in srgb, var(--pollar-accent) 7%, var(--pollar-bg));
+}
+
+.pollar-cosign-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--pollar-border);
+  border-radius: calc(var(--pollar-card-border-radius, 10px) + 2px);
+}
+
+.pollar-cosign-detail-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--pollar-text);
+}
+
+.pollar-cosign-rows {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pollar-cosign-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.pollar-cosign-row dt {
+  color: var(--pollar-muted);
+}
+
+.pollar-cosign-row dd {
+  margin: 0;
+  color: var(--pollar-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-all;
+}
+
+.pollar-cosign-verify {
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--pollar-card-border-radius, 10px);
+  font-size: 0.82rem;
+  border: 1px solid var(--pollar-border);
+  color: var(--pollar-muted);
+}
+
+.pollar-cosign-verify-ok {
+  color: var(--pollar-success-text, #15803d);
+  border-color: color-mix(in srgb, var(--pollar-success-text, #15803d) 40%, var(--pollar-border));
+}
+
+.pollar-cosign-verify-bad,
+.pollar-cosign-error {
+  color: var(--pollar-error-text);
+  background: var(--pollar-error-bg);
+  border: 1px solid var(--pollar-error-border);
+  border-radius: var(--pollar-card-border-radius, 10px);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.pollar-cosign-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pollar-cosign-btn {
+  flex: 1;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--pollar-button-border-radius, 10px);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--pollar-border);
+}
+
+.pollar-cosign-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pollar-cosign-btn-secondary {
+  background: transparent;
+  color: var(--pollar-text);
+}
+
+.pollar-cosign-btn-primary {
+  background: var(--pollar-accent);
+  border-color: var(--pollar-accent);
+  color: var(--pollar-accent-text, #fff);
+}

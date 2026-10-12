@@ -64,6 +64,13 @@ export type FlowDeps = {
    * sessions UI can show "iPhone - Safari" instead of a raw user-agent.
    */
   deviceLabel?: string;
+  /**
+   * The co-signing device key (SEC1 compressed P-256, hex). Sent with the login
+   * so a mainnet app in COSIGNED custody can register it as the user's root
+   * credential when it creates their Turnkey wallet. `undefined` when the key
+   * could not be produced; the login goes on without it.
+   */
+  getDevicePublicKey?: () => Promise<string | undefined>;
 };
 
 export async function createAuthSession(deps: FlowDeps): Promise<string | null> {
