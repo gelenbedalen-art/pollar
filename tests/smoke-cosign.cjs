@@ -173,6 +173,11 @@ function request(overrides = {}) {
   let turnkeyAccounts = ACCOUNT_PAYLOAD;
   let refreshCalls = 0;
   let refreshedRequest = null;
+  const quorumReports = [];
+  let quorumThreshold = 2;
+  const deletedApiKeys = [];
+  let mockDeviceKeyHex = null;
+  const deviceKeyHexForMock = () => mockDeviceKeyHex ?? '02' + 'ff'.repeat(32);
   let approvedRequest = request({
     status: 'APPROVED',
     signedXdr: ONE_SIG_XDR,
@@ -214,6 +219,45 @@ function request(overrides = {}) {
     }
     if (url.pathname === '/v2/cosign/requests')
       return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { requests: [request()] } });
+    if (url.pathname === '/v2/cosign/devices') {
+      return json(200, {
+        success: true,
+        code: 'SDK_COSIGN_DEVICES',
+        content: {
+          subOrgId: 'sub-org-1',
+          endUserId: 'tk-user',
+          quorumState: 'ACTIVE_2_OF_2',
+          devices: [
+            {
+              id: 'dev-1',
+              publicKey: deviceKeyHexForMock(),
+              tkApiKeyId: 'tk-key-1',
+              label: 'onboarding device',
+              enrolledVia: 'ONBOARDING',
+              lastSeenAt: null,
+              createdAt: new Date().toISOString(),
+            },
+            {
+              id: 'dev-2',
+              publicKey: '02' + 'ee'.repeat(32),
+              tkApiKeyId: 'tk-key-2',
+              label: 'laptop',
+              enrolledVia: 'DEVICE',
+              lastSeenAt: null,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+    }
+    if (url.pathname === '/v2/cosign/quorum/verify') {
+      quorumReports.push(JSON.parse(await req.text()));
+      return json(200, {
+        success: true,
+        code: 'SDK_COSIGN_VERIFIED',
+        content: { quorumState: quorumReports[quorumReports.length - 1].ok ? 'VERIFIED' : 'BROKEN' },
+      });
+    }
     if (url.pathname === '/v2/cosign/requests/req-1/refresh') {
       refreshCalls++;
       return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { request: refreshedRequest ?? request() } });
@@ -240,6 +284,32 @@ function request(overrides = {}) {
           success: true,
           code: 'SDK_COSIGN_REQUEST',
           content: { status: 200, body: { activity: { id: inner.activityId, intent } } },
+        });
+      }
+      if (body.path === '/public/v1/query/get_organization') {
+        return json(200, {
+          success: true,
+          code: 'SDK_COSIGN_REQUEST',
+          content: {
+            status: 200,
+            body: {
+              organizationData: {
+                rootQuorum: { threshold: quorumThreshold, userIds: ['tk-user', 'tk-approver'] },
+                users: [
+                  { userId: 'tk-user', apiKeys: [{ credential: { publicKey: relayStampPublicKey } }] },
+                  { userId: 'tk-approver', apiKeys: [{ credential: { publicKey: '02' + 'aa'.repeat(32) } }] },
+                ],
+              },
+            },
+          },
+        });
+      }
+      if (body.path === '/public/v1/submit/delete_api_keys') {
+        deletedApiKeys.push(inner.parameters.apiKeyIds);
+        return json(200, {
+          success: true,
+          code: 'SDK_COSIGN_REQUEST',
+          content: { status: 200, body: { activity: { status: 'ACTIVITY_STATUS_COMPLETED' } } },
         });
       }
       if (body.path === '/public/v1/submit/approve_activity') {
@@ -382,6 +452,40 @@ function request(overrides = {}) {
   const accountBad = await client.cosign.verify(accountRequest);
   check('verify refuses an account derivation with a different path', accountBad.ok === false);
   turnkeyAccounts = ACCOUNT_PAYLOAD;
+
+  // Quorum: read from Turnkey with the device key and recorded server-side.
+  mockDeviceKeyHex = await client.cosign.publicKeyHex();
+  const quorum = await client.cosign.inspectQuorum();
+  check(
+    'inspectQuorum sees the 2-of-2 with this device registered',
+    quorum.ok === true && quorum.deviceRegistered === true,
+    quorum,
+  );
+  check('inspectQuorum recorded the reading as VERIFIED', quorumReports.length === 1 && quorumReports[0].ok === true);
+  quorumThreshold = 1;
+  const brokenQuorum = await client.cosign.inspectQuorum();
+  check('inspectQuorum reports a threshold other than 2 as broken', brokenQuorum.ok === false && brokenQuorum.threshold === 1);
+  check('the broken reading was recorded too', quorumReports.length === 2 && quorumReports[1].ok === false);
+  quorumThreshold = 2;
+
+  // Devices: another device is revoked through this device's own vote; this one needs force.
+  const afterRevoke = await client.cosign.revokeDevice('dev-2');
+  check(
+    'revokeDevice relayed delete_api_keys for the other device',
+    deletedApiKeys.length === 1 && deletedApiKeys[0][0] === 'tk-key-2',
+  );
+  check('revokeDevice returns the device list', Array.isArray(afterRevoke.devices));
+  let selfRevoke = null;
+  try {
+    await client.cosign.revokeDevice('dev-1');
+  } catch (err) {
+    selfRevoke = err;
+  }
+  check(
+    'revoking the current device is refused without force',
+    selfRevoke && selfRevoke.code === 'SDK_COSIGN_DEVICE_NOT_ENROLLED',
+  );
+  check('no delete_api_keys was relayed for the refused self-revoke', deletedApiKeys.length === 1);
 
   // A rejected vote ends the tx with an error state.
   approvedRequest = request({ status: 'REJECTED', failureReason: 'user said no', resolvedAt: new Date().toISOString() });

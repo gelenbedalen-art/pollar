@@ -1527,6 +1527,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cosign/quorum/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record what the device found when it read its sub-organization
+         * @description The device reads its sub-organization from Turnkey with its own key (two root users, threshold 2, this device registered) and reports the result; the quorum is recorded as VERIFIED or BROKEN. Run once after the wallet is created, before the first deposit.
+         */
+        post: operations["postCosignQuorumVerify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cosign/devices": {
         parameters: {
             query?: never;
@@ -12291,6 +12311,90 @@ export interface operations {
             };
         };
     };
+    postCosignQuorumVerify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ok: boolean;
+                    threshold: number;
+                    rootUsers: number;
+                    deviceRegistered: boolean;
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_VERIFIED";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            /** @enum {string} */
+                            quorumState: "SETUP_1_OF_2" | "ACTIVE_2_OF_2" | "VERIFIED" | "BROKEN";
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
     getCosignDevices: {
         parameters: {
             query?: never;
@@ -12313,10 +12417,12 @@ export interface operations {
                         success: true;
                         content: {
                             subOrgId: string | null;
+                            endUserId: string | null;
                             quorumState: ("SETUP_1_OF_2" | "ACTIVE_2_OF_2" | "VERIFIED" | "BROKEN") | null;
                             devices: {
                                 id: string;
                                 publicKey: string;
+                                tkApiKeyId: string | null;
                                 label: string | null;
                                 /** @enum {string} */
                                 enrolledVia: "ONBOARDING" | "PASSKEY" | "DEVICE" | "OTP";

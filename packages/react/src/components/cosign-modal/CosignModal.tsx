@@ -21,12 +21,28 @@ interface CosignModalProps {
 export function CosignModal({ onClose }: CosignModalProps) {
   const { getClient, styles } = usePollar();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
-  const { pending, lastResolved, approve, reject, verify } = useCosign();
+  const { pending, lastResolved, approve, reject, verify, inspectQuorum } = useCosign();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [verification, setVerification] = useState<CosignVerification | null>(null);
   const [busy, setBusy] = useState<'approving' | 'rejecting' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The quorum as this device read it from Turnkey, once per open. Approving
+  // anything on a sub-organization that is not the promised 2-of-2 would be a
+  // vote on a wallet someone else can also control, so a bad reading fails
+  // every verification below.
+  const [quorumFailure, setQuorumFailure] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    inspectQuorum()
+      .then((q) => {
+        if (!cancelled && !q.ok) setQuorumFailure(q.reason);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [inspectQuorum]);
 
   const current = pending.find((r) => r.id === selectedId) ?? pending[0] ?? null;
 
@@ -84,7 +100,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
         styleOverrides={styleOverrides}
         pending={pending}
         current={current}
-        verification={current ? verification : null}
+        verification={current ? (quorumFailure ? { ok: false, reason: quorumFailure } : verification) : null}
         busy={busy}
         error={error}
         {...(lastResolved ? { lastResolved } : {})}

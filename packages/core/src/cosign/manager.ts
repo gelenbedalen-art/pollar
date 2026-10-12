@@ -309,7 +309,57 @@ export class CosignManager {
    * device among the user's credentials. Run once after the wallet is created,
    * before the first deposit.
    */
-  async inspectQuorum(): Promise<CosignQuorumReport> {
+  async inspectQuorum(options?: { report?: boolean }): Promise<CosignQuorumReport> {
+    const report = await this.readQuorum();
+    // Recorded server-side as VERIFIED or BROKEN so the admin panel and the
+    // reconcile see what the device saw; the server never overrides the device.
+    if (options?.report !== false && !('reason' in report && report.threshold === undefined)) {
+      await this.deps.api
+        .POST('/cosign/quorum/verify', {
+          body: {
+            ok: report.ok,
+            threshold: report.threshold ?? 0,
+            rootUsers: report.rootUsers ?? 0,
+            deviceRegistered: report.deviceRegistered ?? false,
+            ...(report.ok ? {} : { reason: report.reason }),
+          },
+        })
+        .catch((err: unknown) => this.deps.logger.warn('[PollarClient] could not record the quorum verification', err));
+    }
+    return report;
+  }
+
+  /**
+   * Revoke one of the user's enrolled devices: the device's own vote removes
+   * that API key from the user's Turnkey user (P1 lets it act alone), and
+   * sdk-api records the revocation when Turnkey confirms it. Revoking the key
+   * this device signs with locks this device out, so it is refused unless the
+   * caller says so.
+   */
+  async revokeDevice(deviceId: string, options?: { force?: boolean }): Promise<CosignDevicesContent> {
+    const current = await this.devices();
+    const device = current.devices.find((d) => d.id === deviceId);
+    if (!device) throw new PollarApiError('SDK_COSIGN_DEVICE_NOT_ENROLLED', { deviceId });
+    if (!device.tkApiKeyId || !current.subOrgId || !current.endUserId) {
+      throw new PollarApiError('SDK_COSIGN_DEVICE_NOT_ENROLLED', { deviceId, reason: 'no Turnkey api key id recorded' });
+    }
+    if (device.publicKey.toLowerCase() === (await this.publicKeyHex()).toLowerCase() && !options?.force) {
+      throw new PollarApiError('SDK_COSIGN_DEVICE_NOT_ENROLLED', {
+        deviceId,
+        reason: 'this is the current device; pass force',
+      });
+    }
+    const res = await this.relay('/public/v1/submit/delete_api_keys', {
+      type: 'ACTIVITY_TYPE_DELETE_API_KEYS',
+      timestampMs: String(Date.now()),
+      organizationId: current.subOrgId,
+      parameters: { userId: current.endUserId, apiKeyIds: [device.tkApiKeyId] },
+    });
+    if (res.status !== 200) throw new PollarApiError('SDK_COSIGN_UPSTREAM_ERROR', { status: res.status, body: res.body });
+    return this.devices();
+  }
+
+  private async readQuorum(): Promise<CosignQuorumReport> {
     const { subOrgId } = await this.devices();
     if (!subOrgId) return { ok: false, reason: 'this user has no co-signed wallet' };
     const res = await this.relay('/public/v1/query/get_organization', { organizationId: subOrgId });

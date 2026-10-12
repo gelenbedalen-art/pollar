@@ -30,6 +30,22 @@ export function CosignModal({ onClose }: CosignModalProps) {
       .catch(() => undefined);
   }, [getClient]);
 
+  // The quorum as this device read it from Turnkey, once per open; a bad
+  // reading fails every verification so nothing is approved on it.
+  const [quorumFailure, setQuorumFailure] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getClient()
+      .cosign.inspectQuorum()
+      .then((q) => {
+        if (!cancelled && !q.ok) setQuorumFailure(q.reason);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [getClient]);
+
   const verifiedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!current || verifiedFor.current === current.id) return;
@@ -74,7 +90,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
         accentColor={accentColor}
         pending={pending}
         current={current}
-        verification={current ? verification : null}
+        verification={current ? (quorumFailure ? { ok: false, reason: quorumFailure } : verification) : null}
         busy={busy}
         error={error}
         {...(lastResolved ? { lastResolved } : {})}
