@@ -9,7 +9,14 @@ This repository is managed with [Turborepo](https://turbo.build/repo) and contai
 
 ## Packages
 
-> **0.11.4** needs no change in an app that uses the
+> **0.11.5** (candidate `0.11.5-rc.1` on the `next` tag) adds **Turnkey co-signed wallets**: for a mainnet
+> app in `COSIGNED` custody, every signature needs this device's vote. `signTx` and friends answer
+> `{ status: 'cosign_pending', request }`, `client.cosign` verifies the request against Turnkey before
+> approving it, and `<CosignModal>` asks the user. Every other app sees no change at runtime; an exhaustive
+> `switch` over `SignOutcome`, `SubmitOutcome`, `TrustlineOutcome` or `TransactionState` needs the new case -
+> see [UPGRADE.md](./UPGRADE.md). The adapters stay at `0.11.2`.
+>
+> Earlier: **0.11.4** needs no change in an app that uses the
 > built-in components. **KYC by ramp corridor**: a ramp quote reports the first requirement step a
 > route still needs (`requirementsRequired`), and `@pollar/core` and `@pollar/react` complete every
 > step type - KYC, forms, SEGIP registry checks and provider registration - from `<RampWidget>` or
@@ -76,7 +83,7 @@ This repository is managed with [Turborepo](https://turbo.build/repo) and contai
 
 ### [`@pollar/core`](./packages/core)
 
-**Version:** `0.11.4` &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/core)
+**Version:** `0.11.5-rc.1` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/core)
 
 Framework-agnostic TypeScript SDK. Provides the `PollarClient` class and all lower-level utilities needed to integrate
 Pollar authentication and multichain (Stellar + Solana) transactions into any JavaScript environment.
@@ -159,7 +166,7 @@ const client = new PollarClient({ apiKey: 'pk_...', storage });
 
 ### [`@pollar/react`](./packages/react)
 
-**Version:** `0.11.4` &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/react)
+**Version:** `0.11.5-rc.1` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/react)
 
 React bindings built on top of `@pollar/core`. Provides a context provider, hook, and pre-built UI components for
 drop-in authentication in React applications.
@@ -212,7 +219,7 @@ npm install @pollar/react @pollar/core
 
 ### [`@pollar/react-native`](./packages/react-native)
 
-**Version:** `0.11.4` &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/react-native)
+**Version:** `0.11.5-rc.1` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/react-native)
 
 React Native bindings built on top of `@pollar/core`: the same provider-and-hook model as `@pollar/react`, with
 components styled through `StyleSheet`.
@@ -230,7 +237,7 @@ components styled through `StyleSheet`.
 - Storage (Keychain / SecureStore), OAuth opener and polyfills are configured through `@pollar/core`; see the package
   README
 - `<CardModal>` - the same card flow as the web one; the card number is decrypted on the device without WebCrypto
-- Peer dependencies on `@pollar/core ^0.11.4`, React >= 18 and React Native >= 0.72; versioned with `@pollar/core`
+- Peer dependencies on `@pollar/core ^0.11.5-rc.1`, React >= 18 and React Native >= 0.72; versioned with `@pollar/core`
   and `@pollar/react` from 0.11.4
 
 ```bash

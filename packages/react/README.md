@@ -3,7 +3,12 @@
 React bindings for [Pollar](https://pollar.xyz) — drop-in authentication UI, transaction modals, and hooks for
 Stellar and Solana applications.
 
-> **0.11.4** (requires `@pollar/core@^0.11.4`).
+> **0.11.5** (candidate `0.11.5-rc.1` on the `next` tag, which requires `@pollar/core@^0.11.5-rc.1`).
+> **Turnkey co-signed wallets**: `<CosignModal>` opens by itself on a new request and enables Approve only
+> after the request verifies against Turnkey; `useCosign()` exposes the pending requests. See
+> [UPGRADE.md](../../UPGRADE.md).
+>
+> Earlier: **0.11.4** (requires `@pollar/core@^0.11.4`).
 > **KYC by ramp corridor**: `<RampWidget>` lists routes locked by a requirement step and opens that
 > step - `<KycModal>`, `<RequirementFormModal>`, `<RegistryCheckModal>` or `<ProviderRegistrationModal>`
 > (all exported) - then quotes again; `openKycModal()` without a corridor walks the app's own KYC

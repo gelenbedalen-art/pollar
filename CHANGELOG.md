@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.11.5
+
+> Candidate: `0.11.5-rc.1` for `@pollar/core`, `@pollar/react` and
+> `@pollar/react-native`, on the `next` tag.
+>
+> **Turnkey co-signed wallets.** A mainnet app whose dashboard sets wallet
+> custody to `COSIGNED` gives each user a 2-of-2 quorum: this device's key and
+> Pollar's approver key. This release is the device's half. Every other app
+> sees no change at runtime; two types gain a member, which matters only to an
+> exhaustive `switch` - see [UPGRADE.md](./UPGRADE.md#0114---0115). This needs
+> an sdk-api that serves the `/cosign` routes. The adapters stay at 0.11.2:
+> their `@pollar/core@^0.11.2` range accepts 0.11.5.
+
+### `@pollar/core`
+
+- **The device key.** A second P-256 key under the `cosign` namespace
+  (`KeyManagerOptions.namespace`), so logging out, which resets the DPoP key,
+  leaves the user's vote in place. The login and `createWallet()` send its
+  public key.
+- **A signature that needs the device's vote comes back pending.** `signTx`,
+  `signAndSubmitTx` and `buildAndSignAndSubmitTx` answer
+  `{ status: 'cosign_pending', request }` on the server's 202
+  `SDK_COSIGN_PENDING`, as does `setTrustline`, and the transaction state gains
+  `awaiting_cosign`; it moves on to signed, submitted, success or error when
+  the request resolves.
+- **`client.cosign`** (`CosignManager`): `pending()`, `get()`, `cancel()`,
+  `devices()`, `verify()`, `approve()`, `reject()`, `refresh()`,
+  `inspectQuorum()` and `revokeDevice()`. `getCosignState()` and
+  `onCosignStateChange()` expose the pending requests.
+- **`approve()` votes only on what it verified.** It rebuilds a refreshable
+  request first, so the payload carries chain state seconds old, then checks it
+  against Turnkey's copy read with the device's own key: the Stellar
+  transaction hash recomputed from the unsigned envelope, a Solana transaction
+  byte for byte, or an account derivation by wallet id and parameters. It also
+  refuses an activity Turnkey would sign with another account. A mismatch
+  throws `SDK_COSIGN_VERIFICATION_FAILED` instead of voting.
+- **`inspectQuorum()`** checks that the user's sub-organization is the promised
+  2-of-2 with this device registered, and reports what it read to sdk-api.
+  `revokeDevice()` removes another device's key through this device's vote.
+- No `@turnkey/*` dependency: the request stamp (compressed key plus DER
+  signature) is built in core.
+
+### `@pollar/react` and `@pollar/react-native`
+
+- **`<CosignModal>`** opens by itself when a new request arrives, runs
+  `inspectQuorum()` once, and enables Approve only after the request verifies
+  against Turnkey. The check survives a refresh of the pending list, which hands
+  back new objects for the same requests. `CosignModalTemplate` is exported for
+  a custom UI.
+- **`useCosign()`** (web) and `cosign` / `openCosignModal` on `usePollar()`:
+  the pending requests, `approve`, `reject`, `inspectQuorum`, `devices` and
+  `revokeDevice`.
+
+### Tests
+
+- `smoke-cosign.cjs`: the device key surviving the DPoP reset, the stamp, the
+  Stellar hash recomputation, `cosign_pending` and `awaiting_cosign` through to
+  success or error, `verify` on Stellar, Solana and account requests (each
+  refusing its mismatch), `approve` refusing to vote on a mismatch and
+  refreshing a refreshable request first, `inspectQuorum` and `revokeDevice`.
+- `smoke-cosign-modal.cjs`: both prompts verify once and enable Approve while
+  the pending list refreshes. Both run in `npm run test:smoke`.
+
 ## 0.11.4
 
 > `@pollar/core`, `@pollar/react` and `@pollar/react-native`, all three on the
