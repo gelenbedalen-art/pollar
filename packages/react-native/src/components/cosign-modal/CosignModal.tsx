@@ -46,15 +46,19 @@ export function CosignModal({ onClose }: CosignModalProps) {
     };
   }, [getClient]);
 
-  const verifiedFor = useRef<string | null>(null);
+  // Keyed by id: every refresh of the pending list hands back new objects for
+  // the same requests, and re-running on those would cancel the check in flight.
+  const currentRef = useRef(current);
+  currentRef.current = current;
+  const currentId = current?.id ?? null;
   useEffect(() => {
-    if (!current || verifiedFor.current === current.id) return;
-    verifiedFor.current = current.id;
+    const request = currentRef.current;
+    if (!request) return;
     setVerification(null);
     setError(null);
     let cancelled = false;
     getClient()
-      .cosign.verify(current)
+      .cosign.verify(request)
       .then((v) => {
         if (!cancelled) setVerification(v);
       })
@@ -64,7 +68,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
     return () => {
       cancelled = true;
     };
-  }, [current, getClient]);
+  }, [currentId, getClient]);
 
   const run = useCallback(
     async (kind: 'approving' | 'rejecting', request: CosignRequest) => {
@@ -73,7 +77,6 @@ export function CosignModal({ onClose }: CosignModalProps) {
       try {
         if (kind === 'approving') await getClient().cosign.approve(request);
         else await getClient().cosign.reject(request);
-        verifiedFor.current = null;
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
       } finally {

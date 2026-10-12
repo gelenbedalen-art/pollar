@@ -16,7 +16,7 @@ import {
   WalletId,
   WalletInfo,
 } from '@pollar/core';
-import React, { createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ModalErrorBoundary } from './components/commons';
 import { AppKycFlow } from './components/kyc-modal/AppKycFlow';
 import { LoginModal } from './components/login-modal/LoginModal';
@@ -256,10 +256,14 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
 
   const walletAddress = sessionState?.wallet?.address || '';
 
+  // Stable per client: modals key their effects on it, and a new function on
+  // every context change would re-run their requests on every client event.
+  const getClient = useCallback(() => pollarClient, [pollarClient]);
+
   const contextValue = useMemo<PollarContextValue>(
     () => ({
       walletAddress,
-      getClient: () => pollarClient,
+      getClient,
       transaction,
       login: (options: PollarLoginOptions) => pollarClient.login(options),
       logout: () => pollarClient.logout(),
