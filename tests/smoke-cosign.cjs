@@ -5,10 +5,13 @@
 // lives apart from the DPoP key and survives a logout; the X-Stamp a device
 // produces verifies as a DER ECDSA signature; the Stellar transaction hash is
 // recomputed from the envelope without a parser (unsigned and sponsor-signed);
-// a 202 SDK_COSIGN_PENDING becomes a cosign_pending outcome and an
-// awaiting_cosign tx state; approve verifies against Turnkey, relays the vote
-// and moves the tx state to the submit outcome; a relay stamped by an
-// unexpected key, or a payload Turnkey disagrees with, is refused.
+// under `cosignManual` a 202 SDK_COSIGN_PENDING becomes a cosign_pending
+// outcome and an awaiting_cosign tx state, approve verifies against Turnkey,
+// relays the vote and moves the tx state to the submit outcome; by default the
+// client settles the vote itself and signing calls end as they do for a
+// custodial wallet, recognized setup is approved at login without a prompt and
+// a mismatching payload is rejected; `confirmation: 'prompt'` asks before any
+// signature; the setup recognizer reads the XDR field by field.
 
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -44,6 +47,29 @@ const ONE_SIG_XDR =
   'AAAAAgAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAGQAAAAAAAAwOgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAAAAAAAAAAOThwAAAAAAAAAABNen2GAAAAED7r9F6PCr/GYCllw0ozw6NFfLDR6ppk+EdM/kcVomZvly6pX4RjkQvkfZj2kwIqFk+19LQ53n9ptmo/yk6ojAH';
 const HASH = 'e4cc94b9663d79110f5478a7c19703d6507f5d8b08cfe6c11f0e698524151355';
 const TESTNET = 'Test SDF Network ; September 2015';
+
+// Setup transactions as sdk-api composes them for SOURCE (the user), with
+// SPONSOR paying the reserves: account creation, a sponsored USDC trustline, a
+// self-paid trustline on a 12-character asset; and two that must not pass as
+// setup: a sponsored payment, and the creation of another account.
+const OTHER = 'GBTL47RTFR5EKMZSXWOQU735WBK7LRPPDIDK3JTNTCZZ7NUBBRDTVSK2';
+const CREATE_XDR =
+  'AAAAAgAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAASwAAAAAAAAACwAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAMAAAAAAAAAEAAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAAAAAAAAAAAAAOpKbGPinFIKvvVQexMuxfmVR3auvr57kkIe6mkURtIsAAAAAAAAAAAAAAABAAAAAOpKbGPinFIKvvVQexMuxfmVR3auvr57kkIe6mkURtIsAAAAEQAAAAAAAAABNen2GAAAAEBt3SKhjmrNkP8ukT+YhcvRd2gTi7dDpgiMy4nG8/S3yFs9EEQOBqk+ifNCDfsBLpRypbzdexR9pBv5ScCEXvME';
+const TRUST_XDR =
+  'AAAAAgAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAASwAAAAAAAAADAAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAMAAAAAAAAAEAAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAAEAAAAA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iwAAAAGAAAAAVVTREMAAAAAZr5+Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzp//////////wAAAAEAAAAA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iwAAAARAAAAAAAAAAE16fYYAAAAQFjusQ6hBDCry1PoMqJDnAuHPO4E2tr0Xc9COwQ5I2fCxqsbgTLvfxfJflqpDMk6JrHp00rXUoGD1zvfeTN9bwc=';
+const SELF_TRUST_XDR =
+  'AAAAAgAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAGQAAAAAAAAADQAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAEAAAAAAAAABgAAAAJFVVJDREVNTzEyAAAAAAAAZr5+Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzp//////////wAAAAAAAAAA';
+const SPONSORED_PAYMENT_XDR =
+  'AAAAAgAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAASwAAAAAAAAADgAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAMAAAAAAAAAEAAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAAEAAAAA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iwAAAABAAAAAGa+fjMsekUzMr2dCn99sFX1xe8aBq2mbZizn7aBDEc6AAAAAAAAAAAC+vCAAAAAAQAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAABEAAAAAAAAAAA==';
+const CREATE_OTHER_XDR =
+  'AAAAAgAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAAGQAAAAAAAAADwAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAEAAAAAAAAAAAAAAABmvn4zLHpFMzK9nQp/fbBV9cXvGgatpm2Ys5+2gQxHOgAAAAAAmJaAAAAAAAAAAAA=';
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function waitFor(predicate, ms = 3_000) {
+  const until = Date.now() + ms;
+  while (!predicate() && Date.now() < until) await sleep(20);
+  return predicate();
+}
 
 function request(overrides = {}) {
   return {
@@ -130,28 +156,41 @@ function request(overrides = {}) {
   const apiKeyHash = Array.from(new Uint8Array(digest).slice(0, 16))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
-  const clientStorage = sdk.createMemoryAdapter();
-  await clientStorage.set(
-    `pollar:${apiKeyHash}:session`,
-    JSON.stringify({
-      clientSessionId: 'cs',
-      userId: 'u',
-      status: 'CONSUMED',
-      token: { accessToken: 'AT', refreshToken: 'RT', expiresAt: Math.floor(Date.now() / 1000) + 600 },
-      user: { ready: true },
-      wallet: { type: 'internal', provider: 'email', address: SOURCE, chain: 'STELLAR', provisioning: 'READY' },
-      wallets: [{ type: 'internal', provider: 'email', address: SOURCE, chain: 'STELLAR' }],
-      data: {
-        mail: 'u@x.test',
-        first_name: '',
-        last_name: '',
-        avatar: '',
-        providers: { email: { address: 'u@x.test' }, google: null, github: null, wallet: null },
-      },
-    }),
-  );
+  const SESSION = JSON.stringify({
+    clientSessionId: 'cs',
+    userId: 'u',
+    status: 'CONSUMED',
+    token: { accessToken: 'AT', refreshToken: 'RT', expiresAt: Math.floor(Date.now() / 1000) + 600 },
+    user: { ready: true },
+    wallet: { type: 'internal', provider: 'email', address: SOURCE, chain: 'STELLAR', provisioning: 'READY' },
+    wallets: [{ type: 'internal', provider: 'email', address: SOURCE, chain: 'STELLAR' }],
+    data: {
+      mail: 'u@x.test',
+      first_name: '',
+      last_name: '',
+      avatar: '',
+      providers: { email: { address: 'u@x.test' }, google: null, github: null, wallet: null },
+    },
+  });
+  async function makeClient(extra) {
+    const storage = sdk.createMemoryAdapter();
+    await storage.set(`pollar:${apiKeyHash}:session`, SESSION);
+    const c = new sdk.PollarClient({
+      apiKey,
+      storage,
+      baseUrl: 'https://x.test',
+      stellarNetwork: 'testnet',
+      logLevel: 'silent',
+      ...extra,
+    });
+    await c.ready();
+    return c;
+  }
 
   const calls = [];
+  let approveCalls = 0;
+  let rejectCalls = 0;
+  let pendingList = [request()];
   let relayStampPublicKey = null;
   let turnkeyPayload = HASH;
   // What Turnkey "holds" for the other kinds the device verifies.
@@ -218,7 +257,7 @@ function request(overrides = {}) {
       });
     }
     if (url.pathname === '/v2/cosign/requests')
-      return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { requests: [request()] } });
+      return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { requests: pendingList } });
     if (url.pathname === '/v2/cosign/devices') {
       return json(200, {
         success: true,
@@ -312,7 +351,26 @@ function request(overrides = {}) {
           content: { status: 200, body: { activity: { status: 'ACTIVITY_STATUS_COMPLETED' } } },
         });
       }
+      if (body.path === '/public/v1/submit/reject_activity') {
+        rejectCalls++;
+        return json(200, {
+          success: true,
+          code: 'SDK_COSIGN_REJECTED',
+          content: {
+            status: 200,
+            body: {},
+            request: request({
+              status: 'REJECTED',
+              failureReason: 'rejected by the device',
+              resolvedAt: new Date().toISOString(),
+            }),
+          },
+        });
+      }
       if (body.path === '/public/v1/submit/approve_activity') {
+        approveCalls++;
+        // The vote completes the activity, so the list no longer carries it.
+        pendingList = pendingList.filter((r) => r.fingerprint !== inner.parameters.fingerprint);
         return json(200, {
           success: true,
           code: 'SDK_COSIGN_APPROVED',
@@ -324,15 +382,10 @@ function request(overrides = {}) {
     return json(404, { success: false, code: 'NOT_FOUND', path: url.pathname });
   };
 
-  const client = new sdk.PollarClient({
-    apiKey,
-    storage: clientStorage,
-    baseUrl: 'https://x.test',
-    stellarNetwork: 'testnet',
-    logLevel: 'silent',
-  });
-  await client.ready();
+  // `cosignManual`: the raw flow, where the app votes through `client.cosign`.
+  const client = await makeClient({ cosignManual: true });
   check('session restored with a wallet', client.getWallet()?.address === SOURCE);
+  check('a manual client does not read the pending requests at login', !calls.includes('GET /v2/cosign/requests'));
 
   const txStates = [];
   client.onTransactionStateChange((s) => txStates.push(s.step));
@@ -492,8 +545,165 @@ function request(overrides = {}) {
   await client.signAndSubmitTx(UNSIGNED_XDR);
   await client.cosign.approve(request(), { verify: false });
   check('a rejected request moves the tx state to error', txStates[txStates.length - 1] === 'error');
-
   client.destroy();
+
+  // 5. Default policy: the device settles its own vote, so a co-signed wallet
+  // answers the way a custodial one does.
+  approvedRequest = request({
+    status: 'APPROVED',
+    signedXdr: ONE_SIG_XDR,
+    submit: { hash: 'abc123', status: 'SUCCESS' },
+    resolvedAt: new Date().toISOString(),
+  });
+  const CREATE_HASH = await sdk.stellarTransactionHashHex(CREATE_XDR, TESTNET);
+  const setupRequest = request({
+    id: 'req-setup',
+    fingerprint: 'fp-setup',
+    intent: 'account_create',
+    operation: 'create_account',
+    unsignedPayload: CREATE_XDR,
+    payloadHash: CREATE_HASH,
+    summary: 'Create your account',
+    details: {},
+  });
+  pendingList = [setupRequest];
+  turnkeyPayload = CREATE_HASH;
+  const approvesBeforeLogin = approveCalls;
+  const auto = await makeClient({});
+  const autoPending = [];
+  auto.onCosignStateChange((s) => autoPending.push(s.pending.length));
+  const settledAtLogin = await waitFor(() => approveCalls > approvesBeforeLogin);
+  check('login reads the pending requests and approves recognized setup without a prompt', settledAtLogin);
+  check('the setup request never reached the pending list', Math.max(...autoPending) === 0, autoPending);
+  turnkeyPayload = HASH;
+  pendingList = [request()];
+  await auto.cosign.pending();
+  check(
+    'a pending payment is not approved on its own',
+    approveCalls === approvesBeforeLogin + 1 && auto.getCosignState().pending.length === 1,
+  );
+  pendingList = [];
+  await auto.cosign.pending();
+
+  const autoStates = [];
+  auto.onTransactionStateChange((s) => autoStates.push(s.step));
+  // A `sign` request comes back with the signature only; the app submits.
+  approvedRequest = request({
+    status: 'APPROVED',
+    intent: 'sign',
+    signedXdr: ONE_SIG_XDR,
+    resolvedAt: new Date().toISOString(),
+  });
+  const autoSign = await auto.signTx(UNSIGNED_XDR);
+  check(
+    'signTx on a co-signed wallet returns signed, as a custodial one does',
+    autoSign.status === 'signed' && autoSign.signedXdr === ONE_SIG_XDR,
+    autoSign,
+  );
+  check(
+    'the tx state passed through awaiting_cosign and ended signed',
+    autoStates.includes('awaiting_cosign') && autoStates[autoStates.length - 1] === 'signed',
+    autoStates,
+  );
+  check(
+    'the settled request never reached the pending list',
+    Math.max(...autoPending) <= 1 && auto.getCosignState().pending.length === 0,
+  );
+  approvedRequest = request({
+    status: 'APPROVED',
+    signedXdr: ONE_SIG_XDR,
+    submit: { hash: 'abc123', status: 'SUCCESS' },
+    resolvedAt: new Date().toISOString(),
+  });
+  const autoSend = await auto.signAndSubmitTx(UNSIGNED_XDR);
+  check('signAndSubmitTx returns success with the hash', autoSend.status === 'success' && autoSend.hash === 'abc123', autoSend);
+  check('the tx state ended in success', autoStates[autoStates.length - 1] === 'success');
+
+  turnkeyPayload = 'ff'.repeat(32);
+  const mismatch = await auto.signTx(UNSIGNED_XDR);
+  check(
+    'a payload Turnkey disagrees with ends as an error, not a signature',
+    mismatch.status === 'error' && mismatch.code === 'SDK_COSIGN_VERIFICATION_FAILED',
+    mismatch,
+  );
+  check('the mismatching request was rejected by the device', rejectCalls === 1);
+  check('the tx state ended in error', autoStates[autoStates.length - 1] === 'error');
+  turnkeyPayload = HASH;
+  auto.destroy();
+
+  // 6. `confirmation: 'prompt'`: the user is asked before any signature.
+  const prompt = await makeClient({ confirmation: 'prompt' });
+  const unavailable = await prompt.signTx(UNSIGNED_XDR);
+  check(
+    'prompt without a subscriber refuses to sign',
+    unavailable.status === 'error' && unavailable.code === 'SDK_CONFIRMATION_UNAVAILABLE',
+    unavailable,
+  );
+  const seen = [];
+  let answer = 'confirm';
+  const unsubscribe = prompt.onConfirmationRequest((list) => {
+    for (const c of list) {
+      seen.push(c);
+      c[answer]();
+    }
+  });
+  const confirmedSign = await prompt.signTx(UNSIGNED_XDR);
+  check('prompt: a confirmed signTx goes on to sign', confirmedSign.status === 'signed', confirmedSign);
+  check(
+    'the confirmation carried the kind, network and envelope',
+    seen[0]?.kind === 'sign' && seen[0]?.network === 'STELLAR' && seen[0]?.unsignedXdr === UNSIGNED_XDR,
+  );
+  answer = 'reject';
+  const callsBeforeDecline = calls.length;
+  const declined = await prompt.signAndSubmitTx(UNSIGNED_XDR);
+  check(
+    'prompt: a declined call returns SDK_CONFIRMATION_DECLINED',
+    declined.status === 'error' && declined.code === 'SDK_CONFIRMATION_DECLINED' && seen[1]?.kind === 'sign_and_send',
+    declined,
+  );
+  const declinedRun = await prompt.buildAndSignAndSubmitTx('payment', { destination: OTHER, amount: '1' });
+  check(
+    'prompt: build-sign-submit asks before any request leaves',
+    declinedRun.status === 'error' && seen[2]?.kind === 'build_sign_submit' && seen[2]?.operation === 'payment',
+    declinedRun,
+  );
+  check('nothing was sent for the declined calls', calls.length === callsBeforeDecline);
+  check('no confirmation is left pending', prompt.getPendingConfirmations().length === 0);
+  unsubscribe();
+  prompt.destroy();
+
+  // 7. The setup recognizer: what the device approves on its own.
+  const setup = (overrides) => request({ intent: 'account_create', operation: 'create_account', ...overrides });
+  const created = sdk.recognizedSetupRequest(setup({ unsignedPayload: CREATE_XDR }));
+  check('recognizes the sponsored creation of this account', created.ok === true && created.kind === 'account_create', created);
+  const trust = sdk.recognizedSetupRequest(
+    setup({ intent: 'sign_and_send', operation: 'change_trust', unsignedPayload: TRUST_XDR }),
+  );
+  check('recognizes a sponsored trustline on this account', trust.ok === true && trust.kind === 'change_trust', trust);
+  const selfTrust = sdk.recognizedSetupRequest(
+    setup({ intent: 'sign_and_send', operation: 'change_trust', unsignedPayload: SELF_TRUST_XDR }),
+  );
+  check('recognizes a self-paid trustline with a 12-character asset', selfTrust.ok === true, selfTrust);
+  const payment = sdk.recognizedSetupRequest(
+    setup({ intent: 'sign_and_send', operation: 'change_trust', unsignedPayload: SPONSORED_PAYMENT_XDR }),
+  );
+  check('refuses a payment announced as a trustline', payment.ok === false, payment);
+  const other = sdk.recognizedSetupRequest(setup({ unsignedPayload: CREATE_OTHER_XDR }));
+  check('refuses the creation of another account', other.ok === false && /another account/.test(other.reason), other);
+  const asSomeoneElse = sdk.recognizedSetupRequest(setup({ unsignedPayload: CREATE_XDR, signWith: OTHER }));
+  check('refuses setup signed by an account the transaction does not set up', asSomeoneElse.ok === false, asSomeoneElse);
+  check('refuses a plain payment request', sdk.recognizedSetupRequest(request()).ok === false);
+  check(
+    'recognizes an account derivation request',
+    sdk.recognizedSetupRequest(request({ kind: 'ACCOUNT', intent: 'add_accounts' })).ok === true,
+  );
+  check(
+    'refuses a resolved request',
+    sdk.recognizedSetupRequest(setup({ unsignedPayload: CREATE_XDR, status: 'APPROVED' })).ok === false,
+  );
+  check('stellarAccountBytes decodes a G-address to 32 bytes', sdk.stellarAccountBytes(SOURCE)?.length === 32);
+  check('stellarAccountBytes refuses a broken checksum', sdk.stellarAccountBytes(SOURCE.slice(0, -1) + 'A') === null);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })().catch((err) => {

@@ -339,6 +339,42 @@ export interface PollarClientConfig {
    * hardware-backed storage.
    */
   cosignKeyManager?: KeyManager;
+  /**
+   * How a signing call treats the user, whatever the wallet's custody.
+   * `'auto'` (default) signs without a prompt: a custodial wallet signs on the
+   * server, a co-signed one has the device verify and vote on its own, an
+   * external one shows only its own wallet's popup. `'prompt'` shows the
+   * transaction and waits for the user before any signature; `@pollar/react`
+   * renders the prompt, a headless app subscribes with
+   * `onConfirmationRequest`. The same code works on testnet and mainnet.
+   */
+  confirmation?: 'auto' | 'prompt';
+  /**
+   * Keep the raw co-sign flow: signing calls on a co-signed wallet return
+   * `cosign_pending` and the app approves through `client.cosign.*` and its
+   * own UI. Off by default: the SDK settles the request itself.
+   */
+  cosignManual?: boolean;
+}
+
+/** What a signing call is about to do, shown to the user under `confirmation: 'prompt'`. */
+export interface ConfirmationRequest {
+  id: string;
+  kind: 'sign' | 'sign_and_send' | 'build_sign_submit';
+  network: 'STELLAR' | 'SOLANA' | 'POLYGON';
+  /** The unsigned Stellar envelope, when the call carries one. */
+  unsignedXdr?: string;
+  /** The build this signature completes, when the client built it. */
+  buildData?: TxBuildContent;
+  operation?: string;
+  details?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** A confirmation waiting for the user, with the two ways to answer it. */
+export interface PendingConfirmation extends ConfirmationRequest {
+  confirm: () => void;
+  reject: () => void;
 }
 
 // --- Turnkey co-signed wallets (client.cosign.*) --------------------------------

@@ -48,7 +48,8 @@ import { EarnModal } from './components/earn-modal/EarnModal';
 import { CardModal } from './components/card-modal/CardModal';
 import { SessionsModal } from './components/sessions-modal/SessionsModal';
 import { CosignModal } from './components/cosign-modal/CosignModal';
-import type { CosignState } from '@pollar/core';
+import { ConfirmModal } from './components/confirm-modal/ConfirmModal';
+import type { CosignState, PendingConfirmation } from '@pollar/core';
 import { TransactionModal } from './components/transaction-modal/TransactionModal';
 import { TxHistoryModal } from './components/tx-history-modal/TxHistoryModal';
 import { WalletBalanceModal } from './components/wallet-balance-modal/WalletBalanceModal';
@@ -132,6 +133,8 @@ interface PollarContextValue {
   cosign: CosignState;
   /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
   openCosignModal: () => void;
+  /** Signing calls waiting for the user under `confirmation: 'prompt'`; the provider shows the first one. */
+  confirmations: PendingConfirmation[];
   appConfig: PollarConfig;
   styles: PollarStyles;
   /** Remote app-config load state. 'loading' while the initial fetch is in
@@ -446,6 +449,8 @@ export function PollarProvider({
   const [txHistory, setTxHistory] = useState<TxHistoryState>({ step: 'idle' });
   const [sessions, setSessions] = useState<SessionsState>({ step: 'idle' });
   const [cosign, setCosign] = useState<CosignState>({ pending: [] });
+  const [confirmations, setConfirmations] = useState<PendingConfirmation[]>([]);
+  const firstConfirmation = confirmations[0] ?? null;
   const [walletBalance, setWalletBalance] = useState<WalletBalanceState>({ step: 'idle' });
   const [enabledAssets, setEnabledAssets] = useState<EnabledAssetsState>({ step: 'idle' });
   const [resolvedConfig, setResolvedConfig] = useState<PollarConfig>(() => appConfigProp ?? DEFAULT_APP_CONFIG);
@@ -476,6 +481,10 @@ export function PollarProvider({
 
   useEffect(() => {
     return pollarClient.onCosignStateChange(setCosign);
+  }, [pollarClient]);
+
+  useEffect(() => {
+    return pollarClient.onConfirmationRequest(setConfirmations);
   }, [pollarClient]);
 
   useEffect(() => {
@@ -759,6 +768,7 @@ export function PollarProvider({
       // cosign
       cosign,
       openCosignModal: () => setCosignModalOpen(true),
+      confirmations,
       // distribution
       openDistributionRulesModal: () => setDistributionRulesModalOpen(true),
       // network
@@ -790,6 +800,7 @@ export function PollarProvider({
     txHistory,
     sessions,
     cosign,
+    confirmations,
     walletBalance,
     refreshWalletBalance,
     enabledAssets,
@@ -890,6 +901,11 @@ export function PollarProvider({
       {cosignModalOpen && (
         <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
           <CosignModal onClose={() => setCosignModalOpen(false)} />
+        </ModalErrorBoundary>
+      )}
+      {firstConfirmation && (
+        <ModalErrorBoundary onClose={firstConfirmation.reject}>
+          <ConfirmModal key={firstConfirmation.id} confirmation={firstConfirmation} />
         </ModalErrorBoundary>
       )}
       {distributionRulesModalOpen && (

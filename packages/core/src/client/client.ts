@@ -49,7 +49,8 @@ import {
 } from '../api/endpoints/ramps';
 import { buildProof } from '../dpop';
 import { CosignManager } from '../cosign/manager';
-import type { CosignRequest, CosignState } from '../types';
+import type { ConfirmationRequest, CosignRequest, CosignState, PendingConfirmation, TxErrorPhase } from '../types';
+import { recognizedSetupRequest } from '../cosign/recognize';
 import { defaultKeyManager } from '../keys/factory';
 import type { KeyManager } from '../keys/types';
 import { hashApiKey } from '../lib/api-key-hash';
@@ -201,6 +202,15 @@ const isReactNative = typeof navigator !== 'undefined' && (navigator as { produc
  * treats RN (no `localStorage`) as server-side.
  */
 const isClientRuntime = isBrowser || isReactNative;
+
+type ConfirmationAnswer =
+  | { ok: true }
+  | { ok: false; code: 'SDK_CONFIRMATION_DECLINED' | 'SDK_CONFIRMATION_UNAVAILABLE'; details: string };
+
+/** Which signing call a co-sign 202 belongs to, and what it was going to produce. */
+type CosignSettleContext =
+  | { intent: 'sign'; phase: 'signing'; buildData?: TxBuildContent }
+  | { intent: 'sign_and_send'; phase: 'signing-submitting' | 'building-signing-submitting'; buildData?: TxBuildContent };
 
 /**
  * `x-pollar-sdk` - identifies this build to sdk-api, which records it per
@@ -511,6 +521,13 @@ export class PollarClient {
   readonly cosign: CosignManager;
   private _cosignState: CosignState = { pending: [] };
   private _cosignStateListeners = new Set<(state: CosignState) => void>();
+  /** The confirmation policy; see `PollarClientConfig.confirmation` and `cosignManual`. */
+  private readonly _confirmation: 'auto' | 'prompt';
+  private readonly _cosignManual: boolean;
+  /** Requests this client is settling itself: they stay out of the pending list a UI prompts for. */
+  private readonly _autoHandling = new Set<string>();
+  private readonly _confirmations = new Map<string, PendingConfirmation>();
+  private readonly _confirmationListeners = new Set<(pending: PendingConfirmation[]) => void>();
   private _loginController: AbortController | null = null;
   /** Aborts an in-flight `/auth/session/resume` on destroy() or session clear. */
   private _resumeController: AbortController | null = null;
@@ -629,12 +646,23 @@ export class PollarClient {
 
     // The co-signing device key is a key of its own: the DPoP key is reset on
     // logout, and the user's vote must outlive a logout.
+    this._confirmation = config.confirmation ?? 'auto';
+    this._cosignManual = config.cosignManual === true;
     this.cosign = new CosignManager({
       api: this._api,
       keyManager: config.cosignKeyManager ?? defaultKeyManager(this._storage, config.apiKey, { namespace: 'cosign' }),
       logger: this._log,
       networkPassphrase: () => this._networkPassphrase(),
       onRequest: (request) => this._noteCosignRequest(request),
+      // Setup Pollar opens on its own (account creation, trustlines, a new
+      // chain) is approved without a prompt only when the device can read it
+      // and it names this wallet; a custodial wallet does the same setup
+      // silently. Under `cosignManual` the app votes on everything itself.
+      autoApprove: (request) => !this._cosignManual && recognizedSetupRequest(request).ok,
+      markAutoHandled: (id, handled) => {
+        if (handled) this._autoHandling.add(id);
+        else this._autoHandling.delete(id);
+      },
     });
 
     // Stellar SEP ownership-proof namespace. Thin object over the private
@@ -2532,7 +2560,7 @@ export class PollarClient {
           (error as { details?: string; code?: string } | undefined)?.details ?? (error as { code?: string } | undefined)?.code;
         return { status: 'error', ...(details && { details }) };
       }
-      const signed = await this.signTx(xdr);
+      const signed = await this._signTx(xdr, undefined, false);
       if (signed.status === 'error') {
         return { status: 'error', ...(signed.details && { details: signed.details }) };
       }
@@ -2575,7 +2603,7 @@ export class PollarClient {
           (error as { details?: string; code?: string } | undefined)?.details ?? (error as { code?: string } | undefined)?.code;
         return { status: 'error', ...(details && { details }) };
       }
-      const signed = await this.signTx(data.content.sponsorSignedXdr);
+      const signed = await this._signTx(data.content.sponsorSignedXdr, undefined, false);
       if (signed.status === 'error') {
         return { status: 'error', ...(signed.details && { details: signed.details }) };
       }
@@ -2831,6 +2859,20 @@ export class PollarClient {
    * is threaded through if the consumer previously called `buildTx`.
    */
   async signTx(unsignedXdr: string, options?: { skipSponsorship?: boolean }): Promise<SignOutcome> {
+    return this._signTx(unsignedXdr, options, true);
+  }
+
+  /**
+   * `signTx` behind the confirmation step. `confirm` is false when the caller
+   * already asked the user (`signAndSubmitTx`) and for wallet setup (account
+   * creation, trustlines), which a custodial wallet performs without asking
+   * and so is never prompted whatever the custody.
+   */
+  private async _signTx(
+    unsignedXdr: string,
+    options: { skipSponsorship?: boolean } | undefined,
+    confirm: boolean,
+  ): Promise<SignOutcome> {
     this._txStartGen = this._sessionGeneration;
     const noSigner = this._externalSignerMissing();
     if (noSigner) return noSigner;
@@ -2845,6 +2887,10 @@ export class PollarClient {
       };
     }
     const buildData = this._currentBuildData();
+    if (confirm) {
+      const answer = await this._confirm({ kind: 'sign', network: 'STELLAR', unsignedXdr, ...(buildData && { buildData }) });
+      if (!answer.ok) return this._declined('signing', buildData, answer);
+    }
     this._setTransactionState({ step: 'signing', ...(buildData && { buildData }) });
 
     // External adapter signs directly (smart sessions already returned above).
@@ -2900,8 +2946,7 @@ export class PollarClient {
       }
       const pendingRequest = this._cosignPendingOf(data);
       if (pendingRequest) {
-        this._setTransactionState({ step: 'awaiting_cosign', request: pendingRequest, ...(buildData && { buildData }) });
-        return { status: 'cosign_pending', request: pendingRequest };
+        return this._settleCosign(pendingRequest, { intent: 'sign', phase: 'signing', ...(buildData && { buildData }) });
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -3160,6 +3205,183 @@ export class PollarClient {
     };
   }
 
+  /** The confirmations waiting for the user under `confirmation: 'prompt'`. */
+  getPendingConfirmations(): PendingConfirmation[] {
+    return [...this._confirmations.values()];
+  }
+
+  /**
+   * Subscribe to the confirmations a signing call is waiting on. Replays the
+   * current list on subscribe. `@pollar/react` and `@pollar/react-native`
+   * render them; a headless app shows each one and calls `confirm()` or
+   * `reject()`. Under `'prompt'` a signing call fails with
+   * `SDK_CONFIRMATION_UNAVAILABLE` while nothing is subscribed, rather than
+   * signing unasked.
+   */
+  onConfirmationRequest(cb: (pending: PendingConfirmation[]) => void): () => void {
+    this._confirmationListeners.add(cb);
+    try {
+      cb(this.getPendingConfirmations());
+    } catch (err) {
+      this._log.error('[PollarClient] onConfirmationRequest listener threw on replay', err);
+    }
+    return () => {
+      this._confirmationListeners.delete(cb);
+    };
+  }
+
+  private _emitConfirmations(): void {
+    const snapshot = this.getPendingConfirmations();
+    for (const cb of this._confirmationListeners) {
+      try {
+        cb(snapshot);
+      } catch (err) {
+        this._log.error('[PollarClient] onConfirmationRequest listener threw', err);
+      }
+    }
+  }
+
+  /**
+   * Ask the user before a signature, per the confirmation policy: `'auto'`
+   * answers yes at once, `'prompt'` publishes the request to the subscribers
+   * and waits for one of them to settle it. Setup signatures never come here.
+   */
+  private _confirm(input: Omit<ConfirmationRequest, 'id' | 'createdAt'>): Promise<ConfirmationAnswer> {
+    if (this._confirmation === 'auto') return Promise.resolve({ ok: true });
+    if (this._confirmationListeners.size === 0) {
+      return Promise.resolve({
+        ok: false,
+        code: 'SDK_CONFIRMATION_UNAVAILABLE',
+        details:
+          "confirmation is 'prompt' but nothing shows the prompt: mount PollarProvider or subscribe with onConfirmationRequest",
+      });
+    }
+    const id = randomUUID();
+    return new Promise((resolve) => {
+      const settle = (answer: ConfirmationAnswer) => () => {
+        if (!this._confirmations.delete(id)) return;
+        this._emitConfirmations();
+        resolve(answer);
+      };
+      this._confirmations.set(id, {
+        ...input,
+        id,
+        createdAt: new Date().toISOString(),
+        confirm: settle({ ok: true }),
+        reject: settle({ ok: false, code: 'SDK_CONFIRMATION_DECLINED', details: 'the user declined the transaction' }),
+      });
+      this._emitConfirmations();
+    });
+  }
+
+  /** The outcome of a signing call the user did not confirm; the state machine ends in `error` for the modal UIs. */
+  private _declined(
+    phase: TxErrorPhase,
+    buildData: TxBuildContent | undefined,
+    answer: { code: string; details: string },
+  ): { status: 'error'; code: string; details: string } {
+    this._setTransactionState({
+      step: 'error',
+      phase,
+      code: answer.code,
+      details: answer.details,
+      ...(buildData && { buildData }),
+    });
+    return { status: 'error', code: answer.code, details: answer.details };
+  }
+
+  /**
+   * What a signing call does with the 202 a co-signed wallet answers with.
+   * `cosignManual` hands the request back as `cosign_pending`. Otherwise the
+   * device votes here: `approve` refreshes, verifies the payload against what
+   * Turnkey is about to sign and stamps the approval; that vote completes the
+   * quorum, so the request normally comes back final and the call ends the way
+   * a custodial one does. A payload that does not match what was asked is
+   * rejected, which ends the request for good. Turnkey finishing late is polled
+   * a few times; past that the request is returned pending and
+   * `client.cosign.get(id, { sync: true })` reads its outcome.
+   */
+  private _settleCosign(
+    request: CosignRequest,
+    ctx: { intent: 'sign'; phase: 'signing'; buildData?: TxBuildContent },
+  ): Promise<SignOutcome>;
+  private _settleCosign(
+    request: CosignRequest,
+    ctx: { intent: 'sign_and_send'; phase: 'signing-submitting' | 'building-signing-submitting'; buildData?: TxBuildContent },
+  ): Promise<SubmitOutcome>;
+  private async _settleCosign(request: CosignRequest, ctx: CosignSettleContext): Promise<SignOutcome | SubmitOutcome> {
+    const { buildData } = ctx;
+    this._setTransactionState({ step: 'awaiting_cosign', request, ...(buildData && { buildData }) });
+    if (this._cosignManual) return { status: 'cosign_pending', request, ...(buildData && { buildData }) };
+    this._autoHandling.add(request.id);
+    try {
+      let resolved = await this.cosign.approve(request);
+      for (let i = 0; i < 10 && resolved.status === 'PENDING'; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        resolved = await this.cosign.get(request.id, { sync: true });
+      }
+      return await this._outcomeOfCosign(resolved, ctx);
+    } catch (err) {
+      const code = err instanceof PollarApiError ? err.code : undefined;
+      let details = err instanceof Error ? err.message : undefined;
+      if (err instanceof PollarApiError && code === 'SDK_COSIGN_VERIFICATION_FAILED') {
+        const verification = err.body.verification as { reason?: string } | undefined;
+        details = verification?.reason ?? details;
+        await this.cosign.reject(request).catch((rejectErr) => {
+          this._log.warn('[PollarClient] could not reject a co-sign request whose payload did not verify', rejectErr);
+        });
+      }
+      this._setTransactionState({
+        step: 'error',
+        phase: ctx.phase,
+        ...(buildData && { buildData }),
+        ...(details && { details }),
+        ...(code && { code }),
+      });
+      return { status: 'error', ...(details && { details }), ...(code && { code }) };
+    } finally {
+      this._autoHandling.delete(request.id);
+    }
+  }
+
+  /** The signing outcome a final (or still pending) co-sign request amounts to. */
+  private async _outcomeOfCosign(resolved: CosignRequest, ctx: CosignSettleContext): Promise<SignOutcome | SubmitOutcome> {
+    const { buildData } = ctx;
+    const extra = buildData ? { buildData } : {};
+    if (resolved.status === 'PENDING') return { status: 'cosign_pending', request: resolved, ...extra };
+    if (resolved.status !== 'APPROVED') {
+      return {
+        status: 'error',
+        code: `SDK_COSIGN_${resolved.status}`,
+        details: resolved.failureReason ?? `co-sign request ${resolved.status.toLowerCase()}`,
+        ...extra,
+      };
+    }
+    if (ctx.intent === 'sign') {
+      if (resolved.signedXdr) return { status: 'signed', signedXdr: resolved.signedXdr };
+      return { status: 'error', code: 'SDK_COSIGN_NO_SIGNATURE', details: 'the approved request carries no signature' };
+    }
+    const submit = resolved.submit;
+    if (!submit) {
+      if (resolved.signedXdr) return this.submitTx(resolved.signedXdr);
+      return {
+        status: 'error',
+        code: 'SDK_COSIGN_NO_SIGNATURE',
+        details: 'the approved request carries no signature',
+        ...extra,
+      };
+    }
+    if (submit.status === 'SUCCESS') return { status: 'success', hash: submit.hash, ...extra };
+    if (submit.status === 'PENDING') return this._awaitTxConfirmation(submit.hash, ctx.phase, buildData, extra);
+    return {
+      status: 'error',
+      hash: submit.hash,
+      ...(submit.resultCode && { details: submit.resultCode, resultCode: submit.resultCode }),
+      ...(submit.message && { message: submit.message }),
+      ...extra,
+    };
+  }
+
   /**
    * Fold a request into the co-sign store and, when it is the one the
    * transaction state machine is waiting on, move that machine too: the vote
@@ -3168,7 +3390,7 @@ export class PollarClient {
    */
   private _noteCosignRequest(request: CosignRequest): void {
     const pending = this._cosignState.pending.filter((r) => r.id !== request.id);
-    if (request.status === 'PENDING') pending.push(request);
+    if (request.status === 'PENDING' && !this._autoHandling.has(request.id)) pending.push(request);
     const lastResolved = request.status !== 'PENDING' ? request : this._cosignState.lastResolved;
     this._cosignState = { pending, ...(lastResolved ? { lastResolved } : {}) };
     const snapshot = this.getCosignState();
@@ -3433,10 +3655,19 @@ export class PollarClient {
       return { status: 'error', details: 'missing unsigned transaction' };
     }
 
+    const confirmBuild = this._currentBuildData();
+    const answer = await this._confirm({
+      kind: 'sign_and_send',
+      network: 'STELLAR',
+      unsignedXdr,
+      ...(confirmBuild && { buildData: confirmBuild }),
+    });
+    if (!answer.ok) return this._declined('signing-submitting', confirmBuild, answer);
+
     if (this._walletAdapter) {
       // External - the composed signTx+submitTx already emit the granular
       // state-machine sequence. We just pass outcomes through.
-      const signed = await this.signTx(unsignedXdr);
+      const signed = await this._signTx(unsignedXdr, undefined, false);
       if (signed.status === 'error') {
         const buildData = this._currentBuildData();
         return {
@@ -3500,8 +3731,11 @@ export class PollarClient {
       }
       const pendingRequest = this._cosignPendingOf(data);
       if (pendingRequest) {
-        this._setTransactionState({ step: 'awaiting_cosign', request: pendingRequest, ...(buildData && { buildData }) });
-        return { status: 'cosign_pending', request: pendingRequest, ...outcomeExtra };
+        return this._settleCosign(pendingRequest, {
+          intent: 'sign_and_send',
+          phase: 'signing-submitting',
+          ...(buildData && { buildData }),
+        });
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -3583,6 +3817,13 @@ export class PollarClient {
       this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: 'No wallet connected' });
       return { status: 'error', details: 'No wallet connected' };
     }
+    const answer = await this._confirm({
+      kind: 'build_sign_submit',
+      network: 'STELLAR',
+      operation,
+      details: params as Record<string, unknown>,
+    });
+    if (!answer.ok) return this._declined('building-signing-submitting', undefined, answer);
     this._setTransactionState({ step: 'building-signing-submitting' });
     try {
       const { data, error } = await this._api.POST('/tx/build-sign-submit', {
@@ -3621,8 +3862,7 @@ export class PollarClient {
       }
       const pendingRequest = this._cosignPendingOf(data);
       if (pendingRequest) {
-        this._setTransactionState({ step: 'awaiting_cosign', request: pendingRequest });
-        return { status: 'cosign_pending', request: pendingRequest };
+        return this._settleCosign(pendingRequest, { intent: 'sign_and_send', phase: 'building-signing-submitting' });
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -3673,6 +3913,13 @@ export class PollarClient {
       this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: 'No wallet connected' });
       return { status: 'error', details: 'No wallet connected' };
     }
+    const answer = await this._confirm({
+      kind: 'build_sign_submit',
+      network: 'SOLANA',
+      operation: 'payment',
+      details: { destination: params.destination, amount: params.amount, ...(params.mint ? { mint: params.mint } : {}) },
+    });
+    if (!answer.ok) return this._declined('building-signing-submitting', undefined, answer);
 
     this._setTransactionState({ step: 'building-signing-submitting' });
     try {
@@ -3695,7 +3942,7 @@ export class PollarClient {
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
 
-      if (!error && data?.success && data.content) {
+      if (!error && data?.success && data.content && 'hash' in data.content) {
         const { hash, status: backendStatus } = data.content as { hash: string; status: string };
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash });
@@ -3707,6 +3954,10 @@ export class PollarClient {
         }
         this._setTransactionState({ step: 'error', phase: 'building-signing-submitting' });
         return { status: 'error', hash };
+      }
+      const pendingRequest = this._cosignPendingOf(data);
+      if (pendingRequest) {
+        return this._settleCosign(pendingRequest, { intent: 'sign_and_send', phase: 'building-signing-submitting' });
       }
 
       const { details, code, message } = this._resolveTxApiError(error, data);
@@ -5052,6 +5303,7 @@ export class PollarClient {
   }
 
   private _setAuthState(next: AuthState): void {
+    const wasAuthenticated = this._authState.step === 'authenticated';
     this._authState = next;
     this._log.debug(`[PollarClient] auth:${next.step}`);
     // Dispatch a clone: `next.session` is the live `_session` the middleware
@@ -5061,6 +5313,25 @@ export class PollarClient {
     // per emission is safe - verified no useSyncExternalStore / ref-dedupe.)
     const snapshot = this._cloneAuthState(next);
     for (const cb of this._authStateListeners) cb(snapshot);
+    // Nobody is left to answer a prompt once the session is gone; the signing
+    // calls waiting on one end as declined instead of hanging.
+    if (next.step === 'idle') for (const c of [...this._confirmations.values()]) c.reject();
+    // A co-signed wallet may have setup waiting for this device (its account
+    // creation, a trustline the app enabled): read the list once the session
+    // is in place so recognized setup is approved without a prompt. Anything
+    // else reaches the store, and the UI, as usual. Custodial wallets get an
+    // empty list back.
+    if (
+      !wasAuthenticated &&
+      next.step === 'authenticated' &&
+      next.session?.wallet?.type === 'internal' &&
+      next.session.wallet.address &&
+      !this._cosignManual
+    ) {
+      void this.cosign.pending().catch((err) => {
+        this._log.warn('[PollarClient] could not read the pending co-sign requests', err);
+      });
+    }
   }
 
   private _setTransactionState(next: TransactionState): void {

@@ -1,6 +1,7 @@
 import {
   BuildOutcome,
   CosignState,
+  PendingConfirmation,
   NetworkState,
   PollarAdapters,
   PollarClient,
@@ -24,6 +25,7 @@ import { RampWidget } from './components/ramp-widget/RampWidget';
 import { CardModal } from './components/card-modal/CardModal';
 import { TransactionModal } from './components/transaction-modal/TransactionModal';
 import { CosignModal } from './components/cosign-modal/CosignModal';
+import { ConfirmModal } from './components/confirm-modal/ConfirmModal';
 import { TxHistoryModal } from './components/tx-history-modal/TxHistoryModal';
 import { WalletBalanceModal } from './components/wallet-balance-modal/WalletBalanceModal';
 import type { PollarConfig, PollarStyles } from './types';
@@ -106,6 +108,8 @@ interface PollarContextValue {
   cosign: CosignState;
   /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
   openCosignModal: () => void;
+  /** Signing calls waiting for the user under `confirmation: 'prompt'`; the provider shows the first one. */
+  confirmations: PendingConfirmation[];
   // adapters
   adapters?: PollarAdapters;
 }
@@ -227,6 +231,9 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
   const [cosign, setCosign] = useState<CosignState>({ pending: [] });
   const [cosignModalOpen, setCosignModalOpen] = useState(false);
   useEffect(() => pollarClient.onCosignStateChange(setCosign), [pollarClient]);
+  const [confirmations, setConfirmations] = useState<PendingConfirmation[]>([]);
+  useEffect(() => pollarClient.onConfirmationRequest(setConfirmations), [pollarClient]);
+  const firstConfirmation = confirmations[0] ?? null;
   // A signing call that came back pending needs the user's vote now; open the
   // prompt when a new request appears, never when one merely resolves.
   const cosignPendingCount = useRef(0);
@@ -288,6 +295,7 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
       walletBalance,
       cosign,
       openCosignModal: () => setCosignModalOpen(true),
+      confirmations,
       refreshBalance: () => pollarClient.refreshBalance(),
       network: networkState.step === 'connected' ? networkState.network : 'testnet',
       setNetwork: (network: StellarNetwork) => pollarClient.setNetwork(network),
@@ -306,6 +314,7 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
       networkState,
       walletBalance,
       cosign,
+      confirmations,
       adapters,
     ],
   );
@@ -326,6 +335,11 @@ export function PollarProvider({ config, styles: propStyles, adapters, children 
       {cosignModalOpen && (
         <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
           <CosignModal onClose={() => setCosignModalOpen(false)} />
+        </ModalErrorBoundary>
+      )}
+      {firstConfirmation && (
+        <ModalErrorBoundary onClose={firstConfirmation.reject}>
+          <ConfirmModal key={firstConfirmation.id} confirmation={firstConfirmation} />
         </ModalErrorBoundary>
       )}
       {kycModalOpen && (

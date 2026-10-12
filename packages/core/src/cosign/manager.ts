@@ -34,6 +34,14 @@ export interface CosignManagerDeps {
   networkPassphrase: () => string;
   /** Every request the manager learns about or resolves, for the client's store. */
   onRequest: (request: CosignRequest) => void;
+  /**
+   * Whether a request Pollar opened on its own may be approved here without a
+   * prompt. The client answers from its confirmation policy and the setup
+   * recognizer; absent, nothing is approved without the user.
+   */
+  autoApprove?: (request: CosignRequest) => boolean;
+  /** Tell the store a request is being settled by the client itself, so no prompt opens for it. */
+  markAutoHandled?: (id: string, handled: boolean) => void;
 }
 
 const SCHEME = 'SIGNATURE_SCHEME_TK_API_P256';
@@ -127,11 +135,40 @@ export class CosignManager {
     return encodeStamp({ publicKey, scheme: SCHEME, signature: bytesToHex(rawSignatureToDer(raw)) });
   }
 
-  /** Requests still waiting for this user's vote. */
+  /**
+   * The requests waiting for the user. Requests Pollar opened on its own that
+   * the device recognizes as setup of this wallet (its account creation, a
+   * trustline, an account on a new chain) are approved here without a prompt
+   * when the client's policy allows it, as a custodial wallet performs them
+   * silently; a completed one may open the next (trustlines come one at a
+   * time), so the list is read again until nothing is left to settle. What
+   * remains needs a decision and is what the store shows.
+   */
   async pending(): Promise<CosignRequest[]> {
-    const { requests } = content(await this.deps.api.GET('/cosign/requests'), 'SDK_COSIGN_REQUEST_NOT_FOUND');
-    for (const r of requests) this.deps.onRequest(r);
-    return requests;
+    let remaining: CosignRequest[] = [];
+    for (let round = 0; round < 6; round++) {
+      const { requests } = content(await this.deps.api.GET('/cosign/requests'), 'SDK_COSIGN_REQUEST_NOT_FOUND');
+      const auto = requests.filter((r) => r.status === 'PENDING' && this.deps.autoApprove?.(r) === true);
+      remaining = requests.filter((r) => !auto.includes(r));
+      for (const r of remaining) this.deps.onRequest(r);
+      if (auto.length === 0) break;
+      for (const r of auto) {
+        this.deps.markAutoHandled?.(r.id, true);
+        try {
+          await this.approve(r);
+        } catch (err) {
+          // Verification failed or Turnkey did not answer: the request stays
+          // pending and is shown, with its reason, instead of being voted on.
+          this.deps.logger.warn('[PollarClient] a setup request could not be approved automatically', err);
+          this.deps.markAutoHandled?.(r.id, false);
+          remaining.push(r);
+          this.deps.onRequest(r);
+        } finally {
+          this.deps.markAutoHandled?.(r.id, false);
+        }
+      }
+    }
+    return remaining;
   }
 
   /** One request; `sync` asks sdk-api to re-read the activity from Turnkey first. */
