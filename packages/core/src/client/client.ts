@@ -2278,7 +2278,9 @@ export class PollarClient {
    * `walletBalanceState`. For an arbitrary wallet, use {@link getWalletBalance}.
    */
   async refreshBalance(): Promise<void> {
-    if (!this._session?.wallet?.address) {
+    // Any chain counts: a Solana login has no Stellar `wallet.address`, and the
+    // server answers for every wallet the session holds.
+    if (!this.hasWallet()) {
       ++this._walletBalanceGen; // supersede any in-flight load (e.g. wallet went away)
       this._setWalletBalanceState({ step: 'error', message: 'No wallet connected' });
       return;
@@ -2430,7 +2432,9 @@ export class PollarClient {
    * session. Drives `enabledAssetsState`; mirrors {@link refreshBalance}.
    */
   async refreshAssets(): Promise<void> {
-    if (!this._session?.wallet?.address) {
+    // Any chain counts: a Solana login has no Stellar `wallet.address`, and the
+    // server answers for every wallet the session holds.
+    if (!this.hasWallet()) {
       ++this._enabledAssetsGen; // supersede any in-flight load (e.g. wallet went away)
       this._setEnabledAssetsState({ step: 'error', message: 'No wallet connected' });
       return;
