@@ -276,11 +276,6 @@ html.dark .pollar-send-inline-action {
   font-size: 0.9375rem;
 }
 
-.pollar-send-modal .pollar-footer {
-  margin-top: 1.25rem;
-  padding-top: 1rem;
-}
-
 @media (max-width: 480px) {
   .pollar-send-modal {
     max-width: calc(100vw - 2rem);

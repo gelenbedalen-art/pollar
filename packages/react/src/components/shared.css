@@ -341,8 +341,9 @@ html.dark .pollar-modal-card {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  margin-top: 1.25rem;
   border-top: 1px solid var(--pollar-border);
-  padding-top: 1.5rem;
+  padding-top: 1rem;
 }
 
 .pollar-footer-protected {

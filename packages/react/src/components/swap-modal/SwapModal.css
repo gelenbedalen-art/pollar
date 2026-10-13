@@ -380,11 +380,6 @@
   font-size: 0.9375rem;
 }
 
-.pollar-swap-modal .pollar-footer {
-  margin-top: 1rem;
-  padding-top: 0.875rem;
-}
-
 @media (max-width: 480px) {
   .pollar-swap-modal {
     max-width: calc(100vw - 2rem);
