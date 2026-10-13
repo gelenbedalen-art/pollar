@@ -57,6 +57,7 @@ import { hashApiKey } from '../lib/api-key-hash';
 import { createLogger, type PollarLogger } from '../lib/logger';
 import { redactBody, redactDeep } from '../lib/logging';
 import { randomUUID } from '../lib/random-uuid';
+import { bytesToHex, hexToBytes } from '../cosign/encoding';
 import { StellarNetwork } from '../stellar/StellarClient';
 import { defaultStorage } from '../storage/autodetect';
 import type { OnStorageDegrade, Storage, StorageDegradeReason } from '../storage/types';
@@ -3896,8 +3897,9 @@ export class PollarClient {
    * external adapters and passkey wallets via the split flow), while a chain
    * whose signature expires does the whole thing in one server-side call.
    *
-   * Embedded-only outside Stellar: a non-Stellar external wallet would have to
-   * sign client-side, and that path is not wired yet.
+   * A Solana wallet the user signs with themselves (SIWS login) is the one
+   * exception to the single call: the backend builds, the wallet signs here,
+   * the backend submits ({@link _sendSolanaExternal}).
    */
   async sendPayment(params: SendPaymentParams): Promise<SubmitOutcome> {
     if (params.chain === undefined || params.chain === 'STELLAR') {
@@ -3913,9 +3915,12 @@ export class PollarClient {
     }
 
     this._txStartGen = this._sessionGeneration;
-    if (!this._session?.wallet?.address) {
-      this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: 'No wallet connected' });
-      return { status: 'error', details: 'No wallet connected' };
+    // `session.wallet` is the Stellar wallet by contract (null after a SIWS
+    // login), so the Solana wallet is looked up in `wallets[]`.
+    const solanaWallet = this.getWallets().find((w) => w.chain === 'SOLANA');
+    if (!solanaWallet) {
+      this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: 'No Solana wallet' });
+      return { status: 'error', details: 'No Solana wallet' };
     }
     const answer = await this._confirm({
       kind: 'build_sign_submit',
@@ -3924,6 +3929,8 @@ export class PollarClient {
       details: { destination: params.destination, amount: params.amount, ...(params.mint ? { mint: params.mint } : {}) },
     });
     if (!answer.ok) return this._declined('building-signing-submitting', undefined, answer);
+
+    if (solanaWallet.custody === 'external') return this._sendSolanaExternal(params);
 
     this._setTransactionState({ step: 'building-signing-submitting' });
     try {
@@ -3978,6 +3985,108 @@ export class PollarClient {
       this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', ...(details && { details }) });
       return { status: 'error', ...(details && { details }) };
     }
+  }
+
+  /**
+   * A Solana transfer from a wallet the user signs with themselves: the backend
+   * compiles it around the user's address (`/tx/build`), the connected wallet
+   * signs it, and the backend broadcasts it (`/tx/submit`), adding the app's
+   * sponsor signature when the token is sponsored. One `idempotencyKey` ties
+   * the two calls to one record. The blockhash the build binds lasts about a
+   * minute, which is why the wallet is asked to sign right away.
+   */
+  private async _sendSolanaExternal(params: Extract<SendPaymentParams, { chain: 'SOLANA' }>): Promise<SubmitOutcome> {
+    const noSigner = this._externalSignerMissing();
+    if (noSigner) {
+      this._setTransactionState({ step: 'error', phase: 'building', details: noSigner.details });
+      return noSigner;
+    }
+    const adapter = this._walletAdapter;
+    if (!adapter?.signSolanaTransaction) {
+      throw new Error(`[PollarClient] wallet adapter "${adapter?.type}" cannot sign a Solana transaction`);
+    }
+    const idempotencyKey = randomUUID();
+    const body = {
+      chain: 'SOLANA',
+      operation: 'payment',
+      params: { destination: params.destination, amount: params.amount, ...(params.mint ? { mint: params.mint } : {}) },
+      idempotencyKey,
+    };
+
+    this._setTransactionState({ step: 'building' });
+    let unsignedTransaction: string;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union; this is the Solana member
+      const { data, error } = await this._api.POST('/tx/build', { body: body as any });
+      const content = !error && data?.success ? (data.content as unknown as { unsignedTransaction?: string }) : null;
+      if (!content?.unsignedTransaction) {
+        const { details, code, message } = this._resolveTxApiError(error, data);
+        this._setTransactionState({
+          step: 'error',
+          phase: 'building',
+          ...(details && { details }),
+          ...(code && { code }),
+          ...(message && { message }),
+        });
+        return { status: 'error', ...(details && { details }), ...(code && { code }), ...(message && { message }) };
+      }
+      unsignedTransaction = content.unsignedTransaction;
+    } catch (err) {
+      const details = err instanceof Error ? err.message : undefined;
+      this._setTransactionState({ step: 'error', phase: 'building', ...(details && { details }) });
+      return { status: 'error', ...(details && { details }) };
+    }
+
+    this._setTransactionState({ step: 'signing' });
+    let signedTransaction: string;
+    try {
+      const signed = await adapter.signSolanaTransaction(hexToBytes(unsignedTransaction), this._solanaChainId());
+      signedTransaction = bytesToHex(signed);
+    } catch (err) {
+      const details = err instanceof Error ? err.message : undefined;
+      this._setTransactionState({ step: 'error', phase: 'signing', ...(details && { details }) });
+      return { status: 'error', ...(details && { details }) };
+    }
+
+    this._setTransactionState({ step: 'submitting' });
+    try {
+      const { data, error } = await this._api.POST('/tx/submit', {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union; this is the Solana member
+        body: { chain: 'SOLANA', signedTransaction, idempotencyKey, waitForConfirmation: false } as any,
+        headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
+      });
+      if (!error && data?.success && data.content && 'hash' in data.content) {
+        const { hash, status: backendStatus } = data.content as { hash: string; status: string };
+        if (backendStatus === 'SUCCESS') {
+          this._setTransactionState({ step: 'success', hash });
+          return { status: 'success', hash };
+        }
+        if (backendStatus === 'PENDING') {
+          this._setTransactionState({ step: 'submitted', hash });
+          return this._awaitTxConfirmation(hash, 'submitting', undefined, {});
+        }
+        this._setTransactionState({ step: 'error', phase: 'submitting' });
+        return { status: 'error', hash };
+      }
+      const { details, code, message } = this._resolveTxApiError(error, data);
+      this._setTransactionState({
+        step: 'error',
+        phase: 'submitting',
+        ...(details && { details }),
+        ...(code && { code }),
+        ...(message && { message }),
+      });
+      return { status: 'error', ...(details && { details }), ...(code && { code }), ...(message && { message }) };
+    } catch (err) {
+      const details = err instanceof Error ? err.message : undefined;
+      this._setTransactionState({ step: 'error', phase: 'submitting', ...(details && { details }) });
+      return { status: 'error', ...(details && { details }) };
+    }
+  }
+
+  /** The Wallet Standard chain id the connected Solana wallet signs for; testnet means devnet here. */
+  private _solanaChainId(): 'solana:mainnet' | 'solana:devnet' {
+    return this.getNetwork() === 'mainnet' ? 'solana:mainnet' : 'solana:devnet';
   }
 
   /** Alias for {@link buildAndSignAndSubmitTx} - shorter "just do the thing" name. */
