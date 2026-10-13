@@ -9,11 +9,27 @@ import { resolveChain } from '../ChainSelect';
 import '../shared.css';
 import '../transaction-modal/TransactionModal.css';
 import './SendModal.css';
-import { SendModalTemplate } from './SendModalTemplate';
+import { SendModalTemplate, type SendMemoType } from './SendModalTemplate';
 import { modalChrome } from '../modal-theme';
 
 interface SendModalProps {
   onClose: () => void;
+}
+
+const MAX_MEMO_ID = 18446744073709551615n;
+
+/** A Stellar memo as the build endpoint takes it, undefined when the field is
+ *  empty, or an error string the form shows. Text is capped at 28 BYTES on-chain
+ *  (a multibyte character counts more than once); an ID is an unsigned 64-bit
+ *  integer. */
+function parseMemo(type: SendMemoType, raw: string): { type: SendMemoType; value: string } | undefined | string {
+  const value = type === 'id' ? raw.trim() : raw;
+  if (value.trim() === '') return undefined;
+  if (type === 'text') {
+    return new TextEncoder().encode(value).length > 28 ? 'The memo text can be at most 28 bytes.' : { type, value };
+  }
+  if (!/^\d+$/.test(value) || BigInt(value) > MAX_MEMO_ID) return 'The memo ID must be a whole number up to 2^64 - 1.';
+  return { type, value };
 }
 
 function assetParam(record: WalletBalanceRecord) {
@@ -44,6 +60,8 @@ export function SendModal({ onClose }: SendModalProps) {
   const [step, setStep] = useState<'form' | 'tx'>('form');
   const [amount, setAmount] = useState('');
   const [destination, setDestination] = useState('');
+  const [memo, setMemo] = useState('');
+  const [memoType, setMemoType] = useState<SendMemoType>('text');
   const [selectedAsset, setSelectedAsset] = useState<WalletBalanceRecord | null>(null);
   const [showXdr, setShowXdr] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -168,6 +186,11 @@ export function SendModal({ onClose }: SendModalProps) {
       setFormError('Enter a destination address');
       return;
     }
+    const parsedMemo = selectedChain === 'STELLAR' ? parseMemo(memoType, memo) : undefined;
+    if (typeof parsedMemo === 'string') {
+      setFormError(parsedMemo);
+      return;
+    }
 
     // A non-native asset needs BOTH its mint (carried in `issuer`) and its own
     // `decimals`, and neither has a safe default: without the mint the payload
@@ -210,7 +233,11 @@ export function SendModal({ onClose }: SendModalProps) {
       return;
     }
 
-    await buildTx('payment', { destination: destination.trim(), amount, asset: assetParam(selectedAsset) });
+    await buildTx(
+      'payment',
+      { destination: destination.trim(), amount, asset: assetParam(selectedAsset) },
+      parsedMemo ? { memo: parsedMemo } : undefined,
+    );
   }
 
   function handleSignAndSend() {
@@ -303,6 +330,10 @@ export function SendModal({ onClose }: SendModalProps) {
         onMax={handleMax}
         onPaste={handlePaste}
         onDestinationChange={setDestination}
+        memo={memo}
+        memoType={memoType}
+        onMemoChange={setMemo}
+        onMemoTypeChange={setMemoType}
         onSubmit={() => void handleSubmit()}
         onSignAndSend={handleSignAndSend}
         onToggleXdr={() => setShowXdr((v) => !v)}

@@ -1,8 +1,9 @@
 'use client';
 
-import type { CosignRequest, CosignVerification } from '@pollar/core';
+import { type CosignRequest, type CosignVerification, isPollarApiError, transactionErrorMessage } from '@pollar/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
+import { explorerTxUrl } from '../commons';
 import { useCosign } from '../../useCosign';
 import '../shared.css';
 import './CosignModal.css';
@@ -19,7 +20,7 @@ interface CosignModalProps {
  * transaction the device checked itself.
  */
 export function CosignModal({ onClose }: CosignModalProps) {
-  const { getClient, styles } = usePollar();
+  const { getClient, styles, network } = usePollar();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
   const { pending, lastResolved, approve, reject, verify, inspectQuorum } = useCosign();
 
@@ -27,6 +28,9 @@ export function CosignModal({ onClose }: CosignModalProps) {
   const [verification, setVerification] = useState<CosignVerification | null>(null);
   const [busy, setBusy] = useState<'approving' | 'rejecting' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The request whose approval just failed. Approving it again cannot succeed
+  // until something changes (a balance, a fresh request), so Approve stays off.
+  const [approveFailedFor, setApproveFailedFor] = useState<string | null>(null);
   // The quorum as this device read it from Turnkey, once per open. Approving
   // anything on a sub-organization that is not the promised 2-of-2 would be a
   // vote on a wallet someone else can also control, so a bad reading fails
@@ -58,6 +62,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
     if (!request) return;
     setVerification(null);
     setError(null);
+    setApproveFailedFor(null);
     let cancelled = false;
     verify(request)
       .then((v) => {
@@ -86,7 +91,8 @@ export function CosignModal({ onClose }: CosignModalProps) {
       try {
         await action(request);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+        setError(transactionErrorMessage(isPollarApiError(err) ? err.code : null, err instanceof Error ? err.message : null));
+        if (kind === 'approving') setApproveFailedFor(request.id);
       } finally {
         setBusy(null);
       }
@@ -105,7 +111,9 @@ export function CosignModal({ onClose }: CosignModalProps) {
         verification={current ? (quorumFailure ? { ok: false, reason: quorumFailure } : verification) : null}
         busy={busy}
         error={error}
+        approveBlocked={!!current && approveFailedFor === current.id}
         {...(lastResolved ? { lastResolved } : {})}
+        explorerUrl={lastResolved?.submit?.hash ? explorerTxUrl(lastResolved.network, lastResolved.submit.hash, network) : null}
         onSelect={(r) => setSelectedId(r.id)}
         onApprove={(r) => void run('approving', r, approve)}
         onReject={(r) => void run('rejecting', r, reject)}

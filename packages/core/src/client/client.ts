@@ -2280,7 +2280,9 @@ export class PollarClient {
    * `walletBalanceState`. For an arbitrary wallet, use {@link getWalletBalance}.
    */
   async refreshBalance(): Promise<void> {
-    if (!this._session?.wallet?.address) {
+    // Any chain counts: a Solana login has no Stellar `wallet.address`, and the
+    // server answers for every wallet the session holds.
+    if (!this.hasWallet()) {
       ++this._walletBalanceGen; // supersede any in-flight load (e.g. wallet went away)
       this._setWalletBalanceState({ step: 'error', message: 'No wallet connected' });
       return;
@@ -2432,7 +2434,9 @@ export class PollarClient {
    * session. Drives `enabledAssetsState`; mirrors {@link refreshBalance}.
    */
   async refreshAssets(): Promise<void> {
-    if (!this._session?.wallet?.address) {
+    // Any chain counts: a Solana login has no Stellar `wallet.address`, and the
+    // server answers for every wallet the session holds.
+    if (!this.hasWallet()) {
       ++this._enabledAssetsGen; // supersede any in-flight load (e.g. wallet went away)
       this._setEnabledAssetsState({ step: 'error', message: 'No wallet connected' });
       return;
@@ -2674,11 +2678,15 @@ export class PollarClient {
 
   /**
    * The registered wallet adapters (built-in Freighter/Albedo first, then any
-   * `config.walletAdapters`), as `{ id, meta }` for the login UI to render one
-   * button per adapter. Reach a login via `login({ provider: id })`.
+   * `config.walletAdapters`), as `{ id, meta, chain }` for the login UI to render
+   * one button per adapter. Reach a login via `login({ provider: id })`.
    */
-  listWalletAdapters(): { id: WalletId; meta: WalletAdapterMeta }[] {
-    return Array.from(this._walletAdapters.values()).map((a) => ({ id: a.type, meta: this._safeMeta(a.meta) }));
+  listWalletAdapters(): { id: WalletId; meta: WalletAdapterMeta; chain: WalletChain }[] {
+    return Array.from(this._walletAdapters.values()).map((a) => ({
+      id: a.type,
+      meta: this._safeMeta(a.meta),
+      chain: a.chain ?? 'STELLAR',
+    }));
   }
 
   /**
@@ -3300,8 +3308,9 @@ export class PollarClient {
    * device votes here: `approve` refreshes, verifies the payload against what
    * Turnkey is about to sign and stamps the approval; that vote completes the
    * quorum, so the request normally comes back final and the call ends the way
-   * a custodial one does. A payload that does not match what was asked is
-   * rejected, which ends the request for good. Turnkey finishing late is polled
+   * a custodial one does. Any failure on the way (a payload that does not
+   * match what was asked, a rebuild that fails) rejects the request, which
+   * ends it for good. Turnkey finishing late is polled
    * a few times; past that the request is returned pending and
    * `client.cosign.get(id, { sync: true })` reads its outcome.
    */
@@ -3331,10 +3340,12 @@ export class PollarClient {
       if (err instanceof PollarApiError && code === 'SDK_COSIGN_VERIFICATION_FAILED') {
         const verification = err.body.verification as { reason?: string } | undefined;
         details = verification?.reason ?? details;
-        await this.cosign.reject(request).catch((rejectErr) => {
-          this._log.warn('[PollarClient] could not reject a co-sign request whose payload did not verify', rejectErr);
-        });
       }
+      // This call reports the send as failed, so the request must not stay
+      // approvable: the prompt would later offer a send the user was told failed.
+      await this.cosign.reject(request).catch((rejectErr) => {
+        this._log.warn('[PollarClient] could not reject a co-sign request after a failed send', rejectErr);
+      });
       this._setTransactionState({
         step: 'error',
         phase: ctx.phase,

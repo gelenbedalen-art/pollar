@@ -154,7 +154,7 @@ export function ReceiveModalTemplate({
         <div className="pollar-modal-empty">No wallet connected.</div>
       )}
 
-      <PollarModalFooter shield />
+      <PollarModalFooter />
     </div>
   );
 }

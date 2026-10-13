@@ -1,9 +1,9 @@
 'use client';
 
-import { StellarNetwork, TxHistoryRecord, TxHistoryState, WalletChain } from '@pollar/core';
+import { TxHistoryRecord, TxHistoryState, WalletChain } from '@pollar/core';
 import { type ReactNode } from 'react';
 import { ChainSelect } from '../ChainSelect';
-import { CopyButton, cropAddress, PollarModalFooter } from '../commons';
+import { CopyButton, cropAddress, explorerTxUrl, PollarModalFooter } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
 const PAGE_SIZE = 10;
@@ -25,14 +25,6 @@ interface TxHistoryModalTemplateProps {
   onPrev: () => void;
   onNext: () => void;
   onClose: () => void;
-}
-
-/** The explorer transaction URL for a row, by its chain. */
-function explorerUrlFor(chain: WalletChain, hash: string, network: StellarNetwork): string {
-  if (chain === 'SOLANA') {
-    return `https://explorer.solana.com/tx/${hash}${network === 'testnet' ? '?cluster=devnet' : ''}`;
-  }
-  return `https://stellar.expert/explorer/${network === 'testnet' ? 'testnet' : 'public'}/tx/${hash}`;
 }
 
 function StatusBadge({ status }: { status: TxHistoryRecord['status'] }) {
@@ -177,7 +169,7 @@ export function TxHistoryModalTemplate({
           const hash = typeof record.hash === 'string' && record.hash.length > 0 ? record.hash : undefined;
           // Each row carries its own chain (a filtered view is still per-chain),
           // so the explorer link follows the row, not the picker.
-          const explorerUrl = hash ? explorerUrlFor(record.chain, hash, record.network) : undefined;
+          const explorerUrl = hash ? explorerTxUrl(record.chain, hash, record.network) : undefined;
           const asset = typeof record.details?.asset === 'string' ? record.details.asset : undefined;
           // `change_trust` summaries embed the asset as `CODE:ISSUER` - split so
           // the issuer can be truncated and copied on its own.

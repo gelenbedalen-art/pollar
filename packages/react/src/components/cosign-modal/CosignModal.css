@@ -31,6 +31,22 @@ html.dark .pollar-cosign-modal {
   text-align: center;
 }
 
+.pollar-cosign-approved-icon {
+  display: block;
+  margin: 0 auto 0.75rem;
+  color: var(--pollar-success-text);
+}
+
+.pollar-cosign-tx-link {
+  color: var(--pollar-accent);
+  font-family: 'Geist Mono', monospace;
+  text-decoration: none;
+}
+
+.pollar-cosign-tx-link:hover {
+  text-decoration: underline;
+}
+
 .pollar-cosign-empty-title {
   margin: 0 0 0.35rem;
   font-weight: 600;

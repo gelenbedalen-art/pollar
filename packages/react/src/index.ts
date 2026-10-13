@@ -75,7 +75,7 @@ export type {
   CustomTrustlineModalTemplateProps,
 } from './components/enabled-assets-modal/EnabledAssetsModalTemplate';
 export { SendModalTemplate } from './components/send-modal/SendModalTemplate';
-export type { SendModalTemplateProps } from './components/send-modal/SendModalTemplate';
+export type { SendMemoType, SendModalTemplateProps } from './components/send-modal/SendModalTemplate';
 export { SwapModalTemplate } from './components/swap-modal/SwapModalTemplate';
 export type { SwapModalTemplateProps, SwapAssetOption } from './components/swap-modal/SwapModalTemplate';
 export { ReceiveModalTemplate } from './components/receive-modal/ReceiveModalTemplate';

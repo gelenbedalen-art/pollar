@@ -527,7 +527,7 @@ export function SwapModalTemplate({
           onDone={onDone}
         />
       )}
-      <PollarModalFooter shield />
+      <PollarModalFooter />
     </div>
   );
 }
