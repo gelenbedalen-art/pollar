@@ -76,16 +76,17 @@ export function SendModal({ onClose }: SendModalProps) {
     if (selectedChain === null && chains.length > 0) setSelectedChain(chains[0]!);
   }, [chains, selectedChain]);
 
-  // Solana joined Stellar via the atomic endpoint; Polygon has no transfer path
-  // in the backend yet, so it can be browsed but not sent from.
-  const canSendOnChain = selectedChain === 'STELLAR' || selectedChain === 'SOLANA';
+  const canSendOnChain = selectedChain === 'STELLAR' || selectedChain === 'SOLANA' || selectedChain === 'POLYGON';
   // A Stellar account still being created cannot source a payment: every
   // operation would come back `op_no_source_account`. The server refuses these
   // with SDK_WALLET_NOT_READY anyway - saying so here turns that into something
   // the user can act on (wait) instead of a failed transaction.
   const notReadyReason = walletNotReadyReason(wallet, selectedChain);
-  // Solana amounts are integer base units (lamports / mint units), not decimals.
-  const isBaseUnitChain = selectedChain === 'SOLANA';
+  // Solana and Polygon amounts are integer base units (lamports / wei / token
+  // units), not decimals.
+  const isBaseUnitChain = selectedChain === 'SOLANA' || selectedChain === 'POLYGON';
+  // Native SOL has 9 decimals, native POL 18.
+  const nativeDecimals = selectedChain === 'POLYGON' ? 18 : 9;
 
   useEffect(() => {
     void refreshWalletBalance();
@@ -136,7 +137,9 @@ export function SendModal({ onClose }: SendModalProps) {
     ? null
     : selectedChain === 'SOLANA'
       ? `https://explorer.solana.com/tx/${hash}${explorerNetwork === 'testnet' ? '?cluster=devnet' : ''}`
-      : `https://stellar.expert/explorer/${explorerNetwork}/tx/${hash}`;
+      : selectedChain === 'POLYGON'
+        ? `https://${explorerNetwork === 'testnet' ? 'amoy.' : ''}polygonscan.com/tx/${hash}`
+        : `https://stellar.expert/explorer/${explorerNetwork}/tx/${hash}`;
 
   const IN_FLIGHT_STEPS = [
     'building',
@@ -192,27 +195,28 @@ export function SendModal({ onClose }: SendModalProps) {
       return;
     }
 
-    // A non-native asset needs BOTH its mint (carried in `issuer`) and its own
-    // `decimals`, and neither has a safe default: without the mint the payload
-    // below drops to a native transfer, so a USDC send would move SOL instead,
-    // and the 9-decimal fallback would multiply a 6-decimal token by 1000. The
-    // backend always sends both, so this only fires on malformed data - but it
-    // fails the send rather than sending the wrong thing.
+    // A non-native asset needs BOTH its on-chain id (the SPL mint or ERC-20
+    // contract, carried in `issuer`) and its own `decimals`, and neither has a
+    // safe default: without the id the payload below drops to a native transfer,
+    // so a USDC send would move SOL or POL instead, and the native fallback would
+    // multiply a 6-decimal token by 1000 or more. The backend always sends both,
+    // so this only fires on malformed data - but it fails the send rather than
+    // sending the wrong thing.
     const isNativeAsset = selectedAsset.type === 'native';
     if (isBaseUnitChain && !isNativeAsset && (!selectedAsset.issuer || selectedAsset.decimals === undefined)) {
-      setFormError('This token is missing its mint or decimals and cannot be sent.');
+      setFormError('This token is missing its contract or decimals and cannot be sent.');
       return;
     }
 
-    // Solana takes integer base units while the form (like the balance above it)
-    // is in decimals, so convert before sending - with the asset's own decimals,
-    // and via strings so a 9-decimal amount is not rounded by a float. The
-    // fallback is native SOL's 9, reached only on the native row (the guard above
-    // rejects any other asset that lacks `decimals`).
+    // Solana and Polygon take integer base units while the form (like the balance
+    // above it) is in decimals, so convert before sending - with the asset's own
+    // decimals, and via strings so an 18-decimal amount is not rounded by a float.
+    // The fallback is the native coin's decimals, reached only on the native row
+    // (the guard above rejects any other asset that lacks `decimals`).
     let sendAmount = amount;
     if (isBaseUnitChain) {
       try {
-        sendAmount = toBaseUnits(amount, selectedAsset.decimals ?? 9);
+        sendAmount = toBaseUnits(amount, selectedAsset.decimals ?? nativeDecimals);
       } catch (e) {
         setFormError(e instanceof Error ? e.message : 'Invalid amount');
         return;
@@ -221,13 +225,13 @@ export function SendModal({ onClose }: SendModalProps) {
 
     setStep('tx');
 
-    if (selectedChain === 'SOLANA') {
+    if (selectedChain === 'SOLANA' || selectedChain === 'POLYGON') {
       await sendPayment({
-        chain: 'SOLANA',
+        chain: selectedChain,
         destination: destination.trim(),
         amount: sendAmount,
-        // Native SOL carries no mint; an SPL token's mint rides in `issuer`,
-        // which the guard above proved is present.
+        // A native coin carries no token id; an SPL mint or ERC-20 contract rides
+        // in `issuer`, which the guard above proved is present.
         ...(isNativeAsset ? {} : { mint: selectedAsset.issuer }),
       });
       return;

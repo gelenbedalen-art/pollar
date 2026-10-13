@@ -3914,7 +3914,8 @@ export class PollarClient {
    *
    * A Solana wallet the user signs with themselves (SIWS login) is the one
    * exception to the single call: the backend builds, the wallet signs here,
-   * the backend submits ({@link _sendSolanaExternal}).
+   * the backend submits ({@link _sendSolanaExternal}). Polygon has no wallet the
+   * user brings: its wallets are custodial or co-signed, both sent in one call.
    */
   async sendPayment(params: SendPaymentParams): Promise<SubmitOutcome> {
     if (params.chain === undefined || params.chain === 'STELLAR') {
@@ -3925,45 +3926,52 @@ export class PollarClient {
       );
     }
 
-    if (params.chain !== 'SOLANA') {
-      return { status: 'error', details: `Sending on ${params.chain} is not supported yet.` };
-    }
-
+    const send = params as Extract<SendPaymentParams, { chain: 'SOLANA' | 'POLYGON' }>;
+    const chain = send.chain;
+    const label = chain === 'SOLANA' ? 'Solana' : 'Polygon';
     this._txStartGen = this._sessionGeneration;
     // `session.wallet` is the Stellar wallet by contract (null after a SIWS
-    // login), so the Solana wallet is looked up in `wallets[]`.
-    const solanaWallet = this.getWallets().find((w) => w.chain === 'SOLANA');
-    if (!solanaWallet) {
-      this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: 'No Solana wallet' });
-      return { status: 'error', details: 'No Solana wallet' };
+    // login), so the other chains' wallets are looked up in `wallets[]`.
+    const wallet = this.getWallets().find((w) => w.chain === chain);
+    if (!wallet) {
+      this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: `No ${label} wallet` });
+      return { status: 'error', details: `No ${label} wallet` };
+    }
+    if (chain === 'POLYGON' && wallet.custody === 'external') {
+      const details = 'An external Polygon wallet signs its own transactions; Pollar does not send from it.';
+      this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details });
+      return { status: 'error', details };
     }
     const answer = await this._confirm({
       kind: 'build_sign_submit',
-      network: 'SOLANA',
+      network: chain,
       operation: 'payment',
-      details: { destination: params.destination, amount: params.amount, ...(params.mint ? { mint: params.mint } : {}) },
+      details: { destination: send.destination, amount: send.amount, ...(send.mint ? { mint: send.mint } : {}) },
     });
     if (!answer.ok) return this._declined('building-signing-submitting', undefined, answer);
 
-    if (solanaWallet.custody === 'external') return this._sendSolanaExternal(params);
+    if (chain === 'SOLANA' && wallet.custody === 'external')
+      return this._sendSolanaExternal(send as Extract<SendPaymentParams, { chain: 'SOLANA' }>);
 
     this._setTransactionState({ step: 'building-signing-submitting' });
     try {
       const { data, error } = await this._api.POST('/tx/build-sign-submit', {
         body: {
-          chain: 'SOLANA',
+          chain,
           operation: 'payment',
           params: {
-            destination: params.destination,
-            amount: params.amount,
-            ...(params.mint ? { mint: params.mint } : {}),
+            destination: send.destination,
+            amount: send.amount,
+            // The asset is the chain-specific part: an SPL mint on Solana, an
+            // ERC-20 contract on Polygon (`token` on the wire).
+            ...(send.mint ? (chain === 'SOLANA' ? { mint: send.mint } : { token: send.mint }) : {}),
           },
-          // Required on Solana: its submit is a single non-idempotent shot, so
-          // the backend dedupes on this key. Minted per call so a transport
-          // retry converges on the original transfer instead of sending twice.
+          // Required on both: the submit is a single non-idempotent shot, so the
+          // backend dedupes on this key. Minted per call so a transport retry
+          // converges on the original transfer instead of sending twice.
           idempotencyKey: randomUUID(),
           waitForConfirmation: false,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union; this branch is the Solana member
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union, and its Polygon member is not in the generated schema until it is regenerated from this sdk-api
         } as any,
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });

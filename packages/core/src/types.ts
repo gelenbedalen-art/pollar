@@ -721,9 +721,10 @@ export interface StellarSepApi {
  * A payment, addressed per chain.
  *
  * The asset is the one part that cannot be unified: Stellar identifies it by
- * code + issuer, Solana by SPL mint. Amounts differ too - Stellar takes a
- * decimal string, Solana integer base units (lamports / mint units), because
- * that is what each chain's signer actually consumes.
+ * code + issuer, Solana by SPL mint, Polygon by ERC-20 contract. Amounts differ
+ * too - Stellar takes a decimal string, Solana and Polygon integer base units
+ * (lamports / wei / token units), because that is what each chain's signer
+ * actually consumes.
  */
 export type SendPaymentParams =
   | {
@@ -746,7 +747,9 @@ export type SendPaymentParams =
   | {
       chain: 'POLYGON';
       destination: string;
+      /** Integer base units: wei for POL, the token's smallest unit for an ERC-20. */
       amount: string;
+      /** Omit for native POL; otherwise the ERC-20 contract to transfer (named `mint` like Solana's). */
       mint?: string | null;
       options?: undefined;
     };
