@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import { PollarApiError } from '../types';
 import { bytesToHex, compressedPublicKeyHex, encodeStamp, rawSignatureToDer } from './encoding';
+import { checkEvmRequest, polygonChainIdFor } from './evm';
 import { stellarTransactionHashHex } from './stellar-hash';
 
 /**
@@ -80,7 +81,7 @@ function turnkeyPayloadOf(request: CosignRequest, intent: Intent): string | null
     return typeof payload === 'string' ? payload.toLowerCase() : null;
   }
   const tx = (intent.signTransactionIntentV2 as { unsignedTransaction?: unknown } | undefined)?.unsignedTransaction;
-  return typeof tx === 'string' ? tx.toLowerCase() : null;
+  return typeof tx === 'string' ? tx.replace(/^0x/i, '').toLowerCase() : null;
 }
 
 /** The account Turnkey would sign with, as the intent names it. */
@@ -286,6 +287,16 @@ export class CosignManager {
       }
     } else if (request.network === 'SOLANA') {
       localHash = request.unsignedPayload.toLowerCase();
+    } else if (request.network === 'POLYGON') {
+      // The payload is read here, not only compared: the call it makes must be
+      // one the platform asks for, and the one the request says it is.
+      const check = checkEvmRequest(
+        request.unsignedPayload,
+        request.details as Record<string, unknown> | undefined,
+        polygonChainIdFor(this.deps.networkPassphrase()),
+      );
+      if (!check.ok) return { ok: false, reason: check.reason };
+      localHash = request.unsignedPayload.replace(/^0x/i, '').toLowerCase();
     } else {
       return { ok: false, reason: `verification for ${request.network} is not implemented yet` };
     }
@@ -304,7 +315,12 @@ export class CosignManager {
     if (turnkeyPayload !== localHash) {
       return { ok: false, reason: 'Turnkey holds a different payload for this activity', localHash, turnkeyPayload };
     }
-    if (request.kind !== 'ACCOUNT' && signWithOf(request, intent) !== request.signWith) {
+    // An EVM address compares without its checksum casing.
+    const sameSigner =
+      request.network === 'POLYGON'
+        ? signWithOf(request, intent)?.toLowerCase() === request.signWith.toLowerCase()
+        : signWithOf(request, intent) === request.signWith;
+    if (request.kind !== 'ACCOUNT' && !sameSigner) {
       return {
         ok: false,
         reason: 'Turnkey would sign with a different account than the request names',
