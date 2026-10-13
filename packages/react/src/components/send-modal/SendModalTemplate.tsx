@@ -154,6 +154,9 @@ function SendAssetSelector({ assets, selectedAsset, loading, onSelectAsset }: Se
   );
 }
 
+/** The memo types the backend accepts on a Stellar payment. */
+export type SendMemoType = 'text' | 'id';
+
 export interface SendModalTemplateProps {
   theme: string;
   accentColor: string;
@@ -204,6 +207,15 @@ export interface SendModalTemplateProps {
   onMax: () => void;
   onPaste: () => void;
   onDestinationChange: (value: string) => void;
+  /**
+   * Optional Stellar memo. The field renders only on Stellar and only when
+   * {@link onMemoChange} is passed, so a custom template written before it
+   * existed keeps compiling.
+   */
+  memo?: string;
+  memoType?: SendMemoType;
+  onMemoChange?: (value: string) => void;
+  onMemoTypeChange?: (type: SendMemoType) => void;
   onSubmit: () => void;
   onSignAndSend: () => void;
   onToggleXdr: () => void;
@@ -244,6 +256,10 @@ export function SendModalTemplate({
   onMax,
   onPaste,
   onDestinationChange,
+  memo = '',
+  memoType = 'text',
+  onMemoChange,
+  onMemoTypeChange,
   onSubmit,
   onSignAndSend,
   onToggleXdr,
@@ -385,6 +401,34 @@ export function SendModalTemplate({
               </button>
             </div>
           </div>
+
+          {selectedChain === 'STELLAR' && onMemoChange && (
+            <div className="pollar-send-field">
+              <label className="pollar-send-label" htmlFor="pollar-send-memo">
+                Memo <span className="pollar-send-label-optional">(optional)</span>
+              </label>
+              <div className="pollar-send-memo-row">
+                <select
+                  className="pollar-input pollar-send-memo-type"
+                  value={memoType}
+                  onChange={(e) => onMemoTypeChange?.(e.target.value as SendMemoType)}
+                  aria-label="Memo type"
+                >
+                  <option value="text">Text</option>
+                  <option value="id">ID</option>
+                </select>
+                <input
+                  id="pollar-send-memo"
+                  className="pollar-input pollar-send-memo-input"
+                  type="text"
+                  inputMode={memoType === 'id' ? 'numeric' : 'text'}
+                  placeholder={memoType === 'id' ? '123456789' : 'Up to 28 characters'}
+                  value={memo}
+                  onChange={(e) => onMemoChange(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
 
           {formError && <div className="pollar-modal-error">{formError}</div>}
 

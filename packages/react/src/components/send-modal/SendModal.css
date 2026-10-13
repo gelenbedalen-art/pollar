@@ -202,6 +202,26 @@
   color: var(--Color-Neutral-400, #94a3b8);
 }
 
+.pollar-send-label-optional {
+  font-weight: 400;
+}
+
+.pollar-send-memo-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pollar-send-memo-type {
+  flex: 0 0 5.5rem;
+  padding: 0 0.75rem;
+  cursor: pointer;
+}
+
+.pollar-send-memo-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .pollar-send-destination-input {
   font-family: 'Geist Mono', monospace;
   font-size: 14px;
