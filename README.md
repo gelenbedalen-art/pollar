@@ -5,6 +5,18 @@ applications.
 
 This repository is managed with [Turborepo](https://turbo.build/repo) and contains the following published packages.
 
+## Solana
+
+Pollar runs on Solana end to end for wallets and payments:
+
+- **Sign in** with Phantom, Solflare or Backpack (Sign In With Solana, via `@pollar/solana-wallet-standard-adapter`), or
+  with email / Google / GitHub to get a **Pollar-managed Solana wallet**, with no seed phrase.
+- **Turnkey co-signed wallets** (mainnet): every signature is a 2-of-2 vote between the user's device and Pollar, and the
+  device verifies the transaction, including Solana CCTP burns, before it votes.
+- **Hold, send and receive SOL and SPL tokens** with `sendPayment()` and the drop-in React modals, with **app-sponsored
+  fees** and token accounts created for the recipient.
+- **Fiat on/off-ramps to Solana**: Bolivia (BOB, via Stereum + CCTP) and Brazil (BRL via Pix, PagFinance).
+
 ---
 
 ## Packages
