@@ -9,6 +9,18 @@ This is the Solana counterpart to `@pollar/stellar-wallets-kit-adapter`. Login u
 **SIWS (Sign In With Solana)** via the wallet's native `solana:signIn` feature -
 the Solana analogue of Stellar's SEP-10 challenge.
 
+## Solana
+
+Pollar runs on Solana end to end for wallets and payments:
+
+- **Sign in** with Phantom, Solflare or Backpack (Sign In With Solana, via `@pollar/solana-wallet-standard-adapter`), or
+  with email / Google / GitHub to get a **Pollar-managed Solana wallet**, with no seed phrase.
+- **Turnkey co-signed wallets** (mainnet): every signature is a 2-of-2 vote between the user's device and Pollar, and the
+  device verifies the transaction, including Solana CCTP burns, before it votes.
+- **Hold, send and receive SOL and SPL tokens** with `sendPayment()` and the drop-in React modals, with **app-sponsored
+  fees** and token accounts created for the recipient.
+- **Fiat on/off-ramps to Solana**: Bolivia (BOB, via Stereum + CCTP) and Brazil (BRL via Pix, PagFinance).
+
 > **0.11.5** is the adapter's first release on npm, on the SDK's version line. It
 > requires `@pollar/core@^0.11.2`; no adapter changes since 0.11.2.
 >
