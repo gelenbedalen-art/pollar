@@ -2,17 +2,12 @@
 
 ## 0.11.4 -> 0.11.5
 
-**Release candidate.** `0.11.5-rc.2` is published on the `next` tag
-(`0.11.5-rc.1` was never published). A caret range does not pick up a
-prerelease, so install it explicitly (`npm i @pollar/core@next
-@pollar/react@next`, or `@pollar/react-native@next`). `@pollar/react` and
-`@pollar/react-native` require `@pollar/core` on the same version. The
-privy, accesly and stellar-wallets-kit adapters stay at 0.11.2: their
-`@pollar/core@^0.11.2` range accepts 0.11.5, but no prerelease, so while
-testing the candidate next to one of them npm 7+ reports a peer conflict;
-install with `--legacy-peer-deps` until 0.11.5 is final.
+No code change is needed. `@pollar/react@0.11.5` and `@pollar/react-native@0.11.5`
+require `@pollar/core@^0.11.5`; if you pin the packages to exact versions, keep
+them on the same version. The privy, accesly and stellar-wallets-kit adapters
+stay at 0.11.2: their `@pollar/core@^0.11.2` range already accepts 0.11.5.
 `@pollar/solana-wallet-standard-adapter` is published for the first time, as
-`0.11.5-rc.2`.
+`0.11.5`, with the same `^0.11.2` range.
 
 ### Co-signed wallets (Turnkey)
 

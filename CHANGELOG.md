@@ -2,9 +2,9 @@
 
 ## 0.11.5
 
-> Candidate: `0.11.5-rc.2` for `@pollar/core`, `@pollar/react`,
-> `@pollar/react-native` and `@pollar/solana-wallet-standard-adapter`, on the
-> `next` tag. `0.11.5-rc.1` was never published.
+> `@pollar/core`, `@pollar/react`, `@pollar/react-native` and
+> `@pollar/solana-wallet-standard-adapter`. No candidate was published for
+> 0.11.5.
 >
 > **Turnkey co-signed wallets.** A mainnet app whose dashboard sets wallet
 > custody to `COSIGNED` gives each user a 2-of-2 quorum: this device's key and

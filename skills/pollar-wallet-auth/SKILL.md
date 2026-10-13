@@ -292,7 +292,7 @@ These are the failures that look like SDK bugs and are not:
 This skill tracks `@pollar/core` and `@pollar/react` `0.11.x`, which moved every request to the `/v2`
 API and added Solana alongside Stellar. `0.11.4` is where `wallet.provisioning`, `onWalletStateChange()` and `isWalletNotReady()` come from, along
 with ramp requirement steps (`requirementsRequired`, see [ramps.md](ramps.md)); on an older SDK the
-background-creation window exists but nothing in the client describes it. `0.11.5` (on npm's `next` tag as `0.11.5-rc.2` until it is promoted) adds Turnkey co-signed wallets,
+background-creation window exists but nothing in the client describes it. `0.11.5` adds Turnkey co-signed wallets,
 settled by the device on its own under the default `confirmation: 'auto'`, and `confirmation: 'prompt'`
 to show the user every signature first. Two
 earlier breaks matter if an existing integration is being upgraded: `0.11.1` made balances nullable, and `0.10.0` replaced the

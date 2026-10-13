@@ -2,7 +2,7 @@
 
 Core SDK for [Pollar](https://pollar.xyz) — authentication and transaction utilities for Stellar and Solana applications.
 
-> **0.11.5** (candidate `0.11.5-rc.2` on the `next` tag). **Turnkey co-signed wallets** and a
+> **0.11.5**. **Turnkey co-signed wallets** and a
 > **confirmation policy**: `config.confirmation` `'auto'` (default; a co-signed wallet's device verifies
 > against Turnkey and votes on its own) or `'prompt'` (every signature waits for the user, through
 > `onConfirmationRequest()`); `config.cosignManual` keeps the raw `{ status: 'cosign_pending', request }`
