@@ -2672,11 +2672,15 @@ export class PollarClient {
 
   /**
    * The registered wallet adapters (built-in Freighter/Albedo first, then any
-   * `config.walletAdapters`), as `{ id, meta }` for the login UI to render one
-   * button per adapter. Reach a login via `login({ provider: id })`.
+   * `config.walletAdapters`), as `{ id, meta, chain }` for the login UI to render
+   * one button per adapter. Reach a login via `login({ provider: id })`.
    */
-  listWalletAdapters(): { id: WalletId; meta: WalletAdapterMeta }[] {
-    return Array.from(this._walletAdapters.values()).map((a) => ({ id: a.type, meta: this._safeMeta(a.meta) }));
+  listWalletAdapters(): { id: WalletId; meta: WalletAdapterMeta; chain: WalletChain }[] {
+    return Array.from(this._walletAdapters.values()).map((a) => ({
+      id: a.type,
+      meta: this._safeMeta(a.meta),
+      chain: a.chain ?? 'STELLAR',
+    }));
   }
 
   /**
