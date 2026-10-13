@@ -154,6 +154,7 @@ import {
   TrustlineOutcome,
   TxBuildBody,
   TxBuildContent,
+  TxBuildResponse,
   TxHistoryParams,
   TxHistoryState,
   TxSignAndSendBody,
@@ -2652,9 +2653,10 @@ export class PollarClient {
     try {
       this._setTransactionState({ step: 'building' });
       const { data, error } = await this._api.POST('/tx/build', { body });
-      if (!error && data?.success && data.content) {
-        this._setTransactionState({ step: 'built', buildData: data.content });
-        return { status: 'built', buildData: data.content };
+      const built = !error && data?.success ? stellarBuildOf(data.content) : null;
+      if (built) {
+        this._setTransactionState({ step: 'built', buildData: built });
+        return { status: 'built', buildData: built };
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -3589,7 +3591,8 @@ export class PollarClient {
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
       if (!error && data?.success && data.content) {
-        const { hash, status: backendStatus, resultCode } = data.content;
+        const { hash, status: backendStatus } = data.content;
+        const resultCode = 'resultCode' in data.content ? data.content.resultCode : undefined;
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash, ...(buildData && { buildData }) });
           return { status: 'success', hash, ...outcomeExtra };
@@ -4145,12 +4148,13 @@ export class PollarClient {
         options: options ?? {},
       } as TxBuildBody;
       const { data, error } = await this._api.POST('/tx/build', { body });
-      if (error || !data?.success || !data.content?.smart) {
+      const built = !error && data?.success ? stellarBuildOf(data.content) : null;
+      if (!built?.smart) {
         const details = (error as { details?: string } | undefined)?.details ?? 'Failed to build transaction';
         this._setTransactionState({ step: 'error', phase: 'building', details });
         return { status: 'error', details };
       }
-      buildData = data.content;
+      buildData = built;
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
       this._setTransactionState({ step: 'error', phase: 'building', ...(details && { details }) });
@@ -4204,7 +4208,8 @@ export class PollarClient {
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
       if (!error && data?.success && data.content) {
-        const { hash, status: backendStatus, resultCode } = data.content;
+        const { hash, status: backendStatus } = data.content;
+        const resultCode = 'resultCode' in data.content ? data.content.resultCode : undefined;
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash, buildData });
           return { status: 'success', hash, ...outcomeExtra };
@@ -5520,4 +5525,13 @@ export class PollarClient {
     if ('buildData' in s && s.buildData) return s.buildData;
     return undefined;
   }
+}
+
+/**
+ * The Stellar build out of a `/tx/build` answer. The route also answers a Solana
+ * build for an external wallet (`chain: 'SOLANA'`), which no Stellar flow reads.
+ */
+function stellarBuildOf(content: TxBuildResponse['content'] | undefined): TxBuildContent | null {
+  if (!content || ('chain' in content && content.chain === 'SOLANA')) return null;
+  return content as TxBuildContent;
 }

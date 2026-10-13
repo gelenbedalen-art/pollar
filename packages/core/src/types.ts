@@ -585,7 +585,9 @@ export interface PollarAuthProvider {
   actions?: Record<string, (ctx: AuthProviderContext, payload?: unknown) => Promise<void>>;
 }
 
-export type TxBuildContent = TxBuildResponse['content'];
+// The Stellar build. `/tx/build` also answers a Solana build for an external
+// wallet (`chain: 'SOLANA'`), which only `sendPayment` asks for and reads itself.
+export type TxBuildContent = Exclude<TxBuildResponse['content'], { chain: 'SOLANA' }>;
 
 /**
  * Phases the SDK can be in across the build -> sign -> submit lifecycle.
