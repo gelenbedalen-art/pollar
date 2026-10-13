@@ -85,3 +85,5 @@ export { CosignModalTemplate } from './components/cosign-modal/CosignModalTempla
 export type { CosignModalTemplateProps } from './components/cosign-modal/CosignModalTemplate';
 export type { SessionsModalTemplateProps, SessionsState } from './components/sessions-modal/SessionsModalTemplate';
 export { DistributionRulesModalTemplate } from './components/distribution-rules-modal/DistributionRulesModalTemplate';
+
+export { RampWorkflow } from './components/ramp-widget/RampWorkflow';

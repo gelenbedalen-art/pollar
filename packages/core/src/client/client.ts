@@ -1,3 +1,5 @@
+import { RampSigningRegistry, type RampSigningHandler, type RampSnapshot } from '../ramps/workflow';
+import type { RampChain, RampContinuationBody } from '../types';
 import { createApiClient, fetchWithTimeout, PollarApiClient } from '../api/client';
 import { claimDistributionRule, listDistributionRules } from '../api/endpoints/distribution';
 import { getSwapConfig, getSwapTokens, quoteSwap } from '../api/endpoints/swap';
@@ -35,6 +37,8 @@ import {
   submitRequirementForm,
 } from '../api/endpoints/requirements';
 import {
+  continueRamp,
+  getRampRoutes,
   completeWithdraw,
   createOffRamp,
   createOnRamp,
@@ -346,6 +350,7 @@ function toPersistedWallet(w: PollarApplicationConfigContent['wallet']): PollarP
 }
 
 export class PollarClient {
+  private readonly _rampSigners = new RampSigningRegistry();
   readonly apiKey: string;
   readonly id: string;
   readonly basePath: string;
@@ -4354,6 +4359,38 @@ export class PollarClient {
   }
 
   // --- Ramps ----------------------------------------------------------------
+
+  /** Discover the application's available asset and payment routes. */
+  getRampRoutes(): Promise<import('../types').RampsRoutesResponse> {
+    return getRampRoutes(this._api);
+  }
+  /** Submit an explicit continuation for the saved action and transaction version. */
+  continueRamp(txId: string, body: RampContinuationBody): Promise<RampsTransactionResponse> {
+    return continueRamp(this._api, txId, body);
+  }
+  /** Register a signer for a chain and payload encoding; returns its cleanup function. */
+  registerRampSigningHandler(chain: RampChain, encoding: string, handler: RampSigningHandler): () => void {
+    return this._rampSigners.register(chain, encoding, handler);
+  }
+  /** Explicit user action only. Reading/restoring a workflow never invokes this. */
+  async signRampAction(txId: string, snapshot: RampSnapshot): Promise<RampsTransactionResponse> {
+    const fresh = await this.getRampTransaction(txId);
+    const action = fresh.nextAction;
+    if (
+      snapshot.txId !== txId ||
+      snapshot.transactionVersion !== fresh.transactionVersion ||
+      snapshot.nextAction?.actionId !== action?.actionId ||
+      action?.kind !== 'sign_transaction' ||
+      fresh.reconciliationRequired ||
+      !(Date.parse(action.expiresAt) > Date.now()) ||
+      ['completed', 'failed', 'refunded'].includes(fresh.lifecycleState ?? fresh.status)
+    )
+      throw new Error('The ramp action changed. Refresh before signing.');
+    const handler = this._rampSigners.resolve(action.chain, action.payload.encoding);
+    if (!handler) throw new Error(`Register a ramp signing handler for ${action.chain}/${action.payload.encoding}.`);
+    const signedPayload = await handler(action);
+    return this.continueRamp(txId, { actionId: action.actionId, transactionVersion: fresh.transactionVersion!, signedPayload });
+  }
 
   getRampsQuote(query: RampsQuoteQuery): Promise<RampsQuoteResponse> {
     return getRampsQuote(this._api, query);
