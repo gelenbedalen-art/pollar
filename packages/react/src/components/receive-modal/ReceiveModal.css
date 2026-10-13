@@ -173,11 +173,6 @@
   flex: 0 0 auto;
 }
 
-.pollar-receive-modal .pollar-footer {
-  margin-top: 0;
-  padding-top: 1rem;
-}
-
 @media (max-width: 480px) {
   .pollar-receive-modal {
     max-width: calc(100vw - 2rem);

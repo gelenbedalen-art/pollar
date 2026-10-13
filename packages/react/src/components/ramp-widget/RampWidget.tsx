@@ -8,7 +8,9 @@ import type {
   RampQuoteRequirement,
   RampsOfframpBody,
   RampsOnrampBody,
+  RampsTransactionResponse,
   RampTxStatus,
+  StellarNetwork,
 } from '@pollar/core';
 import { mergeRampCountries, mergeRampSnapshot, type RampSnapshot, type RampRoute } from '@pollar/core';
 import { RampWorkflow } from './RampWorkflow';
@@ -133,10 +135,25 @@ interface RampResult {
   // there is no page to open and no status of theirs to poll.
   onboardingStatus?: 'kyc' | 'endorsement' | 'awaiting_provider';
   stellarTxHash?: string;
-  pendingSignature?: { unsignedXdr: string; action: 'sep10' | 'withdraw_payment' };
+  /**
+   * `cctp_approve` / `cctp_burn`: a Stereum off-ramp from a wallet the user
+   * brought on Stellar signs the bridge itself, the approve and then the burn.
+   */
+  pendingSignature?: { unsignedXdr: string; action: 'sep10' | 'withdraw_payment' | 'cctp_approve' | 'cctp_burn' };
   // REST providers (Bridge) return deposit instructions as data (e.g. a Pix
   // `br_code` / bank details for on-ramp) instead of an interactive URL.
   depositInstructions?: RampDepositInstructions;
+}
+
+type RampChain = NonNullable<RampsTransactionResponse['chain']>;
+
+/** The explorer transaction URL of a ramp's settlement, by its chain; testnet is Solana devnet and Polygon Amoy. */
+function explorerTxUrl(chain: RampChain, hash: string | null, network: StellarNetwork): string | null {
+  if (!hash) return null;
+  const testnet = network === 'testnet';
+  if (chain === 'SOLANA') return `https://explorer.solana.com/tx/${hash}${testnet ? '?cluster=devnet' : ''}`;
+  if (chain === 'POLYGON') return `https://${testnet ? 'amoy.' : ''}polygonscan.com/tx/${hash}`;
+  return `https://stellar.expert/explorer/${testnet ? 'testnet' : 'public'}/tx/${hash}`;
 }
 
 export function RampWidget({ onClose }: RampWidgetProps) {
@@ -184,6 +201,11 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [onboardingStatus, setOnboardingStatus] = useState<RampResult['onboardingStatus']>(undefined);
   const [txStatus, setTxStatus] = useState<RampTxStatus | null>(null);
   const [stellarTxHash, setStellarTxHash] = useState<string | null>(null);
+  // The settlement on any chain; Stellar-only providers still answer `stellarTxHash` alone.
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [txChain, setTxChain] = useState<RampChain | null>(null);
+  const [fundsInTransit, setFundsInTransit] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [depositInstructions, setDepositInstructions] = useState<RampDepositInstructions | null>(null);
   const [workflow, setWorkflow] = useState<RampSnapshot | null>(null);
   const workflowRef = useRef<RampSnapshot | null>(null);
@@ -223,6 +245,28 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const directionRef = useRef(direction);
   directionRef.current = direction;
 
+  function applySettlement(tx: RampsTransactionResponse) {
+    if (tx.stellarTxHash) setStellarTxHash(tx.stellarTxHash);
+    if (tx.txHash) setTxHash(tx.txHash);
+    if (tx.chain) setTxChain(tx.chain);
+    setFundsInTransit(tx.fundsInTransit === true);
+  }
+
+  async function handleRetryTransit() {
+    if (!txId || retrying) return;
+    setRetrying(true);
+    setErrorMsg(null);
+    try {
+      const tx = await client.retryRampTransaction(txId);
+      setTxStatus(tx.status);
+      applySettlement(tx);
+    } catch (e) {
+      setErrorMsg(e instanceof Error && e.message ? e.message : 'Could not retry the transfer. Try again in a moment.');
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   const workflowTerminal =
     !!workflow && ['completed', 'failed', 'refunded'].includes(workflow.lifecycleState ?? workflow.status);
 
@@ -237,7 +281,12 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         if (!active) return;
         if (tx.transactionVersion !== undefined && !acceptWorkflow(tx)) return;
         setTxStatus(tx.status);
-        if (tx.stellarTxHash) setStellarTxHash(tx.stellarTxHash);
+        applySettlement(tx);
+        // The order waits on the user's own wallet (a reload, or the burn the
+        // server asks for once the approve landed). Polling never signs: the
+        // signature waits for the user's explicit Authorize.
+        const pending = (tx as { pendingSignature?: RampResult['pendingSignature'] }).pendingSignature;
+        if (pending) setLegacySignature(pending);
         if (tx.kycUrl) setKycUrl(tx.kycUrl);
         // depositInstructions is returned by REST providers (Bridge) - e.g. a Pix
         // `br_code` / bank details for on-ramp.
@@ -339,7 +388,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         const tx = await client.getRampTransaction(txId);
         if (tx.transactionVersion !== undefined && !acceptWorkflow(tx)) return;
         setTxStatus(tx.status);
-        if (tx.stellarTxHash) setStellarTxHash(tx.stellarTxHash);
+        applySettlement(tx);
         if (tx.kycUrl) setKycUrl(tx.kycUrl);
         if (tx.depositInstructions) setDepositInstructions(tx.depositInstructions);
       }
@@ -372,6 +421,9 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     setTosUrl(null);
     setTxStatus(null);
     setStellarTxHash(null);
+    setTxHash(null);
+    setTxChain(null);
+    setFundsInTransit(false);
     setDepositInstructions(null);
     setKycPending(false);
     setKycApproved(false);
@@ -386,6 +438,13 @@ export function RampWidget({ onClose }: RampWidgetProps) {
    */
   async function resumeWithSignature(id: string, ps: NonNullable<RampResult['pendingSignature']>) {
     const outcome = await client.signTx(ps.unsignedXdr, { skipSponsorship: ps.action === 'sep10' });
+    if (outcome.status === 'cosign_pending') {
+      // A co-signed wallet answers with the request the user's device must
+      // approve; the ramp resumes once the signed XDR comes back through it.
+      setErrorMsg('Approve the signature on your device, then resume.');
+      setStep('error');
+      return;
+    }
     if (outcome.status !== 'signed') {
       setErrorMsg(outcome.message ?? outcome.details ?? 'Signing was cancelled.');
       setStep('error');
@@ -393,7 +452,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     }
     const result = (await client.submitRampSignature(id, {
       signedXdr: outcome.signedXdr,
-      action: ps.action,
+      // The CCTP actions are not in the generated schema until it is regenerated.
+      action: ps.action as 'withdraw_payment',
     })) as RampResult;
     await applyResult(result);
   }
@@ -646,6 +706,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     txStatus !== 'completed' &&
     txStatus !== 'failed' &&
     !stellarTxHash &&
+    !txHash &&
     !kycPending;
 
   const flowSteps = flowStepsOf(quotes, selectedQuote);
@@ -783,11 +844,12 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         onboardingStatus={onboardingStatus ?? null}
         kycJustApproved={kycPending && kycApproved}
         stellarTxHash={stellarTxHash}
-        explorerUrl={
-          stellarTxHash
-            ? `https://stellar.expert/explorer/${network === 'mainnet' ? 'public' : 'testnet'}/tx/${stellarTxHash}`
-            : null
-        }
+        txHash={txHash}
+        txChain={txChain}
+        explorerUrl={explorerTxUrl(txChain ?? 'STELLAR', txHash ?? stellarTxHash, network)}
+        fundsInTransit={fundsInTransit}
+        retrying={retrying}
+        onRetryTransit={handleRetryTransit}
         depositInstructions={depositInstructions}
         canComplete={canComplete}
         completing={completing}

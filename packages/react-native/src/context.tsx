@@ -1,13 +1,15 @@
 import { PollarClient } from '@pollar/core';
 import type {
   AuthState,
+  CosignState,
+  PendingConfirmation,
   PollarAdapters,
   PollarClientConfig,
   InteractiveAuthAdapter,
   RampsOnrampResponse,
   RampsTransactionResponse,
 } from '@pollar/core';
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Text } from 'react-native';
 import type { PollarConfig, PollarStyles } from './types';
 import type { FeatureName } from './components/FeaturePanel';
@@ -15,6 +17,8 @@ import { FeatureModal } from './components/FeatureModal';
 import { ModalErrorBoundary } from './components/commons';
 import { AppKycFlow } from './components/kyc-modal/AppKycFlow';
 import { CardModal } from './components/card-modal/CardModal';
+import { ConfirmModal } from './components/confirm-modal/ConfirmModal';
+import { CosignModal } from './components/cosign-modal/CosignModal';
 import { LoginModal } from './components/login-modal/LoginModal';
 import { RampWidget } from './components/ramp-widget/RampWidget';
 import { TransactionModal } from './components/transaction-modal/TransactionModal';
@@ -131,6 +135,12 @@ export type PollarContextValue = Methods &
     privyAdapter?: InteractiveAuthAdapter;
     ramp: NativeRampState | null;
     setRamp: (value: NativeRampState | null) => void;
+    /** Requests of a co-signed (Turnkey) wallet waiting for this device's vote. */
+    cosign: CosignState;
+    /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
+    openCosignModal: () => void;
+    /** Signing calls waiting for the user under `confirmation: 'prompt'`; the provider shows the first one. */
+    confirmations: PendingConfirmation[];
   };
 const Context = createContext<PollarContextValue | null>(null);
 const emptyConfig: PollarConfig = { application: { name: '', network: 'testnet', chains: [] }, styles: {} };
@@ -214,6 +224,7 @@ function ClientProvider({
     onApproved?: () => void;
   }>({});
   const [ramp, setRamp] = useState<NativeRampState | null>(null);
+  const [cosignModalOpen, setCosignModalOpen] = useState(false);
   const [remote, setRemote] = useState<PollarConfig>(appConfig ?? emptyConfig);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(appConfig ? 'ready' : 'loading');
   const [retry, setRetry] = useState(0);
@@ -228,6 +239,8 @@ function ClientProvider({
       client.onEnabledAssetsStateChange(notify),
       client.onTxHistoryStateChange(notify),
       client.onSessionsStateChange(notify),
+      client.onCosignStateChange(notify),
+      client.onConfirmationRequest(notify),
     ];
     return () => unsub.forEach((fn) => fn());
   }, [client]);
@@ -265,9 +278,20 @@ function ClientProvider({
     if (previousAuthStep.current === 'authenticated' && auth.step === 'idle') {
       setRamp(null);
       setModal(null);
+      setCosignModalOpen(false);
     }
     previousAuthStep.current = auth.step;
   }, [auth.step]);
+  const cosign = client.getCosignState();
+  // A signing call that came back pending needs the user's vote now; open the
+  // prompt when a new request appears, never when one merely resolves.
+  const cosignPendingCount = useRef(0);
+  useEffect(() => {
+    if (cosign.pending.length > cosignPendingCount.current) setCosignModalOpen(true);
+    cosignPendingCount.current = cosign.pending.length;
+  }, [cosign.pending.length]);
+  const confirmations = client.getPendingConfirmations();
+  const firstConfirmation = confirmations[0] ?? null;
   const wallet = client.getWallet();
   const tx = client.getTransactionState() ?? { step: 'idle' as const };
   const open = (next: FeatureName | 'cards') => {
@@ -278,6 +302,9 @@ function ClientProvider({
     if (modal === 'authentication') client.cancelLogin();
     setModal(null);
   };
+  // Stable per client: modals key their effects on it, and a new function each
+  // render would re-run their requests on every client event.
+  const getClient = useCallback(() => client, [client]);
   const bound = useMemo(
     () => Object.fromEntries(methods.map((name) => [name, client[name].bind(client)])) as Methods,
     [client],
@@ -288,7 +315,7 @@ function ClientProvider({
       open('transactions');
       return client.buildTx(...args);
     },
-    getClient: () => client,
+    getClient,
     wallet,
     wallets: client.getWallets(),
     walletAddress: wallet?.address ?? '',
@@ -363,6 +390,9 @@ function ClientProvider({
     openSwapModal: () => open('swap'),
     openEarnModal: () => open('earn'),
     openDistributionRulesModal: () => open('distribution'),
+    cosign,
+    openCosignModal: () => setCosignModalOpen(true),
+    confirmations,
   };
   return (
     <Context.Provider value={value}>
@@ -387,6 +417,16 @@ function ClientProvider({
             ) : (
               <FeatureModal feature={modal} onClose={close} />
             )}
+          </ModalErrorBoundary>
+        )}
+        {cosignModalOpen && (
+          <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
+            <CosignModal onClose={() => setCosignModalOpen(false)} />
+          </ModalErrorBoundary>
+        )}
+        {firstConfirmation && (
+          <ModalErrorBoundary onClose={firstConfirmation.reject}>
+            <ConfirmModal key={firstConfirmation.id} confirmation={firstConfirmation} />
           </ModalErrorBoundary>
         )}
       </PollarUIProvider>

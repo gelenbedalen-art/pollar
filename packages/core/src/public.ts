@@ -7,6 +7,7 @@ export { PollarClient, isPollarClient } from './client/client';
 export { POLLAR_CORE_VERSION } from './version';
 export { createLogger } from './lib/logger';
 export { toBaseUnits, fromBaseUnits } from './lib/units';
+export { transactionErrorMessage } from './lib/tx-error-messages';
 export type { LogLevel, PollarLogger } from './lib/logger';
 
 // --- Storage ------------------------------------------------------------------
@@ -16,11 +17,20 @@ export { createLocalStorageAdapter, createMemoryAdapter } from './storage/web';
 export type { LocalStorageAdapterOptions } from './storage/web';
 
 // --- KeyManager + DPoP --------------------------------------------------------
-export type { KeyManager, PublicEcJwk } from './keys/types';
+export type { KeyManager, KeyManagerOptions, PublicEcJwk } from './keys/types';
 export { defaultKeyManager } from './keys/factory';
 export { WebCryptoKeyManager } from './keys/web-crypto';
 export { computeJwkThumbprint, canonicalEcJwk } from './keys/thumbprint';
 export { buildProof, normalizeHtu } from './dpop';
+
+// --- Turnkey co-signed wallets ---------------------------------------------
+export { CosignManager } from './cosign/manager';
+export { compressedPublicKeyHex, rawSignatureToDer, encodeStamp } from './cosign/encoding';
+export { stellarTransactionHashHex } from './cosign/stellar-hash';
+export { recognizedSetupRequest, stellarAccountBytes } from './cosign/recognize';
+export type { SetupRecognition } from './cosign/recognize';
+export { cosignGroupOf, cosignStepKeyOf, stepInGroup } from './cosign/groups';
+export type { CosignGroup } from './cosign/groups';
 export type { BuildProofArgs } from './dpop';
 
 export { FreighterAdapter, AlbedoAdapter, WalletType, isInteractiveAuthAdapter } from './wallets';
@@ -75,6 +85,7 @@ export {
   completeWithdraw,
   submitRampSignature,
   getRampTransaction,
+  retryRampTransaction,
   pollRampTransaction,
   getRampLiquidity,
   getRampKycStatus,

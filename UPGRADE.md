@@ -1,6 +1,6 @@
 # Upgrade guide
 
-## 0.11.4 -> 0.12.0
+## 0.11.5 -> 0.12.0
 
 Use `@pollar/core`, `@pollar/react` and `@pollar/react-native` at matching versions.
 The candidate is `0.12.0-rc.1`; install prerelease versions explicitly. Upgrade
@@ -78,6 +78,52 @@ const removeSigner = client.registerRampSigningHandler('STELLAR', 'xdr', async (
 UI workflow helpers exported from core are `describeRampAction`,
 `mergeRampSnapshot` and `mergeRampCountries`, with `RampSnapshot` and
 `RampSigningHandler` types; registry and URL internals are private.
+
+## 0.11.4 -> 0.11.5
+
+No code change is needed. `@pollar/react@0.11.5` and `@pollar/react-native@0.11.5`
+require `@pollar/core@^0.11.5`; if you pin the packages to exact versions, keep
+them on the same version. The privy, accesly and stellar-wallets-kit adapters
+stay at 0.11.2: their `@pollar/core@^0.11.2` range already accepts 0.11.5.
+`@pollar/solana-wallet-standard-adapter` is published for the first time, as
+`0.11.5`, with the same `^0.11.2` range.
+
+### Co-signed wallets (Turnkey)
+
+No code change is needed. Under the default `confirmation: 'auto'` a co-signed
+wallet's device verifies each request against Turnkey and votes on its own, so
+`signTx`, `signAndSubmitTx` and `buildAndSignAndSubmitTx` end in `signed` /
+`success` or an error, exactly as for a custodial wallet. A request the device
+does not settle (a setup it does not recognize) opens `<CosignModal>`.
+
+Two types still gain a member, so an exhaustive `switch` needs the new case to
+compile, although only `cosignManual: true` ever produces it:
+
+- `SignOutcome`, `SubmitOutcome` and `TrustlineOutcome` include
+  `{ status: 'cosign_pending', request }`.
+- `TransactionState` includes `{ step: 'awaiting_cosign', request }`.
+
+With `cosignManual: true` the app approves through `client.cosign.approve(request)`
+from an explicit user action, or waits for `onCosignStateChange`.
+
+A mainnet app switched to `COSIGNED` custody needs an sdk-api that serves the
+`/cosign` routes, and its users need this SDK version: the login sends the
+device key that becomes their half of the quorum.
+
+### Showing every signature first
+
+`confirmation: 'prompt'` makes every signing call wait for the user, whatever
+the wallet's custody. `@pollar/react` and `@pollar/react-native` render the
+prompt (`<ConfirmModal>`); a headless app subscribes with
+`client.onConfirmationRequest()` and answers each pending confirmation with
+`confirm()` or `reject()`. Leave it at `'auto'` to keep today's behaviour.
+
+### Templates
+
+Only for apps that mount the templates themselves: `RampWidgetTemplateProps`
+and `SendModalTemplateProps` gain optional props (the settlement chain and
+`fundsInTransit` with its retry; the Stellar memo), so a custom template written
+before this keeps compiling.
 
 ## 0.11.3 -> 0.11.4
 

@@ -332,7 +332,81 @@ export interface PollarClientConfig {
    * browser-only for now.
    */
   passkeySign?: PasskeySigner;
+  /**
+   * The device key of a Turnkey co-signed wallet. Defaults to a second
+   * `defaultKeyManager` under the `cosign` namespace, kept across logouts so
+   * the user's vote survives signing out. Pass your own to hold it in
+   * hardware-backed storage.
+   */
+  cosignKeyManager?: KeyManager;
+  /**
+   * How a signing call treats the user, whatever the wallet's custody.
+   * `'auto'` (default) signs without a prompt: a custodial wallet signs on the
+   * server, a co-signed one has the device verify and vote on its own, an
+   * external one shows only its own wallet's popup. `'prompt'` shows the
+   * transaction and waits for the user before any signature; `@pollar/react`
+   * renders the prompt, a headless app subscribes with
+   * `onConfirmationRequest`. The same code works on testnet and mainnet.
+   */
+  confirmation?: 'auto' | 'prompt';
+  /**
+   * Keep the raw co-sign flow: signing calls on a co-signed wallet return
+   * `cosign_pending` and the app approves through `client.cosign.*` and its
+   * own UI. Off by default: the SDK settles the request itself.
+   */
+  cosignManual?: boolean;
 }
+
+/** What a signing call is about to do, shown to the user under `confirmation: 'prompt'`. */
+export interface ConfirmationRequest {
+  id: string;
+  kind: 'sign' | 'sign_and_send' | 'build_sign_submit';
+  network: 'STELLAR' | 'SOLANA' | 'POLYGON';
+  /** The unsigned Stellar envelope, when the call carries one. */
+  unsignedXdr?: string;
+  /** The build this signature completes, when the client built it. */
+  buildData?: TxBuildContent;
+  operation?: string;
+  details?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** A confirmation waiting for the user, with the two ways to answer it. */
+export interface PendingConfirmation extends ConfirmationRequest {
+  confirm: () => void;
+  reject: () => void;
+}
+
+// --- Turnkey co-signed wallets (client.cosign.*) --------------------------------
+
+/** A signing activity Pollar opened on the user's co-signed wallet. */
+export type CosignRequest =
+  pollarPaths['/cosign/requests/{id}']['get']['responses'][200]['content']['application/json']['content']['request'];
+export type CosignDevicesContent =
+  pollarPaths['/cosign/devices']['get']['responses'][200]['content']['application/json']['content'];
+export type CosignDevice = CosignDevicesContent['devices'][number];
+export type CosignRelayContent =
+  pollarPaths['/cosign/relay']['post']['responses'][200]['content']['application/json']['content'];
+export type CosignRelayPath = NonNullable<
+  pollarPaths['/cosign/relay']['post']['requestBody']
+>['content']['application/json']['path'];
+/** The 202 a signing call answers with for a co-signed wallet. */
+export type CosignPendingContent = pollarPaths['/tx/sign']['post']['responses'][202]['content']['application/json']['content'];
+
+/** The requests waiting for this device's vote, as `client.cosign` knows them. */
+export interface CosignState {
+  pending: CosignRequest[];
+  /** The last request that reached a final state, for a UI to show the outcome. */
+  lastResolved?: CosignRequest;
+}
+
+export type CosignVerification =
+  | { ok: true; localHash: string; turnkeyPayload: string | null }
+  | { ok: false; reason: string; localHash?: string; turnkeyPayload?: string | null };
+
+export type CosignQuorumReport =
+  | { ok: true; threshold: number; rootUsers: number; deviceRegistered: boolean }
+  | { ok: false; reason: string; threshold?: number; rootUsers?: number; deviceRegistered?: boolean };
 
 /**
  * Runs the device WebAuthn ceremony for a server-issued challenge and returns
@@ -511,7 +585,9 @@ export interface PollarAuthProvider {
   actions?: Record<string, (ctx: AuthProviderContext, payload?: unknown) => Promise<void>>;
 }
 
-export type TxBuildContent = TxBuildResponse['content'];
+// The Stellar build. `/tx/build` also answers a Solana build for an external
+// wallet (`chain: 'SOLANA'`), which only `sendPayment` asks for and reads itself.
+export type TxBuildContent = Exclude<TxBuildResponse['content'], { chain: 'SOLANA' }>;
 
 /**
  * Phases the SDK can be in across the build -> sign -> submit lifecycle.
@@ -546,6 +622,8 @@ export type TransactionState =
   // --- Compound phases (embedded-only - backend swallows the boundaries) --
   | { step: 'signing-submitting'; buildData?: TxBuildContent }
   | { step: 'building-signing-submitting' }
+  // --- Co-signed wallet: waiting for the user's device to vote --------------
+  | { step: 'awaiting_cosign'; request: CosignRequest; buildData?: TxBuildContent }
   // --- Post-Horizon-ack, pre-ledger-confirm (shared) --------------------
   | { step: 'submitted'; buildData?: TxBuildContent; hash: string }
   // --- Terminal success (shared) ----------------------------------------
@@ -585,6 +663,9 @@ export type BuildOutcome =
 
 export type SignOutcome =
   | { status: 'signed'; signedXdr: string; submissionToken?: string; expiresAt?: number; sponsored?: boolean }
+  // A co-signed (Turnkey) wallet: no signature exists until the user's device
+  // votes. The request is what `client.cosign.approve()` takes.
+  | { status: 'cosign_pending'; request: CosignRequest }
   | { status: 'error'; details?: string; code?: string; message?: string };
 
 /**
@@ -640,9 +721,10 @@ export interface StellarSepApi {
  * A payment, addressed per chain.
  *
  * The asset is the one part that cannot be unified: Stellar identifies it by
- * code + issuer, Solana by SPL mint. Amounts differ too - Stellar takes a
- * decimal string, Solana integer base units (lamports / mint units), because
- * that is what each chain's signer actually consumes.
+ * code + issuer, Solana by SPL mint, Polygon by ERC-20 contract. Amounts differ
+ * too - Stellar takes a decimal string, Solana and Polygon integer base units
+ * (lamports / wei / token units), because that is what each chain's signer
+ * actually consumes.
  */
 export type SendPaymentParams =
   | {
@@ -665,7 +747,9 @@ export type SendPaymentParams =
   | {
       chain: 'POLYGON';
       destination: string;
+      /** Integer base units: wei for POL, the token's smallest unit for an ERC-20. */
       amount: string;
+      /** Omit for native POL; otherwise the ERC-20 contract to transfer (named `mint` like Solana's). */
       mint?: string | null;
       options?: undefined;
     };
@@ -673,6 +757,7 @@ export type SendPaymentParams =
 export type SubmitOutcome =
   | { status: 'success'; hash: string; buildData?: TxBuildContent }
   | { status: 'pending'; hash: string; buildData?: TxBuildContent }
+  | { status: 'cosign_pending'; request: CosignRequest; buildData?: TxBuildContent }
   | {
       status: 'error';
       hash?: string;
@@ -692,6 +777,7 @@ export type SubmitOutcome =
 export type TrustlineOutcome =
   | { status: 'success'; hash?: string }
   | { status: 'pending'; hash?: string }
+  | { status: 'cosign_pending'; request: CosignRequest; buildData?: TxBuildContent }
   | { status: 'error'; details?: string };
 
 export const AUTH_ERROR_CODES = {
@@ -1090,8 +1176,11 @@ export type RampsOfframpBody = NonNullable<pollarPaths['/ramps/offramp']['post']
 export type RampsOfframpResponse =
   pollarPaths['/ramps/offramp']['post']['responses'][200]['content']['application/json']['content'];
 
+// `fundsInTransit` is declared by sdk-api and not yet in the generated schema.
 export type RampsTransactionResponse =
-  pollarPaths['/ramps/transaction/{txId}']['get']['responses'][200]['content']['application/json']['content'];
+  pollarPaths['/ramps/transaction/{txId}']['get']['responses'][200]['content']['application/json']['content'] & {
+    fundsInTransit?: boolean;
+  };
 export type RampTxStatus = RampsTransactionResponse['status'];
 export type RampDirection = RampsTransactionResponse['direction'];
 

@@ -4,7 +4,7 @@ import { base64urlDecode, base64urlEncode } from '../lib/base64url';
 import { sha256 } from '../lib/sha256';
 import type { Storage } from '../storage/types';
 import { computeJwkThumbprint } from './thumbprint';
-import type { KeyManager, PublicEcJwk } from './types';
+import type { KeyManager, KeyManagerOptions, PublicEcJwk } from './types';
 
 /**
  * `KeyManager` backed by `@noble/curves` (pure-JS ECDSA P-256) + an injected
@@ -32,6 +32,8 @@ const STORAGE_KEY_PREFIX = 'pollar:dpop-key:';
 export class NobleKeyManager implements KeyManager {
   private readonly storage: Storage;
   private readonly apiKey: string;
+  /** Separates independent keys of the same api key in storage; empty for the DPoP key. */
+  private readonly namespace: string;
   private apiKeyHash: string | null = null;
   private privateKey: Uint8Array | null = null;
   private publicJwk: PublicEcJwk | null = null;
@@ -39,16 +41,17 @@ export class NobleKeyManager implements KeyManager {
   /** Cached in-flight init - see `WebCryptoKeyManager` for the rationale. */
   private _initPromise: Promise<void> | null = null;
 
-  constructor(storage: Storage, apiKey: string) {
+  constructor(storage: Storage, apiKey: string, options?: KeyManagerOptions) {
     this.storage = storage;
     this.apiKey = apiKey;
+    this.namespace = options?.namespace ?? '';
   }
 
   private get storageKey(): string {
     if (!this.apiKeyHash) {
       throw new Error('[PollarClient:keys] init() must be called before storage access');
     }
-    return `${STORAGE_KEY_PREFIX}${this.apiKeyHash}`;
+    return this.namespace ? `pollar:${this.namespace}-key:${this.apiKeyHash}` : `${STORAGE_KEY_PREFIX}${this.apiKeyHash}`;
   }
 
   /**

@@ -1,6 +1,6 @@
 type StateStatus = 'NONE' | 'LOADING' | 'SUCCESS' | 'ERROR';
 
-import type { PollarLogger } from '@pollar/core';
+import type { PollarLogger, StellarNetwork, WalletChain } from '@pollar/core';
 import {
   Component,
   useEffect,
@@ -10,7 +10,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
-import { LOGO_POLLAR } from '../constants';
+import { LOGO_POLLAR_WORDMARK_ON_DARK, LOGO_POLLAR_WORDMARK_ON_LIGHT } from '../constants';
 
 declare const __POLLAR_VERSION__: string;
 
@@ -46,25 +46,27 @@ export class ModalErrorBoundary extends Component<{ children: ReactNode; onClose
   }
 }
 
-export const PollarModalFooter = ({ shield = false }: { shield?: boolean }) => {
+export const PollarModalFooter = () => {
   return (
     <div className="pollar-footer">
       <span className="pollar-footer-protected">Protected by</span>
-      <div className="pollar-footer-brand">
-        {shield ? (
-          <svg className="pollar-footer-shield" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M12 3.2 19 6v5.3c0 4.4-2.9 7.8-7 9.5-4.1-1.7-7-5.1-7-9.5V6l7-2.8Z" fill="var(--pollar-accent)" />
-            <path d="m8.5 12 2.2 2.2 4.8-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ) : (
-          <img src={LOGO_POLLAR} alt="Pollar" className="pollar-footer-logo" />
-        )}
-        <span className="pollar-footer-name">Pollar</span>
-        <span className="pollar-footer-version">v{__POLLAR_VERSION__}</span>
-      </div>
+      <img src={LOGO_POLLAR_WORDMARK_ON_LIGHT} alt="Pollar" className="pollar-footer-logo pollar-logo-on-light" />
+      <img src={LOGO_POLLAR_WORDMARK_ON_DARK} alt="Pollar" className="pollar-footer-logo pollar-logo-on-dark" />
+      <span className="pollar-footer-version">v{__POLLAR_VERSION__}</span>
     </div>
   );
 };
+
+/** The explorer page of a transaction, by the chain it ran on. */
+export function explorerTxUrl(chain: WalletChain, hash: string, network: StellarNetwork): string {
+  if (chain === 'SOLANA') {
+    return `https://explorer.solana.com/tx/${hash}${network === 'testnet' ? '?cluster=devnet' : ''}`;
+  }
+  if (chain === 'POLYGON') {
+    return `https://${network === 'testnet' ? 'amoy.' : ''}polygonscan.com/tx/${hash}`;
+  }
+  return `https://stellar.expert/explorer/${network === 'testnet' ? 'testnet' : 'public'}/tx/${hash}`;
+}
 
 /** Shared refresh glyph used by compact modal header actions. */
 export function RefreshIcon({ spinning = false, className = '' }: { spinning?: boolean; className?: string }) {

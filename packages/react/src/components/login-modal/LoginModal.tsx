@@ -6,6 +6,7 @@ import {
   InteractiveAuthAdapter,
   isInteractiveAuthAdapter,
   PollarLoginOptions,
+  WalletChain,
   WalletId,
 } from '@pollar/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -27,7 +28,16 @@ export function LoginModal({ onClose }: LoginModalProps) {
   const { getClient, styles, appConfig: config, configStatus, retryConfig } = usePollar();
   const [authState, setAuthState] = useState<AuthState>(() => getClient().getAuthState());
   // Registered wallet adapters (built-ins + config) -> one login button each.
-  const walletAdapters = useMemo(() => getClient().listWalletAdapters(), [getClient]);
+  // An adapter only shows when the app serves its chain: a Phantom login on an
+  // app without Solana would leave the user with a wallet the app cannot use.
+  const servedChains = config?.application?.chains as WalletChain[] | undefined;
+  const walletAdapters = useMemo(
+    () =>
+      getClient()
+        .listWalletAdapters()
+        .filter((a) => !servedChains || servedChains.includes(a.chain)),
+    [getClient, servedChains],
+  );
   const [codeInputKey, setCodeInputKey] = useState(0);
   const pendingEmail = useRef<string | null>(null);
   // When set, an interactive adapter (e.g. Privy) takes over the modal with its

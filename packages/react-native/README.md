@@ -10,7 +10,9 @@ authentication and transactions in Stellar mobile applications. Built on top of
 npm install @pollar/react-native @pollar/core
 ```
 
-**Peer dependencies:** `@pollar/core ^0.11.4`, `react >= 18`, `react-native >= 0.72`.
+**Peer dependencies:** `@pollar/core ^0.11.5`, `react >= 18`, `react-native >= 0.72`. 0.11.5 adds the co-signed wallet
+prompt (`<CosignModal>`, `cosign` and `openCosignModal` on `usePollar()`) and `<ConfirmModal>` for
+`confirmation: 'prompt'`.
 
 Add the runtime polyfills and one storage backend:
 

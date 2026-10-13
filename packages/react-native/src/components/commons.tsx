@@ -9,7 +9,7 @@ import {
   Modal,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { LOGO_POLLAR } from '../constants';
+import { LOGO_POLLAR_WORDMARK_ON_LIGHT } from '../constants';
 
 declare const __POLLAR_VERSION__: string;
 
@@ -43,11 +43,13 @@ export const PollarModalFooter = () => {
   return (
     <View style={styles.footerContainer}>
       <Text style={styles.protectedText}>Protected by</Text>
-      <View style={styles.brandRow}>
-        <Image style={styles.footerLogo} source={{ uri: LOGO_POLLAR }} />
-        <Text style={styles.brandName}>Pollar</Text>
-        <Text style={styles.versionText}>v{typeof __POLLAR_VERSION__ !== 'undefined' ? __POLLAR_VERSION__ : '0.0.0'}</Text>
-      </View>
+      <Image
+        style={styles.footerLogo}
+        source={{ uri: LOGO_POLLAR_WORDMARK_ON_LIGHT }}
+        resizeMode="contain"
+        accessibilityLabel="Pollar"
+      />
+      <Text style={styles.versionText}>v{typeof __POLLAR_VERSION__ !== 'undefined' ? __POLLAR_VERSION__ : '0.0.0'}</Text>
     </View>
   );
 };
@@ -132,20 +134,11 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginRight: 8,
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  // The wordmark is 2704x572; RN needs both sides of a remote image.
   footerLogo: {
-    width: 18,
-    height: 18,
-    marginRight: 6,
-  },
-  brandName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#111827',
-    marginRight: 6,
+    width: 76,
+    height: 16,
+    marginRight: 8,
   },
   versionText: {
     fontSize: 11,

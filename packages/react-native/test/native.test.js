@@ -37,7 +37,7 @@ const config = { application: { name: 'Test', network: 'testnet', chains: [] }, 
 function fakeClient() {
   const listeners = new Map();
   const client = { __client: true, auth: { step: 'idle' }, tx: { step: 'idle' }, balance: { step: 'idle' }, configCalls: 0 };
-  for (const name of ['Auth', 'Network', 'Transaction', 'WalletBalance', 'EnabledAssets', 'TxHistory', 'Sessions']) {
+  for (const name of ['Auth', 'Network', 'Transaction', 'WalletBalance', 'EnabledAssets', 'TxHistory', 'Sessions', 'Cosign']) {
     listeners.set(name, new Set());
     client['on' + name + 'StateChange'] = jest.fn((cb) => {
       listeners.get(name).add(cb);
@@ -45,7 +45,6 @@ function fakeClient() {
     });
   }
   client.emit = (name) => listeners.get(name).forEach((cb) => cb(client.auth));
-  client.listenerCount = () => [...listeners.values()].reduce((sum, set) => sum + set.size, 0);
   client.getAuthState = () => client.auth;
   client.getTransactionState = () => client.tx;
   client.getWallet = () =>
@@ -55,6 +54,15 @@ function fakeClient() {
   client.getWalletType = () => null;
   client.getNetwork = () => 'testnet';
   client.getWalletBalanceState = () => client.balance;
+  client.cosign = { pending: [] };
+  client.getCosignState = () => client.cosign;
+  const confirmationListeners = new Set();
+  client.getPendingConfirmations = () => [];
+  client.onConfirmationRequest = jest.fn((cb) => {
+    confirmationListeners.add(cb);
+    return () => confirmationListeners.delete(cb);
+  });
+  client.listenerCount = () => [...listeners.values()].reduce((sum, set) => sum + set.size, 0) + confirmationListeners.size;
   for (const name of ['getEnabledAssetsState', 'getSessionsState', 'getTxHistoryState'])
     client[name] = () => ({ step: 'idle' });
   for (const name of [
@@ -463,7 +471,7 @@ test('Strict Mode creates one owned client and destroys it on unmount', async ()
   );
   await waitFor(() => expect(view.getByTestId('auth')).toBeTruthy());
   expect(PollarClient).toHaveBeenCalledTimes(1);
-  expect(client.listenerCount()).toBe(7);
+  expect(client.listenerCount()).toBe(9);
   await view.unmountAsync();
   expect(client.destroy).toHaveBeenCalledTimes(1);
   expect(client.listenerCount()).toBe(0);
@@ -881,7 +889,7 @@ test('provider replaces configuration and platform/Privy adapters and cleans up 
       <Probe />
     </PollarProvider>,
   );
-  expect(first.listenerCount()).toBe(7);
+  expect(first.listenerCount()).toBe(9);
   const second = fakeClient();
   const storage = { get: jest.fn(), set: jest.fn(), remove: jest.fn() };
   const adapter = { type: 'privy', chains: ['STELLAR'] };
@@ -893,7 +901,7 @@ test('provider replaces configuration and platform/Privy adapters and cleans up 
   expect(first.cancelLogin).toHaveBeenCalledTimes(1);
   expect(first.destroy).toHaveBeenCalledTimes(1);
   expect(first.listenerCount()).toBe(0);
-  expect(second.listenerCount()).toBe(7);
+  expect(second.listenerCount()).toBe(9);
   expect(PollarClient).toHaveBeenLastCalledWith(
     expect.objectContaining({ apiKey: 'second', storage, walletAdapters: [adapter] }),
   );
@@ -953,5 +961,41 @@ test('login Back and Retry keep the login modal open when authentication returns
     client.emit('Auth');
   });
   expect(view.UNSAFE_queryAllByType(Modal).filter((modal) => modal.props.visible)).toHaveLength(0);
+  await view.unmountAsync();
+});
+
+test('cosign prompt verifies a request once and enables Approve while the pending list refreshes', async () => {
+  const client = fakeClient();
+  client.auth = { step: 'authenticated', verified: true, session: { clientSessionId: 's1' } };
+  const request = { id: 'r1', status: 'PENDING', kind: 'TX', expiresAt: new Date(Date.now() + 60_000).toISOString() };
+  let state = { pending: [] };
+  client.getCosignState = () => state;
+  // Like core, every refresh of the pending list hands back new objects for the same requests.
+  client.cosign = {
+    pending: jest.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      state = { pending: state.pending.map((r) => ({ ...r })) };
+      client.emit('Cosign');
+      return state.pending;
+    }),
+    inspectQuorum: jest.fn(async () => ({ ok: true })),
+    verify: jest.fn(() => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 40))),
+  };
+  PollarClient.mockImplementation(() => client);
+  const view = await renderAsync(
+    <PollarProvider config={{ apiKey: 'k' }} appConfig={config}>
+      <Text>child</Text>
+    </PollarProvider>,
+  );
+  await waitFor(() => expect(view.getByText('child')).toBeTruthy());
+  await act(async () => {
+    state = { pending: [request] };
+    client.emit('Cosign');
+  });
+  for (let i = 0; i < 12; i++) await act(() => new Promise((resolve) => setTimeout(resolve, 15)));
+  expect(view.getByText('Verified: this is exactly what will be signed.')).toBeTruthy();
+  expect(client.cosign.verify).toHaveBeenCalledTimes(1);
+  expect(client.cosign.pending).toHaveBeenCalledTimes(1);
+  expect(client.cosign.inspectQuorum).toHaveBeenCalledTimes(1);
   await view.unmountAsync();
 });

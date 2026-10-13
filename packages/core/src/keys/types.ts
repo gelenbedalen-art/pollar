@@ -22,6 +22,16 @@ export interface PublicEcJwk {
  *   injected `Storage` adapter (Keychain / SecureStore). Pure-JS ECDSA via
  *   `@noble/curves`.
  */
+/**
+ * Options every `KeyManager` implementation accepts. `namespace` keeps a second
+ * key of the same api key apart from the DPoP key in storage: the Turnkey
+ * device key uses `'cosign'`, so logging out (which resets the DPoP key) leaves
+ * the user's co-signing credential in place.
+ */
+export interface KeyManagerOptions {
+  namespace?: string;
+}
+
 export interface KeyManager {
   /**
    * Load an existing key for this session or generate a new one. Idempotent.
