@@ -133,7 +133,11 @@ interface RampResult {
   // there is no page to open and no status of theirs to poll.
   onboardingStatus?: 'kyc' | 'endorsement' | 'awaiting_provider';
   stellarTxHash?: string;
-  pendingSignature?: { unsignedXdr: string; action: 'sep10' | 'withdraw_payment' };
+  /**
+   * `cctp_approve` / `cctp_burn`: a Stereum off-ramp from a wallet the user
+   * brought on Stellar signs the bridge itself, the approve and then the burn.
+   */
+  pendingSignature?: { unsignedXdr: string; action: 'sep10' | 'withdraw_payment' | 'cctp_approve' | 'cctp_burn' };
   // REST providers (Bridge) return deposit instructions as data (e.g. a Pix
   // `br_code` / bank details for on-ramp) instead of an interactive URL.
   depositInstructions?: RampDepositInstructions;
@@ -204,6 +208,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [completing, setCompleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Set while the user's wallet is asked to sign, so the status poll does not ask twice.
+  const signingRef = useRef(false);
   const directionRef = useRef(direction);
   directionRef.current = direction;
 
@@ -240,6 +246,15 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         if (!active) return;
         setTxStatus(tx.status);
         applySettlement(tx);
+        // The order waits on the user's own wallet (a reload, or the burn the
+        // server asks for once the approve landed): prompt it, one at a time.
+        const pending = (tx as { pendingSignature?: RampResult['pendingSignature'] }).pendingSignature;
+        if (pending && !signingRef.current) {
+          signingRef.current = true;
+          void resumeRef.current(txId, pending).finally(() => {
+            signingRef.current = false;
+          });
+        }
         if (tx.kycUrl) setKycUrl(tx.kycUrl);
         // depositInstructions is returned by REST providers (Bridge) - e.g. a Pix
         // `br_code` / bank details for on-ramp.
@@ -392,10 +407,14 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     }
     const result = (await client.submitRampSignature(id, {
       signedXdr: outcome.signedXdr,
-      action: ps.action,
+      // The CCTP actions are not in the generated schema until it is regenerated.
+      action: ps.action as 'withdraw_payment',
     })) as RampResult;
     await applyResult(result);
   }
+  // The status poll calls the latest one without restarting on every render.
+  const resumeRef = useRef(resumeWithSignature);
+  resumeRef.current = resumeWithSignature;
 
   async function applyResult(result: RampResult) {
     setTxId(result.txId);

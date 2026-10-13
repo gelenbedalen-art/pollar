@@ -1,6 +1,6 @@
 'use client';
 
-import type { CosignRequest, CosignVerification } from '@pollar/core';
+import { cosignGroupOf, cosignStepKeyOf, stepInGroup, type CosignRequest, type CosignVerification } from '@pollar/core';
 import { cropAddress, PollarModalFooter } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
@@ -182,6 +182,7 @@ export function CosignModalTemplate({
         <div className="pollar-cosign-detail">
           <p className="pollar-cosign-detail-title">{labelOf(current)}</p>
           {current.summary && <p className="pollar-cosign-muted">{current.summary}</p>}
+          <GroupSteps request={current} />
           <dl className="pollar-cosign-rows">
             {detailRows(current).map(([k, v]) => (
               <div key={k} className="pollar-cosign-row">
@@ -227,6 +228,34 @@ export function CosignModalTemplate({
       )}
 
       <PollarModalFooter />
+    </div>
+  );
+}
+
+/**
+ * The steps one approval covers, when the request opens a group: the user
+ * approves the group once, and this device votes its later steps on its own,
+ * each verified against its own transaction before the vote.
+ */
+function GroupSteps({ request }: { request: CosignRequest }) {
+  const group = cosignGroupOf(request);
+  if (!group || group.steps.length < 2) return null;
+  const stepKey = cosignStepKeyOf(request);
+  return (
+    <div className="pollar-cosign-group">
+      <p className="pollar-cosign-group-title">{group.title}</p>
+      <p className="pollar-cosign-muted">Approving covers these steps; each one is checked before it is signed.</p>
+      <ol className="pollar-cosign-group-steps">
+        {group.steps.map((step) => {
+          const isThis = stepKey !== null && stepInGroup({ steps: [step] }, stepKey);
+          return (
+            <li key={step.key} className={isThis ? 'pollar-cosign-group-step-current' : undefined}>
+              {step.label}
+              {isThis && <span className="pollar-cosign-muted"> (this one)</span>}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

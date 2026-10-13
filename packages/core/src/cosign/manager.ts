@@ -44,6 +44,8 @@ export interface CosignManagerDeps {
   autoApprove?: (request: CosignRequest) => boolean;
   /** Tell the store a request is being settled by the client itself, so no prompt opens for it. */
   markAutoHandled?: (id: string, handled: boolean) => void;
+  /** A vote was cast on this request (the version that was verified), for the client's group consents. */
+  onApproved?: (request: CosignRequest) => void;
 }
 
 const SCHEME = 'SIGNATURE_SCHEME_TK_API_P256';
@@ -364,6 +366,7 @@ export class CosignManager {
       organizationId: request.subOrgId,
       parameters: { fingerprint: request.fingerprint },
     });
+    this.deps.onApproved?.(request);
     return res.request ?? (await this.get(request.id, { sync: true }));
   }
 
