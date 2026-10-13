@@ -12,6 +12,7 @@ import type {
 import { PollarApiError } from '../types';
 import { bytesToHex, compressedPublicKeyHex, encodeStamp, rawSignatureToDer } from './encoding';
 import { checkEvmRequest, polygonChainIdFor } from './evm';
+import { checkSolanaRequest } from './solana';
 import { stellarTransactionHashHex } from './stellar-hash';
 
 /**
@@ -286,6 +287,14 @@ export class CosignManager {
         return { ok: false, reason: 'the transaction does not hash to what Pollar asked Turnkey to sign', localHash };
       }
     } else if (request.network === 'SOLANA') {
+      // A CCTP burn is read and checked against the request, and any other
+      // request must not hide one.
+      const check = checkSolanaRequest(request.unsignedPayload, {
+        ...(request.operation ? { operation: request.operation } : {}),
+        details: request.details as Record<string, unknown> | undefined,
+        signWith: request.signWith,
+      });
+      if (!check.ok) return { ok: false, reason: check.reason };
       localHash = request.unsignedPayload.toLowerCase();
     } else if (request.network === 'POLYGON') {
       // The payload is read here, not only compared: the call it makes must be

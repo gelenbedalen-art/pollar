@@ -1,6 +1,6 @@
 // The device's reading of a Polygon co-sign request. Pure: no network, no keys.
-// Run with tsx (the package has no test runner of its own):
-//   npx tsx --test packages/core/tests/cosign-evm.test.ts
+// Run with `npm test` in packages/core (or `npm run test:unit` at the root):
+//   node --import tsx --test tests/*.test.ts
 // The vectors were serialized with viem's serializeTransaction.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';

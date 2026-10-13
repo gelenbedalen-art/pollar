@@ -78,6 +78,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "lint": "tsc --noEmit && eslint src",
+    "test": "node --import tsx --test tests/*.test.ts",
     "clean": "rm -rf dist"
   },
   "engines": {
@@ -87,6 +88,7 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.5.0",
     "tsup": "^8.5.1",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.0"
   },
