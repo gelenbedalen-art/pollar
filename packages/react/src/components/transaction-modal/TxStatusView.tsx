@@ -1,6 +1,6 @@
 'use client';
 
-import { TransactionState, WalletId, WalletType } from '@pollar/core';
+import { TransactionState, transactionErrorMessage, WalletId, WalletType } from '@pollar/core';
 import { LOGO_ALBEDO, LOGO_FREIGHTER, LOGO_POLLAR } from '../../constants';
 import { ModalStatusBanner } from '../commons';
 
@@ -67,7 +67,7 @@ export function TxStatusView({
 }: TxStatusViewProps) {
   const buildData = 'buildData' in transaction ? transaction.buildData : null;
   const hash = transaction.step === 'success' ? transaction.hash : null;
-  const errorDetails = transaction.step === 'error' ? (transaction.details ?? null) : null;
+  const errorDetails = transaction.step === 'error' ? transactionErrorMessage(transaction.code, transaction.details) : null;
 
   const isBuilt = transaction.step === 'built';
   const isInFlight = IN_FLIGHT_STEPS.has(transaction.step);

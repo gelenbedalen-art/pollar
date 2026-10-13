@@ -3298,8 +3298,9 @@ export class PollarClient {
    * device votes here: `approve` refreshes, verifies the payload against what
    * Turnkey is about to sign and stamps the approval; that vote completes the
    * quorum, so the request normally comes back final and the call ends the way
-   * a custodial one does. A payload that does not match what was asked is
-   * rejected, which ends the request for good. Turnkey finishing late is polled
+   * a custodial one does. Any failure on the way (a payload that does not
+   * match what was asked, a rebuild that fails) rejects the request, which
+   * ends it for good. Turnkey finishing late is polled
    * a few times; past that the request is returned pending and
    * `client.cosign.get(id, { sync: true })` reads its outcome.
    */
@@ -3329,10 +3330,12 @@ export class PollarClient {
       if (err instanceof PollarApiError && code === 'SDK_COSIGN_VERIFICATION_FAILED') {
         const verification = err.body.verification as { reason?: string } | undefined;
         details = verification?.reason ?? details;
-        await this.cosign.reject(request).catch((rejectErr) => {
-          this._log.warn('[PollarClient] could not reject a co-sign request whose payload did not verify', rejectErr);
-        });
       }
+      // This call reports the send as failed, so the request must not stay
+      // approvable: the prompt would later offer a send the user was told failed.
+      await this.cosign.reject(request).catch((rejectErr) => {
+        this._log.warn('[PollarClient] could not reject a co-sign request after a failed send', rejectErr);
+      });
       this._setTransactionState({
         step: 'error',
         phase: ctx.phase,

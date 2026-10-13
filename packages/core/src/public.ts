@@ -7,6 +7,7 @@ export { PollarClient, isPollarClient } from './client/client';
 export { POLLAR_CORE_VERSION } from './version';
 export { createLogger } from './lib/logger';
 export { toBaseUnits, fromBaseUnits } from './lib/units';
+export { transactionErrorMessage } from './lib/tx-error-messages';
 export type { LogLevel, PollarLogger } from './lib/logger';
 
 // --- Storage ------------------------------------------------------------------

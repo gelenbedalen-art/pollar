@@ -17,6 +17,8 @@ export interface CosignModalTemplateProps {
   verification: CosignVerification | null;
   busy: 'approving' | 'rejecting' | null;
   error: string | null;
+  /** Approve stays off for a request whose approval just failed. */
+  approveBlocked?: boolean;
   /** The last request that reached a final state, shown once the list is empty. */
   lastResolved?: CosignRequest;
   onSelect: (request: CosignRequest) => void;
@@ -81,6 +83,7 @@ export function CosignModalTemplate({
   verification,
   busy,
   error,
+  approveBlocked = false,
   lastResolved,
   onSelect,
   onApprove,
@@ -89,7 +92,7 @@ export function CosignModalTemplate({
 }: CosignModalTemplateProps) {
   const cssVars = buildModalCssVars(theme, accentColor, styleOverrides);
   const verified = verification?.ok === true;
-  const canVote = !!current && verified && !busy;
+  const canVote = !!current && verified && !busy && !approveBlocked;
 
   return (
     <div
