@@ -2,10 +2,13 @@
 
 Core SDK for [Pollar](https://pollar.xyz) — authentication and transaction utilities for Stellar and Solana applications.
 
-> **0.11.5** (candidate `0.11.5-rc.1` on the `next` tag). **Turnkey co-signed wallets**: a device key
-> under the `cosign` namespace, `signTx` / `signAndSubmitTx` / `buildAndSignAndSubmitTx` / `setTrustline`
-> answering `{ status: 'cosign_pending', request }`, the `awaiting_cosign` transaction state, and
-> `client.cosign` to verify a request against Turnkey before approving it. See [UPGRADE.md](../../UPGRADE.md).
+> **0.11.5** (candidate `0.11.5-rc.2` on the `next` tag). **Turnkey co-signed wallets** and a
+> **confirmation policy**: `config.confirmation` `'auto'` (default; a co-signed wallet's device verifies
+> against Turnkey and votes on its own) or `'prompt'` (every signature waits for the user, through
+> `onConfirmationRequest()`); `config.cosignManual` keeps the raw `{ status: 'cosign_pending', request }`
+> flow; `client.cosign` verifies Stellar, Solana and Polygon requests on the device before voting. Also
+> `retryRampTransaction()`, `transactionErrorMessage()`, and Solana sends from a wallet the user signs
+> with. See [UPGRADE.md](../../UPGRADE.md).
 >
 > Earlier: **0.11.4**. **KYC by ramp corridor**: the v2 ramp quote
 > types `requirementsRequired` (the first step a route still needs) and `unavailable` (providers that

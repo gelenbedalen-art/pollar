@@ -2,32 +2,54 @@
 
 ## 0.11.4 -> 0.11.5
 
-**Release candidate.** `0.11.5-rc.1` is published on the `next` tag. A caret
-range does not pick up a prerelease, so install it explicitly
-(`npm i @pollar/core@next @pollar/react@next`, or `@pollar/react-native@next`).
-`@pollar/react` and `@pollar/react-native` require `@pollar/core` on the same
-version. The adapters stay at 0.11.2: their `@pollar/core@^0.11.2` range accepts
-0.11.5, but no prerelease, so while testing the candidate next to an adapter
-npm 7+ reports a peer conflict; install with `--legacy-peer-deps` until 0.11.5
-is final.
+**Release candidate.** `0.11.5-rc.2` is published on the `next` tag
+(`0.11.5-rc.1` was never published). A caret range does not pick up a
+prerelease, so install it explicitly (`npm i @pollar/core@next
+@pollar/react@next`, or `@pollar/react-native@next`). `@pollar/react` and
+`@pollar/react-native` require `@pollar/core` on the same version. The
+privy, accesly and stellar-wallets-kit adapters stay at 0.11.2: their
+`@pollar/core@^0.11.2` range accepts 0.11.5, but no prerelease, so while
+testing the candidate next to one of them npm 7+ reports a peer conflict;
+install with `--legacy-peer-deps` until 0.11.5 is final.
+`@pollar/solana-wallet-standard-adapter` is published for the first time, as
+`0.11.5-rc.2`.
 
 ### Co-signed wallets (Turnkey)
 
-Nothing changes at runtime for an app whose wallet custody is not `COSIGNED`:
-the server never answers it with a pending signature. Three outcome types and
-the transaction state gain a member, so an exhaustive `switch` needs the new
-case to compile:
+No code change is needed. Under the default `confirmation: 'auto'` a co-signed
+wallet's device verifies each request against Turnkey and votes on its own, so
+`signTx`, `signAndSubmitTx` and `buildAndSignAndSubmitTx` end in `signed` /
+`success` or an error, exactly as for a custodial wallet. A request the device
+does not settle (a setup it does not recognize) opens `<CosignModal>`.
+
+Two types still gain a member, so an exhaustive `switch` needs the new case to
+compile, although only `cosignManual: true` ever produces it:
 
 - `SignOutcome`, `SubmitOutcome` and `TrustlineOutcome` include
-  `{ status: 'cosign_pending', request }`: the user's device has to approve the
-  signature. The built-in `<CosignModal>` opens by itself; a custom flow calls
-  `client.cosign.approve(request)` from an explicit user action, or waits for
-  `onCosignStateChange`.
+  `{ status: 'cosign_pending', request }`.
 - `TransactionState` includes `{ step: 'awaiting_cosign', request }`.
+
+With `cosignManual: true` the app approves through `client.cosign.approve(request)`
+from an explicit user action, or waits for `onCosignStateChange`.
 
 A mainnet app switched to `COSIGNED` custody needs an sdk-api that serves the
 `/cosign` routes, and its users need this SDK version: the login sends the
 device key that becomes their half of the quorum.
+
+### Showing every signature first
+
+`confirmation: 'prompt'` makes every signing call wait for the user, whatever
+the wallet's custody. `@pollar/react` and `@pollar/react-native` render the
+prompt (`<ConfirmModal>`); a headless app subscribes with
+`client.onConfirmationRequest()` and answers each pending confirmation with
+`confirm()` or `reject()`. Leave it at `'auto'` to keep today's behaviour.
+
+### Templates
+
+Only for apps that mount the templates themselves: `RampWidgetTemplateProps`
+and `SendModalTemplateProps` gain optional props (the settlement chain and
+`fundsInTransit` with its retry; the Stellar memo), so a custom template written
+before this keeps compiling.
 
 ## 0.11.3 -> 0.11.4
 

@@ -3,9 +3,11 @@
 React bindings for [Pollar](https://pollar.xyz) — drop-in authentication UI, transaction modals, and hooks for
 Stellar and Solana applications.
 
-> **0.11.5** (candidate `0.11.5-rc.1` on the `next` tag, which requires `@pollar/core@^0.11.5-rc.1`).
-> **Turnkey co-signed wallets**: `<CosignModal>` opens by itself on a new request and enables Approve only
-> after the request verifies against Turnkey; `useCosign()` exposes the pending requests. See
+> **0.11.5** (candidate `0.11.5-rc.2` on the `next` tag, which requires `@pollar/core@^0.11.5-rc.2`).
+> **Turnkey co-signed wallets**: `<CosignModal>` opens for a request the device did not settle and enables
+> Approve only after it verifies against Turnkey; `useCosign()` exposes the pending requests.
+> `<ConfirmModal>` shows every signature first under `confirmation: 'prompt'`. The ramp widget links the
+> chain a ramp settles on and retries funds in transit; Send takes a Stellar memo (`SendMemoType`). See
 > [UPGRADE.md](../../UPGRADE.md).
 >
 > Earlier: **0.11.4** (requires `@pollar/core@^0.11.4`).

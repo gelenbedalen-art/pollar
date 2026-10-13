@@ -2,66 +2,157 @@
 
 ## 0.11.5
 
-> Candidate: `0.11.5-rc.1` for `@pollar/core`, `@pollar/react` and
-> `@pollar/react-native`, on the `next` tag.
+> Candidate: `0.11.5-rc.2` for `@pollar/core`, `@pollar/react`,
+> `@pollar/react-native` and `@pollar/solana-wallet-standard-adapter`, on the
+> `next` tag. `0.11.5-rc.1` was never published.
 >
 > **Turnkey co-signed wallets.** A mainnet app whose dashboard sets wallet
 > custody to `COSIGNED` gives each user a 2-of-2 quorum: this device's key and
-> Pollar's approver key. This release is the device's half. Every other app
-> sees no change at runtime; two types gain a member, which matters only to an
-> exhaustive `switch` - see [UPGRADE.md](./UPGRADE.md#0114---0115). This needs
-> an sdk-api that serves the `/cosign` routes. The adapters stay at 0.11.2:
-> their `@pollar/core@^0.11.2` range accepts 0.11.5.
+> Pollar's approver key. This release is the device's half, and by default it
+> is invisible to the app: the device verifies each request against Turnkey and
+> votes on its own, so a signing call ends the same way as for a custodial
+> wallet. A new **confirmation policy** lets an app show the user every
+> signature first, whatever the custody. Also: Solana wallets the user signs
+> with send through build and submit, payments reach Polygon, the ramp widget
+> follows the chain a ramp settles on, and the Send modal takes a Stellar memo.
+> This needs an sdk-api that serves the `/cosign` routes. See
+> [UPGRADE.md](./UPGRADE.md#0114---0115).
 
-### `@pollar/core`
+### Co-signed wallets and the confirmation policy
 
-- **The device key.** A second P-256 key under the `cosign` namespace
-  (`KeyManagerOptions.namespace`), so logging out, which resets the DPoP key,
-  leaves the user's vote in place. The login and `createWallet()` send its
-  public key.
-- **A signature that needs the device's vote comes back pending.** `signTx`,
-  `signAndSubmitTx` and `buildAndSignAndSubmitTx` answer
-  `{ status: 'cosign_pending', request }` on the server's 202
-  `SDK_COSIGN_PENDING`, as does `setTrustline`, and the transaction state gains
-  `awaiting_cosign`; it moves on to signed, submitted, success or error when
-  the request resolves.
+#### `@pollar/core`
+
+- **`config.confirmation`: `'auto'` (default) or `'prompt'`.** Under `'auto'` a
+  custodial wallet signs on the server, a co-signed one has the device verify
+  and vote without a prompt, and an external one shows only its own wallet's
+  popup: `signTx` returns `signed` and `signAndSubmitTx` /
+  `buildAndSignAndSubmitTx` return `success`, as for a custodial wallet. A
+  payload Turnkey disagrees with is rejected and the call ends in an error.
+  Under `'prompt'` every signature waits for the user first;
+  `onConfirmationRequest()` and `getPendingConfirmations()` expose what is
+  waiting, each with `confirm()` and `reject()`.
+- **`config.cosignManual`** keeps the raw flow: signing calls on a co-signed
+  wallet answer `{ status: 'cosign_pending', request }` (as do
+  `setTrustline` and the transaction state, with `awaiting_cosign`), and the
+  app approves through `client.cosign.*` and its own UI.
+- **Setup Pollar opens on its own** (account creation, trustlines, an account on
+  a new chain) is approved without a prompt only when the device decodes the
+  request and it names this wallet: `recognizedSetupRequest()` reads the XDR
+  field by field (`createAccount`, `changeTrust`, sponsorship) and refuses
+  anything else. What it does not recognize reaches the pending list and the
+  prompt.
+- **The device key** is a second P-256 key under the `cosign` namespace
+  (`KeyManagerOptions.namespace`, or your own `config.cosignKeyManager`), so
+  logging out, which resets the DPoP key, leaves the user's vote in place. The
+  login and `createWallet()` send its public key.
 - **`client.cosign`** (`CosignManager`): `pending()`, `get()`, `cancel()`,
   `devices()`, `verify()`, `approve()`, `reject()`, `refresh()`,
   `inspectQuorum()` and `revokeDevice()`. `getCosignState()` and
-  `onCosignStateChange()` expose the pending requests.
-- **`approve()` votes only on what it verified.** It rebuilds a refreshable
-  request first, so the payload carries chain state seconds old, then checks it
-  against Turnkey's copy read with the device's own key: the Stellar
-  transaction hash recomputed from the unsigned envelope, a Solana transaction
-  byte for byte, or an account derivation by wallet id and parameters. It also
-  refuses an activity Turnkey would sign with another account. A mismatch
-  throws `SDK_COSIGN_VERIFICATION_FAILED` instead of voting.
+  `onCosignStateChange()` expose the pending requests. `pending()` shares one
+  in-flight read, and a request already seen in a final state never reopens.
+- **The device votes only on what it verified.** A refreshable request is
+  rebuilt first, so the payload carries chain state seconds old, then checked
+  against Turnkey's copy read with the device's own key: on Stellar the
+  transaction hash recomputed from the unsigned envelope; on Polygon the
+  unsigned EIP-1559 transaction decoded on the device (chain id, and a call the
+  platform asks a co-signed wallet to make - POL or ERC-20 transfer, approve,
+  Uniswap V3 `exactInputSingle`, CCTP V2 `depositForBurn` - with exactly the
+  stated destination, value and calldata); on Solana a CCTP burn decoded on the
+  device (one `deposit_for_burn` beside compute-budget instructions, burning
+  the stated amount from the signing account to the stated domain and
+  recipient, fee and rent paid by the account the request names; any other
+  request that calls the token messenger is refused, and one the reader cannot
+  decode is compared byte for byte); an account derivation by wallet id and
+  parameters. An activity Turnkey would sign with another account is refused. A mismatch throws `SDK_COSIGN_VERIFICATION_FAILED` instead of
+  voting, and a co-signed send that fails at any step rejects its request.
 - **`inspectQuorum()`** checks that the user's sub-organization is the promised
   2-of-2 with this device registered, and reports what it read to sdk-api.
   `revokeDevice()` removes another device's key through this device's vote.
-- No `@turnkey/*` dependency: the request stamp (compressed key plus DER
-  signature) is built in core.
+- **One approval per group of steps.** A request that declares an approval
+  group (a ramp's swap, its bridge) is shown with every step the group covers.
+  Once the user approves it, the device votes the group's later steps on its
+  own, each still verified against its own payload first; a step the user was
+  not shown, another group, or a consent older than a day is asked again.
+  Consents survive a reload. `cosignGroupOf()`, `cosignStepKeyOf()` and
+  `stepInGroup()` are exported.
+- No `@turnkey/*` or EVM dependency: the request stamp, the Stellar hash and the
+  Polygon decoding are built in core.
+- **`transactionErrorMessage(code)`** turns the codes a sender can hit into a
+  sentence, so a raw `VALIDATION_ERROR` or `TX_INSUFFICIENT_BALANCE` no longer
+  reaches the screen.
 
-### `@pollar/react` and `@pollar/react-native`
+#### `@pollar/react` and `@pollar/react-native`
 
-- **`<CosignModal>`** opens by itself when a new request arrives, runs
-  `inspectQuorum()` once, and enables Approve only after the request verifies
-  against Turnkey. The check survives a refresh of the pending list, which hands
-  back new objects for the same requests. `CosignModalTemplate` is exported for
-  a custom UI.
+- **`<ConfirmModal>`**, rendered by the provider under `confirmation: 'prompt'`,
+  shows each signature before it happens.
+- **`<CosignModal>`** opens by itself for a request the device did not settle,
+  runs `inspectQuorum()` once, and enables Approve only after the request
+  verifies against Turnkey. The check survives a refresh of the pending list;
+  Approve stays off for a request whose approval just failed; once approved it
+  links the transaction to its chain's explorer. `CosignModalTemplate` is
+  exported for a custom UI.
 - **`useCosign()`** (web) and `cosign` / `openCosignModal` on `usePollar()`:
   the pending requests, `approve`, `reject`, `inspectQuorum`, `devices` and
   `revokeDevice`.
 
+### Solana and Polygon
+
+- **`@pollar/core`: a Solana wallet the user signs with sends through build and
+  submit.** `sendPayment` on `SOLANA` takes the wallet from `wallets[]`, so a
+  SIWS login no longer answers "No wallet connected". An external wallet has
+  `/tx/build` compile the transfer, signs it with `signSolanaTransaction` (the
+  Wallet Standard chain id from the app's network) and `/tx/submit` broadcasts
+  it with the same `idempotencyKey`; a platform-managed one keeps the single
+  call. Balances and assets load for a session whose only wallet is on Solana.
+  `/tx/build` and `/tx/submit` answer a Solana branch, so `TxBuildContent` is
+  the Stellar member of the regenerated union.
+- **`sendPayment` on `POLYGON`** takes the user's Polygon wallet from
+  `wallets[]` and sends through `/tx/build-sign-submit`: a `PENDING` answer is
+  confirmed through `/tx/status` by its `0x` hash, and a co-signed wallet goes
+  through the device's vote. An ERC-20 travels as `mint`, as in the published
+  type. An external Polygon wallet is refused locally. The **Send** modal sends
+  on Polygon in base units (18 decimals for POL, the token's own otherwise)
+  and links Polygonscan.
+- **`@pollar/solana-wallet-standard-adapter`** is published for the first time,
+  on the SDK's version line.
+- **The login modal shows a wallet adapter only when the app serves its
+  chain** (`listWalletAdapters()` reports each adapter's `chain`), so a Phantom
+  login never leaves a user on an app without Solana.
+
+### Ramps and wallet modals (`@pollar/core`, `@pollar/react`)
+
+- **The ramp widget follows the settlement chain.** The status step reads
+  `txHash` and `chain` from the ramp transaction (falling back to
+  `stellarTxHash`) and links Stellar Expert, Polygonscan or the Solana
+  explorer, testnet-aware. When the transaction reports `fundsInTransit` (the
+  user's money waits in their own wallet between two steps of a route), the
+  widget says so and offers **Retry now**, which calls the new
+  `retryRampTransaction()` (`POST /ramps/transaction/{txId}/retry`). The
+  template keeps `stellarTxHash` and adds optional props.
+- **A Stereum off-ramp from a wallet the user brought on Stellar** asks it for
+  the `cctp_approve` and `cctp_burn` signatures, one prompt at a time: the burn
+  the server asks for in the approve's answer, and a pending signature the
+  transaction view carries after a reload.
+- **Send** takes an optional Stellar memo with its type (text, checked against
+  the 28-byte limit, or id, checked against uint64); `SendMemoType` is exported
+  for custom templates. The destination placeholder follows the selected
+  chain.
+- **One modal footer** in every modal, web and native: "Protected by" with the
+  Pollar wordmark for the theme and the version, centered, with its own
+  spacing. The transaction status view shows the Pollar mark for the theme.
+
 ### Tests
 
-- `smoke-cosign.cjs`: the device key surviving the DPoP reset, the stamp, the
-  Stellar hash recomputation, `cosign_pending` and `awaiting_cosign` through to
-  success or error, `verify` on Stellar, Solana and account requests (each
-  refusing its mismatch), `approve` refusing to vote on a mismatch and
-  refreshing a refreshable request first, `inspectQuorum` and `revokeDevice`.
+- `smoke-cosign.cjs` (73 checks): the device key, the stamp, the Stellar hash
+  recomputation, `verify` on Stellar, Solana and account requests, the
+  `'auto'`, `'prompt'` and manual flows, the setup recognizer, `approve`
+  refusing a mismatch, `inspectQuorum` and `revokeDevice`.
 - `smoke-cosign-modal.cjs`: both prompts verify once and enable Approve while
   the pending list refreshes. Both run in `npm run test:smoke`.
+- Core unit tests (`npm run test:unit`, which CI runs before the smoke tests):
+  `cosign-evm.test.ts` (Polygon decoding and call recognition),
+  `cosign-solana.test.ts` (the CCTP burn reader) and `cosign-groups.test.ts`
+  (approval groups).
 
 ## 0.11.4
 

@@ -9,12 +9,15 @@ This repository is managed with [Turborepo](https://turbo.build/repo) and contai
 
 ## Packages
 
-> **0.11.5** (candidate `0.11.5-rc.1` on the `next` tag) adds **Turnkey co-signed wallets**: for a mainnet
-> app in `COSIGNED` custody, every signature needs this device's vote. `signTx` and friends answer
-> `{ status: 'cosign_pending', request }`, `client.cosign` verifies the request against Turnkey before
-> approving it, and `<CosignModal>` asks the user. Every other app sees no change at runtime; an exhaustive
-> `switch` over `SignOutcome`, `SubmitOutcome`, `TrustlineOutcome` or `TransactionState` needs the new case -
-> see [UPGRADE.md](./UPGRADE.md). The adapters stay at `0.11.2`.
+> **0.11.5** (candidate `0.11.5-rc.2` on the `next` tag) adds **Turnkey co-signed wallets**: for a mainnet
+> app in `COSIGNED` custody, each user's wallet is a 2-of-2 quorum with this device's key. By default
+> (`confirmation: 'auto'`) the device verifies each request against Turnkey and votes on its own, so a
+> signing call ends exactly as for a custodial wallet; `confirmation: 'prompt'` shows the user every
+> signature first, whatever the custody, and `cosignManual` keeps the raw `cosign_pending` flow. Also: a
+> Solana wallet the user signs with sends through build and submit, payments reach Polygon, the ramp widget follows the chain a
+> ramp settles on and retries funds in transit, the Send modal takes a Stellar memo, and
+> `@pollar/solana-wallet-standard-adapter` is published for the first time. No code change is needed; see
+> [UPGRADE.md](./UPGRADE.md).
 >
 > Earlier: **0.11.4** needs no change in an app that uses the
 > built-in components. **KYC by ramp corridor**: a ramp quote reports the first requirement step a
@@ -83,7 +86,7 @@ This repository is managed with [Turborepo](https://turbo.build/repo) and contai
 
 ### [`@pollar/core`](./packages/core)
 
-**Version:** `0.11.5-rc.1` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/core)
+**Version:** `0.11.5-rc.2` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/core)
 
 Framework-agnostic TypeScript SDK. Provides the `PollarClient` class and all lower-level utilities needed to integrate
 Pollar authentication and multichain (Stellar + Solana) transactions into any JavaScript environment.
@@ -166,7 +169,7 @@ const client = new PollarClient({ apiKey: 'pk_...', storage });
 
 ### [`@pollar/react`](./packages/react)
 
-**Version:** `0.11.5-rc.1` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/react)
+**Version:** `0.11.5-rc.2` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/react)
 
 React bindings built on top of `@pollar/core`. Provides a context provider, hook, and pre-built UI components for
 drop-in authentication in React applications.
@@ -219,7 +222,7 @@ npm install @pollar/react @pollar/core
 
 ### [`@pollar/react-native`](./packages/react-native)
 
-**Version:** `0.11.5-rc.1` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/react-native)
+**Version:** `0.11.5-rc.2` (`next` tag; `0.11.4` on `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/react-native)
 
 React Native bindings built on top of `@pollar/core`: the same provider-and-hook model as `@pollar/react`, with
 components styled through `StyleSheet`.
@@ -237,7 +240,7 @@ components styled through `StyleSheet`.
 - Storage (Keychain / SecureStore), OAuth opener and polyfills are configured through `@pollar/core`; see the package
   README
 - `<CardModal>` - the same card flow as the web one; the card number is decrypted on the device without WebCrypto
-- Peer dependencies on `@pollar/core ^0.11.5-rc.1`, React >= 18 and React Native >= 0.72; versioned with `@pollar/core`
+- Peer dependencies on `@pollar/core ^0.11.5-rc.2`, React >= 18 and React Native >= 0.72; versioned with `@pollar/core`
   and `@pollar/react` from 0.11.4
 
 ```bash
@@ -346,7 +349,7 @@ npm install @pollar/stellar-wallets-kit-adapter @pollar/core @creit.tech/stellar
 
 ### [`@pollar/solana-wallet-standard-adapter`](./packages/solana-wallet-standard-adapter)
 
-**Version:** `0.11.2` &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/solana-wallet-standard-adapter)
+**Version:** `0.11.5-rc.2` (`next` tag; first release on npm) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/solana-wallet-standard-adapter)
 
 The Solana counterpart to `@pollar/stellar-wallets-kit-adapter`. Connects user-controlled Solana wallets (Phantom,
 Solflare, Backpack, ...) to `@pollar/core` through the [Wallet Standard](https://github.com/wallet-standard/wallet-standard),
