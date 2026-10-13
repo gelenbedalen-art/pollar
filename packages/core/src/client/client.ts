@@ -526,6 +526,8 @@ export class PollarClient {
   private readonly _cosignManual: boolean;
   /** Requests this client is settling itself: they stay out of the pending list a UI prompts for. */
   private readonly _autoHandling = new Set<string>();
+  /** Requests already seen in a final state: a pending copy arriving later is stale, never a reopening. */
+  private readonly _settledCosign = new Set<string>();
   private readonly _confirmations = new Map<string, PendingConfirmation>();
   private readonly _confirmationListeners = new Set<(pending: PendingConfirmation[]) => void>();
   private _loginController: AbortController | null = null;
@@ -3389,6 +3391,8 @@ export class PollarClient {
    * (atomic flows) or ended it.
    */
   private _noteCosignRequest(request: CosignRequest): void {
+    if (request.status !== 'PENDING') this._settledCosign.add(request.id);
+    else if (this._settledCosign.has(request.id)) return;
     const pending = this._cosignState.pending.filter((r) => r.id !== request.id);
     if (request.status === 'PENDING' && !this._autoHandling.has(request.id)) pending.push(request);
     const lastResolved = request.status !== 'PENDING' ? request : this._cosignState.lastResolved;

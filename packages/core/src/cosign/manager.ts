@@ -145,6 +145,21 @@ export class CosignManager {
    * remains needs a decision and is what the store shows.
    */
   async pending(): Promise<CosignRequest[]> {
+    // One read at a time. The provider and a modal both ask on mount (twice
+    // each under React's strict mode), and two concurrent reads would each
+    // vote on the same setup request; the later refresh then hands the store
+    // a pending copy of a request the first vote already completed.
+    if (!this._pendingRead) {
+      this._pendingRead = this.readPending().finally(() => {
+        this._pendingRead = null;
+      });
+    }
+    return this._pendingRead;
+  }
+
+  private _pendingRead: Promise<CosignRequest[]> | null = null;
+
+  private async readPending(): Promise<CosignRequest[]> {
     let remaining: CosignRequest[] = [];
     for (let round = 0; round < 6; round++) {
       const { requests } = content(await this.deps.api.GET('/cosign/requests'), 'SDK_COSIGN_REQUEST_NOT_FOUND');

@@ -369,12 +369,18 @@ function request(overrides = {}) {
       }
       if (body.path === '/public/v1/submit/approve_activity') {
         approveCalls++;
-        // The vote completes the activity, so the list no longer carries it.
+        // The vote completes the activity, so the list no longer carries it;
+        // the answer names the request that was voted on.
+        const voted = pendingList.find((r) => r.fingerprint === inner.parameters.fingerprint);
         pendingList = pendingList.filter((r) => r.fingerprint !== inner.parameters.fingerprint);
         return json(200, {
           success: true,
           code: 'SDK_COSIGN_APPROVED',
-          content: { status: 200, body: {}, request: approvedRequest },
+          content: {
+            status: 200,
+            body: {},
+            request: voted ? { ...approvedRequest, id: voted.id, fingerprint: voted.fingerprint } : approvedRequest,
+          },
         });
       }
       return json(400, { success: false, code: 'VALIDATION_ERROR' });
@@ -618,6 +624,31 @@ function request(overrides = {}) {
   const autoSend = await auto.signAndSubmitTx(UNSIGNED_XDR);
   check('signAndSubmitTx returns success with the hash', autoSend.status === 'success' && autoSend.hash === 'abc123', autoSend);
   check('the tx state ended in success', autoStates[autoStates.length - 1] === 'success');
+
+  // Two reads at once (provider + modal, or strict mode) must vote once.
+  const setupRequest2 = request({
+    id: 'req-setup-2',
+    fingerprint: 'fp-setup-2',
+    intent: 'account_create',
+    operation: 'create_account',
+    unsignedPayload: CREATE_XDR,
+    payloadHash: CREATE_HASH,
+    summary: 'Create your account',
+    details: {},
+  });
+  pendingList = [setupRequest2];
+  turnkeyPayload = CREATE_HASH;
+  const approvesBeforeConcurrent = approveCalls;
+  await Promise.all([auto.cosign.pending(), auto.cosign.pending(), auto.cosign.pending()]);
+  check('three concurrent pending() reads vote once on the same setup request', approveCalls === approvesBeforeConcurrent + 1);
+  check('nothing is left pending after the concurrent reads', auto.getCosignState().pending.length === 0);
+  // A pending copy of a request already seen final (a late refresh, a stale
+  // list) must not reopen the prompt.
+  pendingList = [request({ id: 'req-setup-2', fingerprint: 'fp-setup-2' })];
+  await auto.cosign.pending();
+  check('a stale pending copy of a settled request never reaches the store', auto.getCosignState().pending.length === 0);
+  pendingList = [];
+  turnkeyPayload = HASH;
 
   turnkeyPayload = 'ff'.repeat(32);
   const mismatch = await auto.signTx(UNSIGNED_XDR);
