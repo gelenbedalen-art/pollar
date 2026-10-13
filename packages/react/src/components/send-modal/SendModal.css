@@ -277,7 +277,6 @@ html.dark .pollar-send-inline-action {
 }
 
 .pollar-send-modal .pollar-footer {
-  justify-content: flex-start;
   margin-top: 1.25rem;
   padding-top: 1rem;
 }

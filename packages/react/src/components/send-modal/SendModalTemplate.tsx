@@ -26,6 +26,13 @@ function chainLabel(chain: WalletChain | null): string {
   return 'network';
 }
 
+// Solana addresses are base58 with no fixed prefix, so they get a label instead.
+function destinationPlaceholder(chain: WalletChain | null): string {
+  if (chain === 'SOLANA') return 'Solana address';
+  if (chain === 'POLYGON') return '0x…';
+  return 'G…';
+}
+
 function AssetIcon({ code }: { code: string }) {
   return (
     <span className="pollar-send-asset-icon" aria-hidden>
@@ -368,7 +375,7 @@ export function SendModalTemplate({
               <input
                 className="pollar-input pollar-send-destination-input"
                 type="text"
-                placeholder="G…"
+                placeholder={destinationPlaceholder(selectedChain)}
                 value={destination}
                 onChange={(e) => onDestinationChange(e.target.value)}
                 aria-label="Destination wallet"
