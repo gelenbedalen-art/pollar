@@ -3,6 +3,7 @@
 import { type CosignRequest, type CosignVerification, isPollarApiError, transactionErrorMessage } from '@pollar/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
+import { explorerTxUrl } from '../commons';
 import { useCosign } from '../../useCosign';
 import '../shared.css';
 import './CosignModal.css';
@@ -19,7 +20,7 @@ interface CosignModalProps {
  * transaction the device checked itself.
  */
 export function CosignModal({ onClose }: CosignModalProps) {
-  const { getClient, styles } = usePollar();
+  const { getClient, styles, network } = usePollar();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
   const { pending, lastResolved, approve, reject, verify, inspectQuorum } = useCosign();
 
@@ -112,6 +113,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
         error={error}
         approveBlocked={!!current && approveFailedFor === current.id}
         {...(lastResolved ? { lastResolved } : {})}
+        explorerUrl={lastResolved?.submit?.hash ? explorerTxUrl(lastResolved.network, lastResolved.submit.hash, network) : null}
         onSelect={(r) => setSelectedId(r.id)}
         onApprove={(r) => void run('approving', r, approve)}
         onReject={(r) => void run('rejecting', r, reject)}

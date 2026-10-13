@@ -63,8 +63,8 @@ html.dark .pollar-modal-card {
   --pollar-error-border: #7f1d1d !important;
   --pollar-error-text: #f87171 !important;
   --pollar-success-text: #4ade80 !important;
-  --pollar-footer-logo-on-light-display: none !important;
-  --pollar-footer-logo-on-dark-display: block !important;
+  --pollar-logo-on-light-display: none !important;
+  --pollar-logo-on-dark-display: block !important;
 }
 
 /* --- Common input -------------------------------------------------------------- */
@@ -356,14 +356,15 @@ html.dark .pollar-modal-card {
   width: auto;
 }
 
-/* Only one wordmark shows: the theme picks it through these two variables
- * (see buildModalCssVars), and `html.dark` overrides them below. */
-.pollar-footer-logo-on-light {
-  display: var(--pollar-footer-logo-on-light-display, block);
+/* A Pollar logo with a light and a dark version renders both; only one shows.
+ * The theme picks it through these two variables (see buildModalCssVars), and
+ * `html.dark` overrides them above. */
+.pollar-logo-on-light {
+  display: var(--pollar-logo-on-light-display, block);
 }
 
-.pollar-footer-logo-on-dark {
-  display: var(--pollar-footer-logo-on-dark-display, none);
+.pollar-logo-on-dark {
+  display: var(--pollar-logo-on-dark-display, none);
 }
 
 .pollar-footer-version {

@@ -1,7 +1,7 @@
 'use client';
 
 import { TransactionState, transactionErrorMessage, WalletId, WalletType } from '@pollar/core';
-import { LOGO_ALBEDO, LOGO_FREIGHTER, LOGO_POLLAR } from '../../constants';
+import { LOGO_ALBEDO, LOGO_FREIGHTER, LOGO_POLLAR_MARK_ON_DARK, LOGO_POLLAR_MARK_ON_LIGHT } from '../../constants';
 import { ModalStatusBanner } from '../commons';
 
 const STATUS_MESSAGES: Record<TransactionState['step'], string> = {
@@ -76,9 +76,16 @@ export function TxStatusView({
   const showDetails = buildData !== null && SHOW_DETAILS_STEPS.has(transaction.step);
 
   const walletImg =
-    walletType === WalletType.FREIGHTER ? LOGO_FREIGHTER : walletType === WalletType.ALBEDO ? LOGO_ALBEDO : LOGO_POLLAR;
+    walletType === WalletType.FREIGHTER ? LOGO_FREIGHTER : walletType === WalletType.ALBEDO ? LOGO_ALBEDO : null;
 
   const walletAlt = walletType === WalletType.FREIGHTER ? 'Freighter' : walletType === WalletType.ALBEDO ? 'Albedo' : 'Pollar';
+  const statusBanner = (
+    <ModalStatusBanner
+      message={STATUS_MESSAGES[transaction.step]}
+      status={isError ? 'ERROR' : isInFlight ? 'LOADING' : isSuccess ? 'SUCCESS' : 'NONE'}
+    />
+  );
+  const showSpinner = isInFlight || isSuccess || isError;
 
   return (
     <>
@@ -136,7 +143,7 @@ export function TxStatusView({
         </button>
       )}
 
-      {(isInFlight || isSuccess || isError) && (
+      {showSpinner && (
         <div className="pollar-tx-wallet-spinner">
           <div className="pollar-tx-spinner-ring">
             <svg
@@ -163,9 +170,18 @@ export function TxStatusView({
               />
             </svg>
             <div className="pollar-tx-wallet-icon">
-              <img src={walletImg} alt={walletAlt} className="pollar-tx-wallet-img" />
+              {walletImg ? (
+                <img src={walletImg} alt={walletAlt} className="pollar-tx-wallet-img" />
+              ) : (
+                <>
+                  <img src={LOGO_POLLAR_MARK_ON_LIGHT} alt={walletAlt} className="pollar-tx-wallet-img pollar-logo-on-light" />
+                  <img src={LOGO_POLLAR_MARK_ON_DARK} alt={walletAlt} className="pollar-tx-wallet-img pollar-logo-on-dark" />
+                </>
+              )}
             </div>
           </div>
+
+          {statusBanner}
 
           {isInFlight && (
             <p className="pollar-tx-spinner-label">
@@ -250,10 +266,7 @@ export function TxStatusView({
         </button>
       )}
 
-      <ModalStatusBanner
-        message={STATUS_MESSAGES[transaction.step]}
-        status={isError ? 'ERROR' : isInFlight ? 'LOADING' : isSuccess ? 'SUCCESS' : 'NONE'}
-      />
+      {!showSpinner && statusBanner}
     </>
   );
 }

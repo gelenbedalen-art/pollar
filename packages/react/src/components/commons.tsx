@@ -1,6 +1,6 @@
 type StateStatus = 'NONE' | 'LOADING' | 'SUCCESS' | 'ERROR';
 
-import type { PollarLogger } from '@pollar/core';
+import type { PollarLogger, StellarNetwork, WalletChain } from '@pollar/core';
 import {
   Component,
   useEffect,
@@ -50,12 +50,23 @@ export const PollarModalFooter = () => {
   return (
     <div className="pollar-footer">
       <span className="pollar-footer-protected">Protected by</span>
-      <img src={LOGO_POLLAR_WORDMARK_ON_LIGHT} alt="Pollar" className="pollar-footer-logo pollar-footer-logo-on-light" />
-      <img src={LOGO_POLLAR_WORDMARK_ON_DARK} alt="Pollar" className="pollar-footer-logo pollar-footer-logo-on-dark" />
+      <img src={LOGO_POLLAR_WORDMARK_ON_LIGHT} alt="Pollar" className="pollar-footer-logo pollar-logo-on-light" />
+      <img src={LOGO_POLLAR_WORDMARK_ON_DARK} alt="Pollar" className="pollar-footer-logo pollar-logo-on-dark" />
       <span className="pollar-footer-version">v{__POLLAR_VERSION__}</span>
     </div>
   );
 };
+
+/** The explorer page of a transaction, by the chain it ran on. */
+export function explorerTxUrl(chain: WalletChain, hash: string, network: StellarNetwork): string {
+  if (chain === 'SOLANA') {
+    return `https://explorer.solana.com/tx/${hash}${network === 'testnet' ? '?cluster=devnet' : ''}`;
+  }
+  if (chain === 'POLYGON') {
+    return `https://${network === 'testnet' ? 'amoy.' : ''}polygonscan.com/tx/${hash}`;
+  }
+  return `https://stellar.expert/explorer/${network === 'testnet' ? 'testnet' : 'public'}/tx/${hash}`;
+}
 
 /** Shared refresh glyph used by compact modal header actions. */
 export function RefreshIcon({ spinning = false, className = '' }: { spinning?: boolean; className?: string }) {

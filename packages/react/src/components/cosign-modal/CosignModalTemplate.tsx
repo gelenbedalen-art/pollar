@@ -21,6 +21,8 @@ export interface CosignModalTemplateProps {
   approveBlocked?: boolean;
   /** The last request that reached a final state, shown once the list is empty. */
   lastResolved?: CosignRequest;
+  /** Explorer page of {@link lastResolved}'s transaction, when it was sent. */
+  explorerUrl?: string | null;
   onSelect: (request: CosignRequest) => void;
   onApprove: (request: CosignRequest) => void;
   onReject: (request: CosignRequest) => void;
@@ -85,6 +87,7 @@ export function CosignModalTemplate({
   error,
   approveBlocked = false,
   lastResolved,
+  explorerUrl,
   onSelect,
   onApprove,
   onReject,
@@ -114,6 +117,18 @@ export function CosignModalTemplate({
         <div className="pollar-cosign-empty">
           {lastResolved ? (
             <>
+              {lastResolved.status === 'APPROVED' && (
+                <svg className="pollar-cosign-approved-icon" width="44" height="44" viewBox="0 0 14 14" fill="none" aria-hidden>
+                  <circle cx="7" cy="7" r="7" fill="currentColor" />
+                  <path
+                    d="M3.5 7l2.5 2.5 4.5-5"
+                    stroke="white"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
               <p className="pollar-cosign-empty-title">
                 {lastResolved.status === 'APPROVED'
                   ? 'Approved'
@@ -122,11 +137,22 @@ export function CosignModalTemplate({
                     : lastResolved.status.toLowerCase()}
               </p>
               <p className="pollar-cosign-muted">
-                {lastResolved.submit?.hash
-                  ? `Sent. Transaction ${cropAddress(lastResolved.submit.hash)}`
-                  : lastResolved.signedXdr
-                    ? 'Signed. The app will send it.'
-                    : 'Nothing was signed.'}
+                {lastResolved.submit?.hash ? (
+                  <>
+                    Sent. Transaction{' '}
+                    {explorerUrl ? (
+                      <a className="pollar-cosign-tx-link" href={explorerUrl} target="_blank" rel="noopener noreferrer">
+                        {cropAddress(lastResolved.submit.hash)}
+                      </a>
+                    ) : (
+                      cropAddress(lastResolved.submit.hash)
+                    )}
+                  </>
+                ) : lastResolved.signedXdr ? (
+                  'Signed. The app will send it.'
+                ) : (
+                  'Nothing was signed.'
+                )}
               </p>
             </>
           ) : (
