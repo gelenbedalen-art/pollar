@@ -8,7 +8,9 @@ import type {
   RampQuoteRequirement,
   RampsOfframpBody,
   RampsOnrampBody,
+  RampsTransactionResponse,
   RampTxStatus,
+  StellarNetwork,
 } from '@pollar/core';
 import { useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
@@ -137,6 +139,17 @@ interface RampResult {
   depositInstructions?: RampDepositInstructions;
 }
 
+type RampChain = NonNullable<RampsTransactionResponse['chain']>;
+
+/** The explorer transaction URL of a ramp's settlement, by its chain; testnet is Solana devnet and Polygon Amoy. */
+function explorerTxUrl(chain: RampChain, hash: string | null, network: StellarNetwork): string | null {
+  if (!hash) return null;
+  const testnet = network === 'testnet';
+  if (chain === 'SOLANA') return `https://explorer.solana.com/tx/${hash}${testnet ? '?cluster=devnet' : ''}`;
+  if (chain === 'POLYGON') return `https://${testnet ? 'amoy.' : ''}polygonscan.com/tx/${hash}`;
+  return `https://stellar.expert/explorer/${testnet ? 'testnet' : 'public'}/tx/${hash}`;
+}
+
 export function RampWidget({ onClose }: RampWidgetProps) {
   const { getClient, signTx, wallet, styles, network } = usePollar();
   const walletAddress = wallet?.address ?? '';
@@ -182,12 +195,39 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [onboardingStatus, setOnboardingStatus] = useState<RampResult['onboardingStatus']>(undefined);
   const [txStatus, setTxStatus] = useState<RampTxStatus | null>(null);
   const [stellarTxHash, setStellarTxHash] = useState<string | null>(null);
+  // The settlement on any chain; Stellar-only providers still answer `stellarTxHash` alone.
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [txChain, setTxChain] = useState<RampChain | null>(null);
+  const [fundsInTransit, setFundsInTransit] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [depositInstructions, setDepositInstructions] = useState<RampDepositInstructions | null>(null);
   const [completing, setCompleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const directionRef = useRef(direction);
   directionRef.current = direction;
+
+  function applySettlement(tx: RampsTransactionResponse) {
+    if (tx.stellarTxHash) setStellarTxHash(tx.stellarTxHash);
+    if (tx.txHash) setTxHash(tx.txHash);
+    if (tx.chain) setTxChain(tx.chain);
+    setFundsInTransit(tx.fundsInTransit === true);
+  }
+
+  async function handleRetryTransit() {
+    if (!txId || retrying) return;
+    setRetrying(true);
+    setErrorMsg(null);
+    try {
+      const tx = await client.retryRampTransaction(txId);
+      setTxStatus(tx.status);
+      applySettlement(tx);
+    } catch (e) {
+      setErrorMsg(e instanceof Error && e.message ? e.message : 'Could not retry the transfer. Try again in a moment.');
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   // Poll the anchor transaction status while on the status step until terminal.
   useEffect(() => {
@@ -199,7 +239,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         const tx = await client.getRampTransaction(txId);
         if (!active) return;
         setTxStatus(tx.status);
-        if (tx.stellarTxHash) setStellarTxHash(tx.stellarTxHash);
+        applySettlement(tx);
         if (tx.kycUrl) setKycUrl(tx.kycUrl);
         // depositInstructions is returned by REST providers (Bridge) - e.g. a Pix
         // `br_code` / bank details for on-ramp.
@@ -291,7 +331,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       } else if (step === 'status' && txId) {
         const tx = await client.getRampTransaction(txId);
         setTxStatus(tx.status);
-        if (tx.stellarTxHash) setStellarTxHash(tx.stellarTxHash);
+        applySettlement(tx);
         if (tx.kycUrl) setKycUrl(tx.kycUrl);
         if (tx.depositInstructions) setDepositInstructions(tx.depositInstructions);
       }
@@ -321,6 +361,9 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     setTosUrl(null);
     setTxStatus(null);
     setStellarTxHash(null);
+    setTxHash(null);
+    setTxChain(null);
+    setFundsInTransit(false);
     setDepositInstructions(null);
     setKycPending(false);
     setKycApproved(false);
@@ -558,7 +601,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   // gate for the NEXT quote, not for this transaction, so `kycPending` (not
   // `kycBlocking`) is what keeps the button away.
   const kycBlocking = kycPending && !kycApproved;
-  const canComplete = direction === 'offramp' && step === 'status' && txStatus !== 'completed' && !stellarTxHash && !kycPending;
+  const canComplete =
+    direction === 'offramp' && step === 'status' && txStatus !== 'completed' && !stellarTxHash && !txHash && !kycPending;
 
   const flowSteps = flowStepsOf(quotes, selectedQuote);
   const flowStepIndex = flowSteps.indexOf(STEP_LABEL[step] ?? '');
@@ -652,11 +696,12 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         onboardingStatus={onboardingStatus ?? null}
         kycJustApproved={kycPending && kycApproved}
         stellarTxHash={stellarTxHash}
-        explorerUrl={
-          stellarTxHash
-            ? `https://stellar.expert/explorer/${network === 'mainnet' ? 'public' : 'testnet'}/tx/${stellarTxHash}`
-            : null
-        }
+        txHash={txHash}
+        txChain={txChain}
+        explorerUrl={explorerTxUrl(txChain ?? 'STELLAR', txHash ?? stellarTxHash, network)}
+        fundsInTransit={fundsInTransit}
+        retrying={retrying}
+        onRetryTransit={handleRetryTransit}
         depositInstructions={depositInstructions}
         canComplete={canComplete}
         completing={completing}

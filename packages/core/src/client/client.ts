@@ -44,6 +44,7 @@ import {
   getRampLiquidity,
   getRampsQuote,
   getRampTransaction,
+  retryRampTransaction,
   pollRampTransaction,
   submitRampSignature,
 } from '../api/endpoints/ramps';
@@ -4345,6 +4346,11 @@ export class PollarClient {
 
   getRampTransaction(txId: string): Promise<RampsTransactionResponse> {
     return getRampTransaction(this._api, txId);
+  }
+
+  /** Run the pending step of a ramp whose funds are in transit now, instead of at the next pass. */
+  retryRampTransaction(txId: string): Promise<RampsTransactionResponse> {
+    return retryRampTransaction(this._api, txId);
   }
 
   pollRampTransaction(txId: string, opts?: { intervalMs?: number; timeoutMs?: number }): Promise<RampTxStatus> {

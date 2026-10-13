@@ -79,6 +79,7 @@ export {
   completeWithdraw,
   submitRampSignature,
   getRampTransaction,
+  retryRampTransaction,
   pollRampTransaction,
   getRampLiquidity,
   getRampKycStatus,

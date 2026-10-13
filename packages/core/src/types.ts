@@ -1163,8 +1163,11 @@ export type RampsOfframpBody = NonNullable<pollarPaths['/ramps/offramp']['post']
 export type RampsOfframpResponse =
   pollarPaths['/ramps/offramp']['post']['responses'][200]['content']['application/json']['content'];
 
+// `fundsInTransit` is declared by sdk-api and not yet in the generated schema.
 export type RampsTransactionResponse =
-  pollarPaths['/ramps/transaction/{txId}']['get']['responses'][200]['content']['application/json']['content'];
+  pollarPaths['/ramps/transaction/{txId}']['get']['responses'][200]['content']['application/json']['content'] & {
+    fundsInTransit?: boolean;
+  };
 export type RampTxStatus = RampsTransactionResponse['status'];
 export type RampDirection = RampsTransactionResponse['direction'];
 

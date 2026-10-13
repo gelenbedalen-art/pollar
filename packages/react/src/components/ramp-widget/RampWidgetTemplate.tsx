@@ -84,6 +84,9 @@ function placeholderFor(field: RampFieldSpec, fields: RampFieldSpec[], values: R
   return field.placeholder;
 }
 
+const CHAIN_NAME = { STELLAR: 'Stellar', POLYGON: 'Polygon', SOLANA: 'Solana' } as const;
+const EXPLORER_NAME = { STELLAR: 'Stellar Expert', POLYGON: 'Polygonscan', SOLANA: 'Solana Explorer' } as const;
+
 interface RampWidgetTemplateProps {
   theme: string;
   accentColor: string;
@@ -127,9 +130,23 @@ interface RampWidgetTemplateProps {
   onboardingStatus?: 'kyc' | 'endorsement' | 'awaiting_provider' | null;
   /** The gate has since cleared - the user needs a fresh quote to continue. */
   kycJustApproved: boolean;
+  /** Superseded by `txHash`, which carries the settlement on any chain; read when `txHash` is absent. */
   stellarTxHash: string | null;
-  /** Stellar Expert URL for `stellarTxHash` (network-aware); null when unknown. */
+  /** The on-chain transaction that settled the ramp, on `txChain`. */
+  txHash?: string | null;
+  /** Chain of `txHash`; Stellar when omitted. */
+  txChain?: 'STELLAR' | 'POLYGON' | 'SOLANA' | null;
+  /** Explorer URL for the transaction (chain- and network-aware); null when unknown. */
   explorerUrl: string | null;
+  /**
+   * The user's money is in one of their wallets between two steps of the route.
+   * Optional for integrators rendering their own chrome; omitted, the state is
+   * not shown.
+   */
+  fundsInTransit?: boolean;
+  /** A retry of the pending step is in flight. */
+  retrying?: boolean;
+  onRetryTransit?: () => void;
   depositInstructions: RampDepositInstructions | null;
   canComplete: boolean;
   completing: boolean;
@@ -215,7 +232,12 @@ export function RampWidgetTemplate({
   onboardingStatus,
   kycJustApproved,
   stellarTxHash,
+  txHash,
+  txChain,
   explorerUrl,
+  fundsInTransit = false,
+  retrying = false,
+  onRetryTransit,
   depositInstructions,
   canComplete,
   completing,
@@ -237,6 +259,8 @@ export function RampWidgetTemplate({
   onRefresh,
   onClose,
 }: RampWidgetTemplateProps) {
+  const settledHash = txHash ?? stellarTxHash;
+  const chainName = CHAIN_NAME[txChain ?? 'STELLAR'];
   const cssVars = buildModalCssVars(theme, accentColor, styleOverrides, 'hero');
 
   const stepTitle: Record<RampStep, string> = {
@@ -526,22 +550,36 @@ export function RampWidgetTemplate({
             </div>
           </div>
 
-          {stellarTxHash && (
+          {fundsInTransit && txStatus !== 'completed' && txStatus !== 'failed' && (
             <div className="pollar-ramp-payment-field">
-              <span className="pollar-ramp-payment-label">Stellar tx</span>
+              <span className="pollar-ramp-payment-label">Funds in transit</span>
+              <p className="pollar-ramp-payment-note">
+                Your money is safe in your own wallet, waiting for the next step of the transfer.
+              </p>
+              {onRetryTransit && (
+                <button type="button" className="pollar-btn-secondary" onClick={onRetryTransit} disabled={retrying}>
+                  {retrying ? 'Retrying...' : 'Retry now'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {settledHash && (
+            <div className="pollar-ramp-payment-field">
+              <span className="pollar-ramp-payment-label">{chainName} tx</span>
               <div className="pollar-ramp-payment-value" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <code style={{ flex: 1, wordBreak: 'break-all' }}>
-                  {stellarTxHash.slice(0, 8)}…{stellarTxHash.slice(-8)}
+                  {settledHash.slice(0, 8)}…{settledHash.slice(-8)}
                 </code>
-                <CopyButton value={stellarTxHash} label="Copy transaction hash" />
+                <CopyButton value={settledHash} label="Copy transaction hash" />
                 {explorerUrl && (
                   <a
                     href={explorerUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="pollar-copy-btn"
-                    aria-label="View on Stellar Expert"
-                    title="View on Stellar Expert"
+                    aria-label={`View on ${EXPLORER_NAME[txChain ?? 'STELLAR']}`}
+                    title={`View on ${EXPLORER_NAME[txChain ?? 'STELLAR']}`}
                   >
                     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden>
                       <path
