@@ -2,6 +2,11 @@ name: E2E on release candidates
 on:
   push:
     tags: ['v*-rc*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to test, for example v0.6.0'
+        required: true
 
 permissions:
   contents: read
@@ -13,7 +18,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN }}
       E2E_REPO: pollar-xyz/pollar-api-e2e
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Start the E2E run
         run: gh workflow run e2e.yml -R "$E2E_REPO" -f sdk_ref="$TAG"
