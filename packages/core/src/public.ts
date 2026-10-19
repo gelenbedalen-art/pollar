@@ -77,6 +77,7 @@ export {
 // --- Ramps endpoints ----------------------------------------------------------
 export {
   continueRamp,
+  continueRampTransaction,
   getRampRoutes,
   getRampsQuote,
   getRampCountries,
@@ -128,3 +129,11 @@ export {
 export type { EncryptedCardSecrets } from './api/endpoints/cards';
 export { createCardSecretsSession, openCardSecrets } from './lib/card-secrets';
 export type { CardSecretsSession, CardSecretsEngine } from './lib/card-secrets';
+
+export type {
+  RampContinuation,
+  RampWorkflowAction,
+  RampWorkflowRoutes,
+  RampWorkflowTerms,
+  RampWorkflowView,
+} from './api/ramp-workflow';

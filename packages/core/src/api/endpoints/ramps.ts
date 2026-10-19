@@ -218,3 +218,6 @@ export async function continueRamp(
   if (!data?.content || error) throw rampApiError(error, 'Failed to continue ramp');
   return checkedRampSnapshot(data.content);
 }
+
+/** Compatibility alias sharing the validated workflow transport. */
+export const continueRampTransaction = continueRamp;
