@@ -1,9 +1,4 @@
 name: E2E on release candidates
-
-# A v*-rc* tag runs the end-to-end suite (pollar-xyz/pollar-api-e2e) against
-# @pollar/core built from that tag, on the test environment (*.pollar.dev),
-# and fails here if it fails there.
-
 on:
   push:
     tags: ['v*-rc*']
