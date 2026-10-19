@@ -8,6 +8,7 @@ import type {
   RampsOfframpBody,
   RampsOnrampBody,
   RampTxStatus,
+  RampWorkflowAction,
 } from '@pollar/core';
 import { useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
@@ -120,6 +121,34 @@ interface RampResult {
   // REST providers (Bridge) return deposit instructions as data (e.g. a Pix
   // `br_code` / bank details for on-ramp) instead of an interactive URL.
   depositInstructions?: RampDepositInstructions;
+  transactionVersion?: number;
+  nextAction?: RampWorkflowAction | null;
+  reconciliationRequired?: boolean;
+  interactiveUrl?: string;
+  direction?: RampDirection;
+}
+
+type SavedRamp = { txId: string; provider: string };
+function savedRampsOf(key: string): SavedRamp[] {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(`${key}:saved`) ?? '[]');
+    return Array.isArray(value)
+      ? value.filter((item): item is SavedRamp => typeof item?.txId === 'string' && typeof item?.provider === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+type Workflow = { transactionVersion: number; nextAction: RampWorkflowAction | null; reconciliationRequired: boolean };
+function workflowOf(result: RampResult): Workflow | null {
+  return typeof result.transactionVersion === 'number' && result.nextAction !== undefined
+    ? {
+        transactionVersion: result.transactionVersion,
+        nextAction: result.nextAction,
+        reconciliationRequired: result.reconciliationRequired === true,
+      }
+    : null;
 }
 
 export function RampWidget({ onClose }: RampWidgetProps) {
@@ -159,6 +188,34 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [depositInstructions, setDepositInstructions] = useState<RampDepositInstructions | null>(null);
   const [completing, setCompleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [workflow, setWorkflow] = useState<Workflow | null>(null);
+  const continuationLock = useRef(false);
+  const [savedRamps, setSavedRamps] = useState<SavedRamp[]>([]);
+  const storageKey = `pollar:ramp:${client.apiKey}:${walletAddress}`;
+
+  // Resume the user's existing workflow; the API enforces app and wallet ownership.
+  useEffect(() => {
+    if (!walletAddress) return;
+    setSavedRamps(savedRampsOf(storageKey));
+    if (sessionStorage.getItem(`${storageKey}:selection`) === '1') return;
+    const savedId = new URLSearchParams(window.location.search).get('rampTxId') || sessionStorage.getItem(storageKey);
+    if (!savedId) return;
+    let active = true;
+    void client
+      .getRampTransaction(savedId)
+      .then(async (result) => {
+        if (!active || !workflowOf(result as RampResult)) return;
+        if ((result as RampResult).direction) setDirection((result as RampResult).direction!);
+        await applyResult(result as RampResult);
+      })
+      .catch(() => {
+        if (active)
+          setErrorMsg('Could not restore the saved ramp. Retry opening the modal; do not create a replacement order.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, storageKey, walletAddress]);
 
   const directionRef = useRef(direction);
   directionRef.current = direction;
@@ -172,9 +229,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       try {
         const tx = await client.getRampTransaction(txId);
         if (!active) return;
-        setTxStatus(tx.status);
-        if (tx.stellarTxHash) setStellarTxHash(tx.stellarTxHash);
-        if (tx.kycUrl) setKycUrl(tx.kycUrl);
+        updateStatus(tx as RampResult);
         // depositInstructions is returned by REST providers (Bridge) - e.g. a Pix
         // `br_code` / bank details for on-ramp.
         if (tx.depositInstructions) setDepositInstructions(tx.depositInstructions);
@@ -257,9 +312,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         setQuotes(result.quotes ?? []);
       } else if (step === 'status' && txId) {
         const tx = await client.getRampTransaction(txId);
-        setTxStatus(tx.status);
-        if (tx.stellarTxHash) setStellarTxHash(tx.stellarTxHash);
-        if (tx.kycUrl) setKycUrl(tx.kycUrl);
+        updateStatus(tx as RampResult);
         if (tx.depositInstructions) setDepositInstructions(tx.depositInstructions);
       }
     } catch {
@@ -281,6 +334,9 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     // field non-empty, `handleSelectQuote` treats it as complete, skips the step
     // and replays the same failing request.
     setFieldValues({});
+    sessionStorage.removeItem(storageKey);
+    sessionStorage.setItem(`${storageKey}:selection`, '1');
+    setWorkflow(null);
     setTxId(null);
     setProvider('');
     setKycUrl(null);
@@ -315,18 +371,83 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   async function applyResult(result: RampResult) {
     setTxId(result.txId);
     setProvider(result.provider);
-    if (result.pendingSignature) {
+    if (!workflowOf(result) && result.pendingSignature) {
       await resumeWithSignature(result.txId, result.pendingSignature);
       return;
     }
-    setKycUrl(result.kycUrl ?? null);
+    updateStatus(result);
+    setStep('status');
+  }
+
+  function updateStatus(result: RampResult) {
+    const nextWorkflow = workflowOf(result);
+    setWorkflow(nextWorkflow);
+    if (nextWorkflow) {
+      const pending = savedRampsOf(storageKey).filter((item) => item.txId !== result.txId);
+      if (!TERMINAL.includes(result.status)) pending.push({ txId: result.txId, provider: result.provider });
+      sessionStorage.setItem(`${storageKey}:saved`, JSON.stringify(pending));
+      sessionStorage.setItem(storageKey, result.txId);
+      sessionStorage.removeItem(`${storageKey}:selection`);
+      setSavedRamps(pending);
+    }
+    setKycUrl(
+      nextWorkflow?.nextAction?.kind === 'hosted_redirect'
+        ? nextWorkflow.nextAction.url
+        : (result.kycUrl ?? result.interactiveUrl ?? null),
+    );
     setTosUrl(result.tosUrl ?? null);
     setKycPending(result.kycRequired === true);
     if (result.kycRequired) setKycApproved(false);
     setTxStatus(result.status);
     setStellarTxHash(result.stellarTxHash ?? null);
     setDepositInstructions(result.depositInstructions ?? null);
-    setStep('status');
+  }
+
+  async function resumeSavedRamp(id: string) {
+    if (continuationLock.current) return;
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      const result = (await client.getRampTransaction(id)) as RampResult;
+      if (!workflowOf(result)) throw new Error('This saved ramp cannot be restored.');
+      if (result.direction) setDirection(result.direction);
+      await applyResult(result);
+    } catch (error) {
+      setErrorMsg(rampErrorMessage(error, 'Could not resume the saved ramp.'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function continueWorkflow() {
+    if (!txId || !workflow || workflow.reconciliationRequired || continuationLock.current) return;
+    const action = workflow.nextAction;
+    if (!action || (action.kind !== 'user_ready' && action.kind !== 'sign_transaction')) return;
+    continuationLock.current = true;
+    setCompleting(true);
+    setErrorMsg(null);
+    try {
+      let signedPayload: string | undefined;
+      if (action.kind === 'sign_transaction') {
+        const scoped = action as typeof action & { chain?: string; network?: string };
+        if (action.payload.encoding !== 'xdr' || scoped.chain !== 'STELLAR' || scoped.network !== network)
+          throw new Error('This signing action does not match the connected Stellar network.');
+        const outcome = await signTx(action.payload.value);
+        if (outcome.status !== 'signed') throw new Error(outcome.message ?? 'Signing was cancelled. You can retry this step.');
+        signedPayload = outcome.signedXdr;
+      }
+      const result = await client.continueRampTransaction(txId, {
+        actionId: action.actionId,
+        transactionVersion: workflow.transactionVersion,
+        ...(signedPayload ? { signedPayload } : {}),
+      });
+      await applyResult(result as unknown as RampResult);
+    } catch (error) {
+      setErrorMsg(rampErrorMessage(error, 'Could not continue this ramp.'));
+    } finally {
+      continuationLock.current = false;
+      setCompleting(false);
+    }
   }
 
   async function handleFindRoute() {
@@ -448,8 +569,32 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   // worse - move real funds into a deposit it cannot pay out. Approval clears the
   // gate for the NEXT quote, not for this transaction, so `kycPending` (not
   // `kycBlocking`) is what keeps the button away.
-  const kycBlocking = kycPending && !kycApproved;
-  const canComplete = direction === 'offramp' && step === 'status' && txStatus !== 'completed' && !stellarTxHash && !kycPending;
+  const kycBlocking = !workflow && kycPending && !kycApproved;
+  const canComplete =
+    !workflow && direction === 'offramp' && step === 'status' && txStatus !== 'completed' && !stellarTxHash && !kycPending;
+
+  const action = workflow?.nextAction;
+  const actionable =
+    !!workflow &&
+    !workflow.reconciliationRequired &&
+    !TERMINAL.includes(txStatus ?? 'pending') &&
+    (action?.kind === 'user_ready' || action?.kind === 'sign_transaction');
+  const workflowLabel = !actionable
+    ? undefined
+    : action?.kind === 'sign_transaction'
+      ? action.purpose === 'authentication'
+        ? 'Sign authentication'
+        : 'Sign payment'
+      : action?.kind === 'user_ready' && action.purpose === 'create_order'
+        ? `Create order at ${provider}`
+        : 'Continue';
+  const workflowNote = workflow?.reconciliationRequired
+    ? 'This operation requires review. Keep its ID and do not create a replacement order.'
+    : action?.kind === 'sign_transaction' && action.purpose === 'authentication'
+      ? 'Prove wallet ownership. This signature does not move funds.'
+      : action?.kind === 'user_ready' && action.purpose === 'create_order'
+        ? 'Authentication accepted. Continue to create the provider order and receive its verification or payment instructions.'
+        : undefined;
 
   const flowSteps = flowStepsOf(quotes, selectedQuote);
   const flowStepIndex = flowSteps.indexOf(STEP_LABEL[step] ?? '');
@@ -480,7 +625,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         kycUrl={kycUrl}
         tosUrl={tosUrl}
         kycBlocking={kycBlocking}
-        kycJustApproved={kycPending && kycApproved}
+        kycJustApproved={!workflow && kycPending && kycApproved}
         stellarTxHash={stellarTxHash}
         explorerUrl={
           stellarTxHash
@@ -490,6 +635,18 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         depositInstructions={depositInstructions}
         canComplete={canComplete}
         completing={completing}
+        workflowLabel={workflowLabel}
+        workflowNote={workflowNote}
+        savedRamps={savedRamps}
+        onResumeRamp={resumeSavedRamp}
+        onExploreRoutes={
+          workflow
+            ? () => {
+                if (!continuationLock.current) resetToInput();
+              }
+            : undefined
+        }
+        onWorkflowContinue={continueWorkflow}
         errorMsg={errorMsg}
         onDirectionChange={setDirection}
         onAmountChange={(next) => {

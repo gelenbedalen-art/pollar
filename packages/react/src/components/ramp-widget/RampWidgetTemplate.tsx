@@ -123,6 +123,12 @@ interface RampWidgetTemplateProps {
   depositInstructions: RampDepositInstructions | null;
   canComplete: boolean;
   completing: boolean;
+  workflowLabel?: string | undefined;
+  workflowNote?: string | undefined;
+  savedRamps?: Array<{ txId: string; provider: string }>;
+  onResumeRamp?: (id: string) => void;
+  onExploreRoutes?: (() => void) | undefined;
+  onWorkflowContinue?: () => void;
   errorMsg: string | null;
   onDirectionChange: (d: RampDirection) => void;
   onAmountChange: (v: string) => void;
@@ -204,6 +210,12 @@ export function RampWidgetTemplate({
   depositInstructions,
   canComplete,
   completing,
+  workflowLabel,
+  workflowNote,
+  savedRamps = [],
+  onResumeRamp,
+  onExploreRoutes,
+  onWorkflowContinue,
   errorMsg,
   onDirectionChange,
   onAmountChange,
@@ -299,6 +311,25 @@ export function RampWidgetTemplate({
             ))}
           </div>
         </div>
+      )}
+
+      {step === 'input' && savedRamps.length > 0 && (
+        <section className="pollar-ramp-payment" aria-label="Pending operations">
+          <p className="pollar-ramp-payment-note">
+            Your pending operations are saved. Starting another route does not cancel them.
+          </p>
+          {savedRamps.map((ramp) => (
+            <button
+              key={ramp.txId}
+              type="button"
+              className="pollar-btn-secondary"
+              disabled={isLoading}
+              onClick={() => onResumeRamp?.(ramp.txId)}
+            >
+              Resume {ramp.provider} · {ramp.txId.slice(-8)}
+            </button>
+          ))}
+        </section>
       )}
 
       {step === 'input' && (
@@ -647,6 +678,13 @@ export function RampWidgetTemplate({
             </>
           )}
 
+          {workflowNote && <p className="pollar-ramp-payment-note">{workflowNote}</p>}
+          {workflowLabel && (
+            <button type="button" className="pollar-btn-primary" disabled={completing} onClick={onWorkflowContinue}>
+              {completing ? 'Continuing…' : workflowLabel}
+            </button>
+          )}
+
           {canComplete && (
             <button type="button" className="pollar-btn-primary" disabled={completing} onClick={onCompleteWithdraw}>
               {completing ? (
@@ -658,6 +696,17 @@ export function RampWidgetTemplate({
                 "I've completed KYC — withdraw"
               )}
             </button>
+          )}
+
+          {onExploreRoutes && (
+            <>
+              <button type="button" className="pollar-btn-secondary" disabled={completing} onClick={onExploreRoutes}>
+                Try another route
+              </button>
+              <p className="pollar-ramp-payment-note">
+                This keeps the current operation pending; it does not cancel a payment or refund funds.
+              </p>
+            </>
           )}
 
           {errorMsg && (
