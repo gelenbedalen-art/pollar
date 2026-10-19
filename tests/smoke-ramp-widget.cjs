@@ -43,7 +43,14 @@ async function scenario(action, reconcile = false) {
   client.submitTx = async () => {
     throw new Error('Authentication must not be broadcast');
   };
-  client.continueRampTransaction = async (id, body) => {
+  client.registerRampSigningHandler('STELLAR', 'xdr', async () => {
+    signs++;
+    return 'signed-auth-xdr';
+  });
+  client.signTx = async () => {
+    throw new Error('Core must use the registered ramp signer');
+  };
+  client.continueRamp = async (id, body) => {
     calls.push({ id, body });
     return {
       ...base,
@@ -72,11 +79,11 @@ async function scenario(action, reconcile = false) {
     await new Promise((r) => setTimeout(r, 20));
   });
   const buttons = () => [...container.querySelectorAll('button')];
-  const label = action.kind === 'sign_transaction' ? 'Sign authentication' : 'Create order at Anclap';
+  const label = action.kind === 'sign_transaction' ? 'Authorize' : 'Continue';
   const button = buttons().find((b) => b.textContent === label);
   if (reconcile) {
     assert.equal(button, undefined);
-    assert.match(container.textContent, /requires review/);
+    assert.match(container.textContent, /checking your transfer/);
   } else {
     assert.ok(button, `Missing ${label}`);
     assert.equal(calls.length, 0, 'Never dispatch an action before the user clicks');
@@ -95,10 +102,7 @@ async function scenario(action, reconcile = false) {
       },
     ]);
     assert.equal(signs, action.kind === 'sign_transaction' ? 1 : 0);
-    assert.ok(
-      buttons().some((b) => b.textContent === 'Continue at Anclap'),
-      'Hosted KYC must be displayed',
-    );
+    assert.ok(!!container.querySelector('a[href="https://anchor.test/kyc"]'), 'Hosted KYC must be displayed');
   }
   const previousCalls = calls.length;
   const explore = buttons().find((b) => b.textContent === 'Try another route');

@@ -104,6 +104,8 @@ export function buildModalCssVars(
     '--pollar-error-border': isDark ? '#7f1d1d' : '#fecaca',
     '--pollar-error-text': isDark ? '#f87171' : '#dc2626',
     '--pollar-success-text': isDark ? '#4ade80' : '#16a34a',
+    '--pollar-logo-on-light-display': isDark ? 'none' : 'block',
+    '--pollar-logo-on-dark-display': isDark ? 'block' : 'none',
     '--pollar-modal-border-radius': px(overrides.modalBorderRadius, DEFAULT_MODAL_BORDER_RADIUS),
     '--pollar-buttons-border-radius': px(overrides.buttonBorderRadius, DEFAULT_BUTTON_BORDER_RADIUS),
     '--pollar-buttons-height': '44px',

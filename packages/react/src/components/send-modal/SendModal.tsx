@@ -3,16 +3,33 @@
 import { toBaseUnits, WalletBalanceRecord, WalletChain } from '@pollar/core';
 import { useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
+import { walletNotReadyReason } from '../../lib/wallet-provisioning';
 import { useChains } from '../../useChains';
-import { addressForChain, resolveChain } from '../ChainSelect';
+import { resolveChain } from '../ChainSelect';
 import '../shared.css';
 import '../transaction-modal/TransactionModal.css';
 import './SendModal.css';
-import { SendModalTemplate } from './SendModalTemplate';
+import { SendModalTemplate, type SendMemoType } from './SendModalTemplate';
 import { modalChrome } from '../modal-theme';
 
 interface SendModalProps {
   onClose: () => void;
+}
+
+const MAX_MEMO_ID = 18446744073709551615n;
+
+/** A Stellar memo as the build endpoint takes it, undefined when the field is
+ *  empty, or an error string the form shows. Text is capped at 28 BYTES on-chain
+ *  (a multibyte character counts more than once); an ID is an unsigned 64-bit
+ *  integer. */
+function parseMemo(type: SendMemoType, raw: string): { type: SendMemoType; value: string } | undefined | string {
+  const value = type === 'id' ? raw.trim() : raw;
+  if (value.trim() === '') return undefined;
+  if (type === 'text') {
+    return new TextEncoder().encode(value).length > 28 ? 'The memo text can be at most 28 bytes.' : { type, value };
+  }
+  if (!/^\d+$/.test(value) || BigInt(value) > MAX_MEMO_ID) return 'The memo ID must be a whole number up to 2^64 - 1.';
+  return { type, value };
 }
 
 function assetParam(record: WalletBalanceRecord) {
@@ -32,7 +49,6 @@ export function SendModal({ onClose }: SendModalProps) {
     signAndSubmitTx,
     tx: transaction,
     wallet,
-    wallets,
     network,
     styles,
   } = usePollar();
@@ -44,6 +60,8 @@ export function SendModal({ onClose }: SendModalProps) {
   const [step, setStep] = useState<'form' | 'tx'>('form');
   const [amount, setAmount] = useState('');
   const [destination, setDestination] = useState('');
+  const [memo, setMemo] = useState('');
+  const [memoType, setMemoType] = useState<SendMemoType>('text');
   const [selectedAsset, setSelectedAsset] = useState<WalletBalanceRecord | null>(null);
   const [showXdr, setShowXdr] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -58,12 +76,17 @@ export function SendModal({ onClose }: SendModalProps) {
     if (selectedChain === null && chains.length > 0) setSelectedChain(chains[0]!);
   }, [chains, selectedChain]);
 
-  const walletAddress = addressForChain(wallets, selectedChain);
-  // Solana joined Stellar via the atomic endpoint; Polygon has no transfer path
-  // in the backend yet, so it can be browsed but not sent from.
-  const canSendOnChain = selectedChain === 'STELLAR' || selectedChain === 'SOLANA';
-  // Solana amounts are integer base units (lamports / mint units), not decimals.
-  const isBaseUnitChain = selectedChain === 'SOLANA';
+  const canSendOnChain = selectedChain === 'STELLAR' || selectedChain === 'SOLANA' || selectedChain === 'POLYGON';
+  // A Stellar account still being created cannot source a payment: every
+  // operation would come back `op_no_source_account`. The server refuses these
+  // with SDK_WALLET_NOT_READY anyway - saying so here turns that into something
+  // the user can act on (wait) instead of a failed transaction.
+  const notReadyReason = walletNotReadyReason(wallet, selectedChain);
+  // Solana and Polygon amounts are integer base units (lamports / wei / token
+  // units), not decimals.
+  const isBaseUnitChain = selectedChain === 'SOLANA' || selectedChain === 'POLYGON';
+  // Native SOL has 9 decimals, native POL 18.
+  const nativeDecimals = selectedChain === 'POLYGON' ? 18 : 9;
 
   useEffect(() => {
     void refreshWalletBalance();
@@ -114,7 +137,9 @@ export function SendModal({ onClose }: SendModalProps) {
     ? null
     : selectedChain === 'SOLANA'
       ? `https://explorer.solana.com/tx/${hash}${explorerNetwork === 'testnet' ? '?cluster=devnet' : ''}`
-      : `https://stellar.expert/explorer/${explorerNetwork}/tx/${hash}`;
+      : selectedChain === 'POLYGON'
+        ? `https://${explorerNetwork === 'testnet' ? 'amoy.' : ''}polygonscan.com/tx/${hash}`
+        : `https://stellar.expert/explorer/${explorerNetwork}/tx/${hash}`;
 
   const IN_FLIGHT_STEPS = [
     'building',
@@ -141,6 +166,10 @@ export function SendModal({ onClose }: SendModalProps) {
       setFormError('Sending is not available on this network yet.');
       return;
     }
+    if (notReadyReason) {
+      setFormError(notReadyReason);
+      return;
+    }
     if (!selectedAsset) {
       setFormError('Select an asset');
       return;
@@ -160,28 +189,34 @@ export function SendModal({ onClose }: SendModalProps) {
       setFormError('Enter a destination address');
       return;
     }
-
-    // A non-native asset needs BOTH its mint (carried in `issuer`) and its own
-    // `decimals`, and neither has a safe default: without the mint the payload
-    // below drops to a native transfer, so a USDC send would move SOL instead,
-    // and the 9-decimal fallback would multiply a 6-decimal token by 1000. The
-    // backend always sends both, so this only fires on malformed data - but it
-    // fails the send rather than sending the wrong thing.
-    const isNativeAsset = selectedAsset.type === 'native';
-    if (isBaseUnitChain && !isNativeAsset && (!selectedAsset.issuer || selectedAsset.decimals === undefined)) {
-      setFormError('This token is missing its mint or decimals and cannot be sent.');
+    const parsedMemo = selectedChain === 'STELLAR' ? parseMemo(memoType, memo) : undefined;
+    if (typeof parsedMemo === 'string') {
+      setFormError(parsedMemo);
       return;
     }
 
-    // Solana takes integer base units while the form (like the balance above it)
-    // is in decimals, so convert before sending - with the asset's own decimals,
-    // and via strings so a 9-decimal amount is not rounded by a float. The
-    // fallback is native SOL's 9, reached only on the native row (the guard above
-    // rejects any other asset that lacks `decimals`).
+    // A non-native asset needs BOTH its on-chain id (the SPL mint or ERC-20
+    // contract, carried in `issuer`) and its own `decimals`, and neither has a
+    // safe default: without the id the payload below drops to a native transfer,
+    // so a USDC send would move SOL or POL instead, and the native fallback would
+    // multiply a 6-decimal token by 1000 or more. The backend always sends both,
+    // so this only fires on malformed data - but it fails the send rather than
+    // sending the wrong thing.
+    const isNativeAsset = selectedAsset.type === 'native';
+    if (isBaseUnitChain && !isNativeAsset && (!selectedAsset.issuer || selectedAsset.decimals === undefined)) {
+      setFormError('This token is missing its contract or decimals and cannot be sent.');
+      return;
+    }
+
+    // Solana and Polygon take integer base units while the form (like the balance
+    // above it) is in decimals, so convert before sending - with the asset's own
+    // decimals, and via strings so an 18-decimal amount is not rounded by a float.
+    // The fallback is the native coin's decimals, reached only on the native row
+    // (the guard above rejects any other asset that lacks `decimals`).
     let sendAmount = amount;
     if (isBaseUnitChain) {
       try {
-        sendAmount = toBaseUnits(amount, selectedAsset.decimals ?? 9);
+        sendAmount = toBaseUnits(amount, selectedAsset.decimals ?? nativeDecimals);
       } catch (e) {
         setFormError(e instanceof Error ? e.message : 'Invalid amount');
         return;
@@ -190,24 +225,54 @@ export function SendModal({ onClose }: SendModalProps) {
 
     setStep('tx');
 
-    if (selectedChain === 'SOLANA') {
+    if (selectedChain === 'SOLANA' || selectedChain === 'POLYGON') {
       await sendPayment({
-        chain: 'SOLANA',
+        chain: selectedChain,
         destination: destination.trim(),
         amount: sendAmount,
-        // Native SOL carries no mint; an SPL token's mint rides in `issuer`,
-        // which the guard above proved is present.
+        // A native coin carries no token id; an SPL mint or ERC-20 contract rides
+        // in `issuer`, which the guard above proved is present.
         ...(isNativeAsset ? {} : { mint: selectedAsset.issuer }),
       });
       return;
     }
 
-    await buildTx('payment', { destination: destination.trim(), amount, asset: assetParam(selectedAsset) });
+    await buildTx(
+      'payment',
+      { destination: destination.trim(), amount, asset: assetParam(selectedAsset) },
+      parsedMemo ? { memo: parsedMemo } : undefined,
+    );
   }
 
   function handleSignAndSend() {
     if (transaction.step === 'built') {
       void signAndSubmitTx(transaction.buildData.unsignedXdr);
+    }
+  }
+
+  function handleMax() {
+    if (selectedAsset?.available !== null && selectedAsset?.available !== undefined) {
+      setAmount(selectedAsset.available);
+      setFormError('');
+    }
+  }
+
+  async function handlePaste() {
+    if (!navigator.clipboard?.readText) {
+      setFormError('Clipboard access is not available. Paste the address manually.');
+      return;
+    }
+
+    try {
+      const value = (await navigator.clipboard.readText()).trim();
+      if (!value) {
+        setFormError('The clipboard is empty.');
+        return;
+      }
+      setDestination(value);
+      setFormError('');
+    } catch {
+      setFormError('Could not read the clipboard. Paste the address manually.');
     }
   }
 
@@ -247,8 +312,8 @@ export function SendModal({ onClose }: SendModalProps) {
         selectedAsset={selectedAsset}
         chains={chains}
         selectedChain={selectedChain}
-        walletAddress={walletAddress}
         canSendOnChain={canSendOnChain}
+        notReadyReason={notReadyReason}
         onSelectChain={setSelectedChain}
         amount={amount}
         destination={destination}
@@ -266,7 +331,13 @@ export function SendModal({ onClose }: SendModalProps) {
         onRefresh={() => void refreshWalletBalance()}
         onSelectAsset={setSelectedAsset}
         onAmountChange={setAmount}
+        onMax={handleMax}
+        onPaste={handlePaste}
         onDestinationChange={setDestination}
+        memo={memo}
+        memoType={memoType}
+        onMemoChange={setMemo}
+        onMemoTypeChange={setMemoType}
         onSubmit={() => void handleSubmit()}
         onSignAndSend={handleSignAndSend}
         onToggleXdr={() => setShowXdr((v) => !v)}

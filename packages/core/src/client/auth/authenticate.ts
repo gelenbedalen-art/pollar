@@ -6,7 +6,7 @@ import { FlowDeps } from './deps';
 import { logApiError } from './logging';
 
 export async function authenticate(clientSessionId: string, deps: FlowDeps, expectedWallet?: string): Promise<void> {
-  const { api, logger, basePath, useStreaming, signal, setAuthState, storeSession, clearSession } = deps;
+  const { api, logger, basePath, useStreaming, signal, setAuthState, storeSession, clearSession, loginTimeoutMs } = deps;
 
   setAuthState({ step: 'authenticating' });
 
@@ -56,12 +56,21 @@ export async function authenticate(clientSessionId: string, deps: FlowDeps, expe
   // HTTP-level `error` is not handled here; the `else` branch below catches
   // both "request failed" (data === undefined) and "request OK but body
   // wasn't a valid session" via the same generic path.
+  const devicePublicKey = await deps.getDevicePublicKey?.();
   const body = {
     clientSessionId,
     dpopJwk,
     ...(deps.deviceLabel ? { deviceLabel: deps.deviceLabel } : {}),
+    ...(devicePublicKey ? { devicePublicKey } : {}),
   };
-  const { data, error } = await api.POST('/auth/login', { body, signal });
+  // The login budget, not the client default: this call does the server-side
+  // work the rest of the flow only waited for. The header is read and stripped
+  // by the transport (see `makeRetryingFetch`), so it never reaches the server.
+  const { data, error } = await api.POST('/auth/login', {
+    body,
+    signal,
+    headers: { 'x-pollar-timeout-ms': String(loginTimeoutMs) },
+  });
 
   if (data?.code === 'SDK_LOGIN_SUCCESS' && isValidSession(data?.content, logger)) {
     // `isValidSession` doesn't validate the `data` (PII) subtree, so reach into

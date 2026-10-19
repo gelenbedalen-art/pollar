@@ -1,12 +1,45 @@
+import { RampSigningRegistry, type RampSigningHandler, type RampSnapshot } from '../ramps/workflow';
+import type { RampChain, RampContinuationBody } from '../types';
 import { createApiClient, fetchWithTimeout, PollarApiClient } from '../api/client';
 import { claimDistributionRule, listDistributionRules } from '../api/endpoints/distribution';
 import { getSwapConfig, getSwapTokens, quoteSwap } from '../api/endpoints/swap';
 import { buildEarnTx, getEarnOpportunities, getEarnPosition, getEarnProviders } from '../api/endpoints/earn';
-import { getKycProviders, getKycStatus, pollKycStatus, resolveKyc, startKyc } from '../api/endpoints/kyc';
 import {
-  completeWithdraw,
+  createCardFunding,
+  createCardHolder,
+  getCardProviderRegistration,
+  getCardRequirements,
+  submitCardProviderRegistration,
+  getCardBalance,
+  getCardDepositAddresses,
+  getCardFunding,
+  getCardHolder,
+  getCardOccupations,
+  getCardProviders,
+  getCards,
+  getCardSecrets,
+  getCardSecretsPublicKey,
+  getCardTransactions,
+  issueCard,
+  listCardFundings,
+  submitCardFundingSignature,
+  submitCardKyc,
+} from '../api/endpoints/cards';
+import { createCardSecretsSession, openCardSecrets } from '../lib/card-secrets';
+import { getKycProviders, getKycStatus, pollKycDecision, pollKycStatus, resolveKyc, startKyc } from '../api/endpoints/kyc';
+import {
+  getAppRequirements,
+  getProviderRegistration,
+  getRegistryCheck,
+  getRequirementForm,
+  submitProviderRegistration,
+  submitRegistryCheck,
+  submitRequirementForm,
+} from '../api/endpoints/requirements';
+import {
+  continueRamp,
   getRampRoutes,
-  continueRampTransaction,
+  completeWithdraw,
   createOffRamp,
   createOnRamp,
   decodePixQr,
@@ -15,17 +48,22 @@ import {
   getRampLiquidity,
   getRampsQuote,
   getRampTransaction,
+  retryRampTransaction,
   pollRampTransaction,
   submitRampSignature,
 } from '../api/endpoints/ramps';
 import { buildProof } from '../dpop';
-import type { RampContinuation } from '../api/ramp-workflow';
+import { CosignManager } from '../cosign/manager';
+import type { ConfirmationRequest, CosignRequest, CosignState, PendingConfirmation, TxErrorPhase } from '../types';
+import { CosignGroupConsents } from '../cosign/groups';
+import { recognizedSetupRequest } from '../cosign/recognize';
 import { defaultKeyManager } from '../keys/factory';
 import type { KeyManager } from '../keys/types';
 import { hashApiKey } from '../lib/api-key-hash';
 import { createLogger, type PollarLogger } from '../lib/logger';
 import { redactBody, redactDeep } from '../lib/logging';
 import { randomUUID } from '../lib/random-uuid';
+import { bytesToHex, hexToBytes } from '../cosign/encoding';
 import { StellarNetwork } from '../stellar/StellarClient';
 import { defaultStorage } from '../storage/autodetect';
 import type { OnStorageDegrade, Storage, StorageDegradeReason } from '../storage/types';
@@ -48,12 +86,37 @@ import {
   EarnPosition,
   EarnPositionParams,
   EarnTxParams,
+  CardBalance,
+  CardDepositAddress,
+  CardFunding,
+  CardFundingOutcome,
+  CardHolder,
+  CardInfo,
+  CardKycInput,
+  CardOccupation,
+  CardProvider,
+  CardProviderParams,
+  CardProviderRegistration,
+  CardProviderRegistrationSubmitted,
+  CardRequirements,
+  CardSecrets,
+  CardTransactionsPage,
   EnabledAssetRecord,
   EnabledAssetsState,
   KycLevel,
   KycStartBody,
   KycStartResponse,
   KycStatus,
+  KycStatusContent,
+  AppRequirements,
+  RequirementForm,
+  RequirementFormAnswers,
+  RequirementFormSubmitted,
+  RegistryCheck,
+  RegistryCheckEdit,
+  RegistryCheckSubmitted,
+  ProviderRegistration,
+  ProviderRegistrationSubmitted,
   NetworkState,
   PasskeyCeremony,
   PasskeySigner,
@@ -96,6 +159,7 @@ import {
   TrustlineOutcome,
   TxBuildBody,
   TxBuildContent,
+  TxBuildResponse,
   TxHistoryParams,
   TxHistoryState,
   TxSignAndSendBody,
@@ -104,7 +168,10 @@ import {
   WalletBalanceRecord,
   WalletBalanceState,
   WalletChain,
+  PollarApiError,
+  WALLET_REQUIRED_CODE,
   WalletInfo,
+  WalletProvisioning,
 } from '../types';
 import { POLLAR_CORE_VERSION } from '../version';
 import { defaultVisibilityProvider } from '../visibility/autodetect';
@@ -120,7 +187,10 @@ import { emailProvider, oauthProvider } from './auth/providers';
 import { loginWithSolanaAdapter } from './auth/solanaWalletFlow';
 import { loginWithAdapter, requestWalletChallenge } from './auth/walletFlow';
 import {
+  dpopClockOffsetStorageKey,
+  isWalletProvisioning,
   dpopNonceStorageKey,
+  MAX_DPOP_CLOCK_OFFSET_SEC,
   MAX_DPOP_NONCE,
   readStorage,
   readWalletType,
@@ -140,6 +210,25 @@ const isReactNative = typeof navigator !== 'undefined' && (navigator as { produc
  * treats RN (no `localStorage`) as server-side.
  */
 const isClientRuntime = isBrowser || isReactNative;
+
+type ConfirmationAnswer =
+  | { ok: true }
+  | { ok: false; code: 'SDK_CONFIRMATION_DECLINED' | 'SDK_CONFIRMATION_UNAVAILABLE'; details: string };
+
+/** Which signing call a co-sign 202 belongs to, and what it was going to produce. */
+type CosignSettleContext =
+  | { intent: 'sign'; phase: 'signing'; buildData?: TxBuildContent }
+  | { intent: 'sign_and_send'; phase: 'signing-submitting' | 'building-signing-submitting'; buildData?: TxBuildContent };
+
+/**
+ * `x-pollar-sdk` - identifies this build to sdk-api, which records it per
+ * application so a stale SDK is visible without asking its developer.
+ *
+ * Computed once: the runtime cannot change mid-process. `POLLAR_CORE_VERSION` is
+ * `'dev'` on unbundled builds, which sdk-api's strict parser drops rather than
+ * writing a junk row.
+ */
+const SDK_CLIENT_HEADER = `core/${POLLAR_CORE_VERSION} ${isReactNative ? 'rn' : isBrowser ? 'web' : 'node'}`;
 
 /**
  * Live client count per API key, so we can warn on the duplicate-instance
@@ -180,6 +269,21 @@ function notifySiblingClients(origin: PollarClient, apiKey: string, log: PollarL
 
 /** Renew the access token this many seconds before its `exp` to absorb clock skew + signing latency. */
 const REFRESH_SKEW_SECONDS = 60;
+
+/**
+ * Pacing for the wallet-provisioning watch: 1s, 2s, 3s ... to a 10s ceiling, for
+ * at most 12 checks (~75s).
+ *
+ * The ramp is linear rather than exponential because the thing being waited on
+ * lands in seconds: doubling would put the third check at 7s and the fourth at
+ * 15s, so a wallet ready at 6s would look unready for another nine. The cap is
+ * there so a client left open on a wallet the server gave up on stops asking -
+ * nothing is lost by stopping, since the next login or session resume
+ * re-enqueues the creation.
+ */
+const PROVISIONING_BASE_DELAY_MS = 1_000;
+const PROVISIONING_MAX_DELAY_MS = 10_000;
+const PROVISIONING_MAX_ATTEMPTS = 12;
 
 /**
  * Cross-copy brand for `PollarClient`, stamped on every instance.
@@ -226,7 +330,27 @@ function warnServerSide(method: string): void {
   );
 }
 
+/** The wire wallet (login, `/wallet/provision`) in its persisted shape. */
+function toPersistedWallet(w: PollarApplicationConfigContent['wallet']): PollarPersistedWallet {
+  return {
+    type: w.type,
+    // `provider` (the login method) was added to the wire after the generated
+    // OpenAPI types were last cut, so read it defensively until they're regen'd.
+    ...((w as { provider?: string }).provider ? { provider: (w as { provider?: string }).provider as string } : {}),
+    address: w.address ?? w.publicKey ?? null,
+    ...(w.chain !== undefined ? { chain: w.chain } : {}),
+    ...(w.existsOnStellar !== undefined ? { existsOnStellar: w.existsOnStellar } : {}),
+    ...(w.provisioning !== undefined ? { provisioning: w.provisioning } : {}),
+    ...(w.fundingMode !== undefined ? { fundingMode: w.fundingMode } : {}),
+    ...(w.createdAt !== undefined ? { createdAt: w.createdAt } : {}),
+    ...(w.linkedAt !== undefined ? { linkedAt: w.linkedAt } : {}),
+    ...(w.network !== undefined ? { network: w.network } : {}),
+    ...(w.deployTxHash !== undefined ? { deployTxHash: w.deployTxHash } : {}),
+  };
+}
+
 export class PollarClient {
+  private readonly _rampSigners = new RampSigningRegistry();
   readonly apiKey: string;
   readonly id: string;
   readonly basePath: string;
@@ -319,10 +443,33 @@ export class PollarClient {
    *  PollarClientConfig.submitTimeoutMs). Sent as an `x-pollar-timeout-ms`
    *  header the request middleware reads to bound just those calls. */
   private readonly _submitTimeoutMs: number;
+  /** Per-request budget for `POST /auth/login` (PollarClientConfig.loginTimeoutMs). */
+  private readonly _loginTimeoutMs: number;
   /** Updated by the request middleware. Read by the silent-refresh scheduler
    *  to skip proactive refreshes after `maxIdleMs` of no HTTP activity. */
   private _lastRequestAt: number = Date.now();
   private _refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Poll for the on-chain account a login left in CREATING. Under async
+   * provisioning the wallet address exists before the account does, and nothing
+   * else would ever tell the app the wait is over: `/wallet/state` is a DB read,
+   * so polling it is cheap, and the answer it gives is the same one the server's
+   * operation guard enforces.
+   */
+  private _provisioningTimer: ReturnType<typeof setTimeout> | null = null;
+  private _provisioningAttempt = 0;
+  /**
+   * Session generation the watch is currently following, or null when it is not
+   * watching. Keyed on the generation rather than on `_provisioningTimer`, which
+   * is null while a check is in flight and would let a second caller start a
+   * parallel schedule against the same session.
+   */
+  private _provisioningWatchGen: number | null = null;
+  /** Monotonic id of the most recently ISSUED `/wallet/state` check. */
+  private _provisioningSeq = 0;
+  /** Id of the most recently APPLIED check, so a slower older one is discarded. */
+  private _provisioningAppliedSeq = 0;
+  private _walletStateListeners = new Set<(provisioning: WalletProvisioning) => void>();
   private _visibilityUnsubscribe: (() => void) | null = null;
 
   private _transactionState: TransactionState | null = null;
@@ -379,6 +526,27 @@ export class PollarClient {
    * in the constructor so it exists on both client and server runtimes.
    */
   readonly stellar: StellarSepApi;
+  /** The user's half of a Turnkey co-signed wallet: pending requests, votes, devices. */
+  readonly cosign: CosignManager;
+  private _cosignState: CosignState = { pending: [] };
+  private _cosignStateListeners = new Set<(state: CosignState) => void>();
+  /** The approval groups the user consented to on this device; see `cosign/groups`. */
+  private readonly _cosignGroups = new CosignGroupConsents({
+    load: async () => (this._apiKeyHash ? await this._storage.get(`pollar:${this._apiKeyHash}:cosign-groups`) : null),
+    save: async (value) => {
+      if (this._apiKeyHash) await this._storage.set(`pollar:${this._apiKeyHash}:cosign-groups`, value);
+    },
+  });
+
+  /** The confirmation policy; see `PollarClientConfig.confirmation` and `cosignManual`. */
+  private readonly _confirmation: 'auto' | 'prompt';
+  private readonly _cosignManual: boolean;
+  /** Requests this client is settling itself: they stay out of the pending list a UI prompts for. */
+  private readonly _autoHandling = new Set<string>();
+  /** Requests already seen in a final state: a pending copy arriving later is stale, never a reopening. */
+  private readonly _settledCosign = new Set<string>();
+  private readonly _confirmations = new Map<string, PendingConfirmation>();
+  private readonly _confirmationListeners = new Set<(pending: PendingConfirmation[]) => void>();
   private _loginController: AbortController | null = null;
   /** Aborts an in-flight `/auth/session/resume` on destroy() or session clear. */
   private _resumeController: AbortController | null = null;
@@ -450,6 +618,7 @@ export class PollarClient {
     this._maxIdleMs = config.maxIdleMs;
     this._requestTimeoutMs = config.requestTimeoutMs ?? 10_000;
     this._submitTimeoutMs = config.submitTimeoutMs ?? 30_000;
+    this._loginTimeoutMs = config.loginTimeoutMs ?? 45_000;
     this._openAuthUrl = config.openAuthUrl ?? defaultWebOAuthOpener;
     // `window.location` can be absent even when `isBrowser` is true (some
     // webview/SSR shims expose a partial `window`); read it defensively so the
@@ -493,6 +662,31 @@ export class PollarClient {
       resignRetry: (request) => this._resignForRetry(request),
     });
     this._wireMiddlewares();
+
+    // The co-signing device key is a key of its own: the DPoP key is reset on
+    // logout, and the user's vote must outlive a logout.
+    this._confirmation = config.confirmation ?? 'auto';
+    this._cosignManual = config.cosignManual === true;
+    this.cosign = new CosignManager({
+      api: this._api,
+      keyManager: config.cosignKeyManager ?? defaultKeyManager(this._storage, config.apiKey, { namespace: 'cosign' }),
+      logger: this._log,
+      networkPassphrase: () => this._networkPassphrase(),
+      onRequest: (request) => this._noteCosignRequest(request),
+      // Setup Pollar opens on its own (account creation, trustlines, a new
+      // chain) is approved without a prompt only when the device can read it
+      // and it names this wallet; a custodial wallet does the same setup
+      // silently. Under `cosignManual` the app votes on everything itself.
+      // A step of a group the user already approved (a ramp's swap after its
+      // approve) is voted without asking again, verified like any other.
+      autoApprove: (request) =>
+        !this._cosignManual && (recognizedSetupRequest(request).ok || this._cosignGroups.covers(request)),
+      markAutoHandled: (id, handled) => {
+        if (handled) this._autoHandling.add(id);
+        else this._autoHandling.delete(id);
+      },
+      onApproved: (request) => this._cosignGroups.grant(request),
+    });
 
     // Stellar SEP ownership-proof namespace. Thin object over the private
     // dispatchers so the public surface reads `client.stellar.sep53.signMessage(...)`.
@@ -568,6 +762,7 @@ export class PollarClient {
     // Compute the storage namespace first - every subsequent storage op
     // (including the cross-tab listener below and `_restoreSession`) reads it.
     this._apiKeyHash = await hashApiKey(this.apiKey);
+    await this._cosignGroups.load();
     // `destroy()` can only unhook a listener that is already attached, so a
     // client destroyed during the await above would otherwise leave the handler
     // below wired to `window` for the document's lifetime - a dead client that
@@ -637,6 +832,21 @@ export class PollarClient {
       this._log.debug('[PollarClient] Could not read the stored DPoP nonce', err);
     }
 
+    // Same reasoning for the clock offset: without it every page load signs its
+    // first proof against the raw local clock, so a skewed server costs one
+    // rejected request per load before `onResponse` re-learns the offset.
+    try {
+      const storedOffset = await this._storage.get(dpopClockOffsetStorageKey(this._apiKeyHash));
+      if (storedOffset !== null) {
+        const parsed = Number(storedOffset);
+        if (Number.isFinite(parsed) && Math.abs(parsed) <= MAX_DPOP_CLOCK_OFFSET_SEC) {
+          this._clockOffsetSec = Math.trunc(parsed);
+        }
+      }
+    } catch (err) {
+      this._log.debug('[PollarClient] Could not read the stored DPoP clock offset', err);
+    }
+
     try {
       await this._keyManager.init();
     } catch (err) {
@@ -681,6 +891,7 @@ export class PollarClient {
     this._resumeController?.abort();
     this._resumeController = null;
     this._clearRefreshTimer();
+    this._stopProvisioningWatch();
     if (this._visibilityUnsubscribe) {
       this._visibilityUnsubscribe();
       this._visibilityUnsubscribe = null;
@@ -692,9 +903,11 @@ export class PollarClient {
     this._txHistoryStateListeners.clear();
     this._sessionsStateListeners.clear();
     this._walletBalanceStateListeners.clear();
+    this._walletStateListeners.clear();
     this._enabledAssetsStateListeners.clear();
     this._networkStateListeners.clear();
     this._storageDegradeListeners.clear();
+    this._cosignStateListeners.clear();
   }
 
   // --- Middlewares (DPoP + auto-refresh) ------------------------------------
@@ -710,6 +923,7 @@ export class PollarClient {
     this._api.use({
       onRequest: async ({ request }: { request: Request }) => {
         request.headers.set('x-pollar-api-key', self.apiKey);
+        request.headers.set('x-pollar-sdk', SDK_CLIENT_HEADER);
         self._lastRequestAt = Date.now();
         // Every request waits until the client is initialized - EXCEPT a
         // /auth/refresh: the expired-AT restore issues one from WITHIN
@@ -786,9 +1000,13 @@ export class PollarClient {
 
         // Learn the clock skew from the server's `Date` header BEFORE any retry
         // or refresh below, so a proof rejected for a bad `iat` is rebuilt with
-        // the corrected offset on the very next attempt (no logout loop). Every
-        // HTTP response carries `Date`; we recompute each time so a clock that
-        // changes mid-session self-heals.
+        // the corrected offset on the very next attempt (no logout loop). We
+        // recompute each time so a clock that changes mid-session self-heals.
+        //
+        // `Date` is NOT CORS-safelisted: in a browser this reads `null` unless
+        // sdk-api lists it in `exposeHeaders`. Dropping it there silently
+        // disables every line below and hands a drifting server clock a mass
+        // logout - which is exactly what it did until 2026-09-02.
         const serverDate = response.headers.get('Date');
         if (serverDate) {
           const serverSec = Math.floor(Date.parse(serverDate) / 1000);
@@ -798,7 +1016,11 @@ export class PollarClient {
           // `Date` (epoch, year 2099, a CDN error page's wrong clock) that would
           // otherwise poison every proof's `iat` and wedge auth. Window: 2020-2100.
           if (Number.isFinite(serverSec) && serverSec > 1_577_836_800 && serverSec < 4_102_444_800) {
-            self._clockOffsetSec = serverSec - Math.floor(Date.now() / 1000);
+            const offset = serverSec - Math.floor(Date.now() / 1000);
+            if (offset !== self._clockOffsetSec) {
+              self._clockOffsetSec = offset;
+              void self._persistDpopClockOffset(offset);
+            }
           }
         }
 
@@ -813,25 +1035,30 @@ export class PollarClient {
         const wwwAuth = response.headers.get('WWW-Authenticate') ?? '';
         const isNonceChallenge = wwwAuth.toLowerCase().includes('use_dpop_nonce');
 
-        // A replayed proof is not an expired token, and refreshing cannot fix
-        // it: the server rejected the `jti`, having never processed the request.
-        // Treating it as an expiry (the default 401 path) burns a refresh per
-        // occurrence, which on a polling loop is enough to hit the /auth/refresh
-        // rate limit and take the session down with it. Retrying is all it
-        // needs - `_retryRequest` mints a brand-new proof.
-        const isProofReplay = !isNonceChallenge && (await self._isDpopReplay(response));
+        // A rejected proof is not an expired token, and refreshing cannot fix
+        // it: the server refused the proof itself, having never processed the
+        // request. Treating it as an expiry (the default 401 path) burns a
+        // refresh per occurrence, which on a polling loop is enough to hit the
+        // /auth/refresh rate limit and take the session down with it. Retrying is
+        // all it needs - `_retryRequest` mints a brand-new proof, and for
+        // `iat-skew` that proof carries the offset just learned above.
+        const dpopReason = isNonceChallenge ? null : await self._dpopRejectionReason(response);
+        const isProofRejected = dpopReason === 'jti-replay' || dpopReason === 'iat-skew';
 
         // The refresh endpoint has special handling: don't recursively trigger
-        // refresh from inside itself. But DO honor a nonce challenge - the
-        // fresh `DPoP-Nonce` was already captured above, so a single retry
-        // with the new nonce succeeds. Any other 401 (RT expired, reused,
-        // invalid) propagates to `_doRefresh` which clears the session.
+        // refresh from inside itself. But DO honor a nonce challenge or a
+        // rejected proof - the fresh `DPoP-Nonce` and the corrected clock offset
+        // were both captured above, so a single retry succeeds. Any other 401 (RT
+        // expired, reused, invalid) propagates to `_doRefresh` which clears the
+        // session. Letting a rejected proof reach that path is a logout for a
+        // condition the client can fix by itself, and when the cause is the
+        // server's clock it is a logout for every user at once.
         if (request.url.includes('/auth/refresh')) {
-          if (isNonceChallenge || isProofReplay) return self._logHttp(request, await self._retryRequest(request));
+          if (isNonceChallenge || isProofRejected) return self._logHttp(request, await self._retryRequest(request));
           return self._logHttp(request, response);
         }
 
-        if (!isNonceChallenge && !isProofReplay) {
+        if (!isNonceChallenge && !isProofRejected) {
           try {
             await self.refresh();
           } catch {
@@ -843,7 +1070,7 @@ export class PollarClient {
           // effects (double-create a transaction, etc.). The original 401
           // bubbles up so the caller decides; the access token is now fresh,
           // so a manual retry by the caller will succeed. Nonce-challenge and
-          // replayed-proof 401s don't go through this branch (the server
+          // rejected-proof 401s don't go through this branch (the server
           // rejected the proof before the handler ran, so it processed
           // nothing), which is why any method retries safely above.
           const method = request.method.toUpperCase();
@@ -929,6 +1156,20 @@ export class PollarClient {
     }
   }
 
+  /**
+   * Persist the learned clock offset so the next page load signs its first proof
+   * already corrected. Same fire-and-forget contract as the nonce: losing it
+   * costs one rejected request, which `onResponse` then heals.
+   */
+  private async _persistDpopClockOffset(offsetSec: number): Promise<void> {
+    if (this._apiKeyHash === null || Math.abs(offsetSec) > MAX_DPOP_CLOCK_OFFSET_SEC) return;
+    try {
+      await this._storage.set(dpopClockOffsetStorageKey(this._apiKeyHash), String(offsetSec));
+    } catch (err) {
+      this._log.debug('[PollarClient] Could not persist the DPoP clock offset', err);
+    }
+  }
+
   private async _buildProofForRequest(request: Request, accessToken: string | undefined): Promise<string | null> {
     try {
       const htu = request.url.split('?')[0]!.split('#')[0]!;
@@ -949,25 +1190,31 @@ export class PollarClient {
   }
 
   /**
-   * Is this 401 a rejected DPoP proof REPLAY (`jti` already seen)?
+   * Why sdk-api rejected the DPoP proof on this 401, or `null` if it did not.
    *
    * The distinction matters because the default 401 path assumes an expired
-   * access token and spends a `/auth/refresh` on it. A replay is neither: the
-   * server refused the proof and never ran the handler, so the token is fine and
-   * a refresh only burns rate-limit budget. Narrowed to the replay `reason`
-   * specifically - every other DPoP failure (thumbprint mismatch, `ath`
-   * mismatch) genuinely can be fixed by re-issuing a token bound to the current
-   * key, so those keep the refresh.
+   * access token and spends a `/auth/refresh` on it. Two reasons are neither -
+   * the server refused the proof and never ran the handler, so the token is fine
+   * and a refresh only burns rate-limit budget:
+   *   - `jti-replay`: the proof was already spent. A fresh one is all it needs.
+   *   - `iat-skew`: the proof's `iat` fell outside the server's window. By the
+   *     time the caller reads this, `onResponse` has already re-learned the
+   *     offset from the same response's `Date`, so the retry signs a proof the
+   *     server accepts.
+   * Every other DPoP failure (thumbprint mismatch, `ath` mismatch) genuinely can
+   * be fixed by re-issuing a token bound to the current key, so those keep the
+   * refresh.
    *
    * Reads a `clone()`, so the caller's body stays untouched. Any parse failure
-   * answers `false` and leaves the existing behaviour in place.
+   * answers `null` and leaves the existing behaviour in place.
    */
-  private async _isDpopReplay(response: Response): Promise<boolean> {
+  private async _dpopRejectionReason(response: Response): Promise<string | null> {
     try {
       const body = (await response.clone().json()) as { code?: unknown; reason?: unknown };
-      return body?.code === 'SDK_AUTH_DPOP_INVALID' && body?.reason === 'jti-replay';
+      if (body?.code !== 'SDK_AUTH_DPOP_INVALID' || typeof body?.reason !== 'string') return null;
+      return body.reason;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -1070,7 +1317,8 @@ export class PollarClient {
     // `x-pollar-timeout-ms` header was already stripped upstream, so key off the
     // URL here); otherwise a first-submit-after-login nonce retry would fall
     // back to the 10s default and could cut a submit that is actually working.
-    const isSubmit = /\/tx\/(submit|sign-and-send|build-sign-submit)(\?|$)/.test(originalRequest.url);
+    // KYC session creation waits on the vendor and gets the same budget.
+    const isSubmit = /\/(tx\/(submit|sign-and-send|build-sign-submit)|kyc\/start)(\?|$)/.test(originalRequest.url);
     return fetchWithTimeout(retried, isSubmit ? this._submitTimeoutMs : this._requestTimeoutMs);
   }
 
@@ -1289,6 +1537,218 @@ export class PollarClient {
     if (this._refreshTimer !== null) {
       clearTimeout(this._refreshTimer);
       this._refreshTimer = null;
+    }
+  }
+
+  // --- Wallet provisioning watch -----------------------------------------------
+
+  /**
+   * Subscribe to the on-chain readiness of the platform-managed Stellar wallet.
+   *
+   * Under async provisioning login returns before the account is on the ledger,
+   * so this is how a UI knows when to stop showing "preparing your account" and
+   * when a payment will actually be accepted. Replays the current value on
+   * subscribe (same contract as {@link onAuthStateChange}), so a late subscriber
+   * is never left waiting for a transition that already happened.
+   *
+   * Emits only on CHANGE. A wallet that was already READY at login emits READY
+   * once, on subscribe, and never again. A subscriber that comes before the
+   * session exists (a mount-time effect on a cold start) hears its first value
+   * when the restore lands.
+   */
+  onWalletStateChange(cb: (provisioning: WalletProvisioning) => void): () => void {
+    this._walletStateListeners.add(cb);
+    const current = this._session?.wallet?.provisioning;
+    // The replay runs inside subscribe, so a throwing callback would take the
+    // unsubscribe handle down with it and leave itself registered.
+    if (current) {
+      try {
+        cb(current);
+      } catch (err) {
+        this._log.error('[PollarClient] onWalletStateChange listener threw on replay', err);
+      }
+    }
+    return () => this._walletStateListeners.delete(cb);
+  }
+
+  /**
+   * Report a `provisioning` change that arrived with a whole session rather
+   * than through the watch: a restore from storage (cold start, or a sibling
+   * tab persisting the value ITS poll found), or a fresh login. Without this the
+   * watch is the only emitter, and a value that reached `_session` any other
+   * way never reaches a subscriber - `_applyWalletProvisioning` then sees the
+   * value already in place and rightly stays quiet.
+   *
+   * A different wallet counts as a change even at the same value, so a
+   * login-over-login as another user is reported.
+   */
+  private _emitWalletStateIfChanged(prev: PollarPersistedSession | null, next: PollarPersistedSession | null): void {
+    const value = next?.wallet?.provisioning;
+    if (!value) return;
+    if (value === prev?.wallet?.provisioning && next?.wallet?.address === prev?.wallet?.address) return;
+    this._dispatchWalletState(value);
+  }
+
+  /**
+   * Hand a provisioning value to every subscriber, each isolated from the rest.
+   *
+   * One listener that throws must not cost the others the transition: this is
+   * the signal a "preparing your account" screen waits on, and a subscriber
+   * skipped here has nothing else to wake it.
+   */
+  private _dispatchWalletState(value: WalletProvisioning): void {
+    for (const cb of this._walletStateListeners) {
+      try {
+        cb(value);
+      } catch (err) {
+        this._log.error('[PollarClient] onWalletStateChange listener threw', err);
+      }
+    }
+  }
+
+  /**
+   * Ask the server where the wallet's on-chain account stands, right now, and
+   * store the answer.
+   *
+   * The watch below calls this on a schedule; it is public because a host that
+   * knows better than a timer (a screen the user just opened, a pull to refresh)
+   * should not have to wait for the next tick. Returns null when there is no
+   * session or the server could not answer - never throws, since a readiness
+   * check failing is not a reason to break the caller's flow.
+   */
+  async refreshWalletState(): Promise<WalletProvisioning | null> {
+    if (!this._session) return null;
+    const gen = this._sessionGeneration;
+    const seq = ++this._provisioningSeq;
+    try {
+      const { data } = await this._api.GET('/wallet/state');
+      const provisioning = data?.content?.provisioning;
+      // A value outside the union would be persisted and then rejected by
+      // `isValidSession` on the next reload, costing the user the session over a
+      // field they never asked about. Keep what we have instead.
+      if (!isWalletProvisioning(provisioning)) {
+        if (provisioning !== undefined) {
+          this._log.warn('[PollarClient] /wallet/state returned an unknown provisioning value; ignoring', {
+            provisioning,
+          });
+        }
+        return null;
+      }
+      await this._applyWalletProvisioning(gen, seq, provisioning);
+      if (this._destroyed || this._sessionGeneration !== gen) return null;
+      // Answer with what the wallet reports NOW, not with a response that lost
+      // the race: the watch stops on READY/FAILED, and telling it CREATING after
+      // a newer check already landed READY would keep it polling a finished job.
+      return this._session?.wallet?.provisioning ?? provisioning;
+    } catch (err) {
+      this._log.debug('[PollarClient] wallet state check failed', err);
+      return null;
+    }
+  }
+
+  /**
+   * Write a new provisioning value into the session and tell everyone.
+   *
+   * Both the back-compat `wallet` and the matching `wallets[]` entry are updated
+   * so the two can never disagree - a caller reading `getWallets()` would
+   * otherwise still see CREATING after `getWallet()` went READY.
+   */
+  private async _applyWalletProvisioning(gen: number, seq: number, provisioning: WalletProvisioning): Promise<void> {
+    if (this._destroyed || this._sessionGeneration !== gen || !this._session) return;
+    // Two checks can be in flight at once - the watch runs on its own schedule
+    // while `refreshWalletState()` is public - and they can resolve out of
+    // order. Applying the older one would walk READY back to CREATING, telling
+    // the app to keep waiting for an account that already landed.
+    // `_sessionGeneration` cannot catch this: a resume-driven FAILED -> CREATING
+    // -> READY recovery is legitimate within one generation.
+    if (seq < this._provisioningAppliedSeq) return;
+    this._provisioningAppliedSeq = seq;
+    if (this._session.wallet.provisioning === provisioning) return;
+
+    const address = this._session.wallet.address;
+    this._session = {
+      ...this._session,
+      wallet: { ...this._session.wallet, provisioning, existsOnStellar: provisioning === 'READY' },
+      ...(this._session.wallets
+        ? {
+            wallets: this._session.wallets.map((w) =>
+              w.address === address ? { ...w, provisioning, existsOnStellar: provisioning === 'READY' } : w,
+            ),
+          }
+        : {}),
+    };
+
+    try {
+      await this._persistSession(gen, this._session);
+    } catch (err) {
+      // In-memory state is still correct for this process; a storage hiccup must
+      // not cost the app the transition it is waiting for.
+      this._log.error('[PollarClient] Failed to persist wallet provisioning', err);
+    }
+    if (this._destroyed || this._sessionGeneration !== gen) return;
+
+    if (this._authState.step === 'authenticated') {
+      this._setAuthState({ ...this._authState, session: this._session });
+    }
+    this._dispatchWalletState(provisioning);
+  }
+
+  /**
+   * Start polling while the account is being created, if it is.
+   *
+   * Backs off from 1s to 10s and gives up after {@link PROVISIONING_MAX_ATTEMPTS}
+   * - over a minute, well past the seconds a healthy creation takes and past the
+   * congestion that motivated the async path. Giving up is safe: the next login
+   * or session resume re-enqueues a creation that never landed, so the wallet
+   * heals on the user's next visit even if this client stopped watching.
+   */
+  private _startProvisioningWatch(): void {
+    // Idempotent per session: a restore, the resume behind it and a login can
+    // all reach here for the same wallet. Restarting would reset the backoff to
+    // 1s every time, and - since the timer handle is null while a check is in
+    // flight - could leave two schedules polling one account.
+    if (!this._destroyed && this._provisioningWatchGen === this._sessionGeneration) return;
+    this._stopProvisioningWatch();
+    if (this._destroyed || this._session?.wallet?.provisioning !== 'CREATING') return;
+    this._provisioningWatchGen = this._sessionGeneration;
+    this._provisioningAttempt = 0;
+    this._scheduleProvisioningCheck();
+  }
+
+  private _scheduleProvisioningCheck(): void {
+    const attempt = this._provisioningAttempt;
+    if (attempt >= PROVISIONING_MAX_ATTEMPTS) {
+      this._log.debug('[PollarClient] wallet provisioning watch gave up; the next login or resume retries it');
+      this._provisioningWatchGen = null;
+      return;
+    }
+    const delay = Math.min(PROVISIONING_BASE_DELAY_MS * (attempt + 1), PROVISIONING_MAX_DELAY_MS);
+    const gen = this._sessionGeneration;
+    this._provisioningTimer = setTimeout(() => {
+      this._provisioningTimer = null;
+      void (async () => {
+        if (this._destroyed || this._sessionGeneration !== gen) return;
+        this._provisioningAttempt += 1;
+        const provisioning = await this.refreshWalletState();
+        // READY is the finish line; FAILED means the server stopped trying too,
+        // and polling a decision that only a new login can change is noise.
+        // Release the watch either way, so a resume that puts a FAILED wallet
+        // back into CREATING can start a new one on the same session.
+        if (provisioning === 'READY' || provisioning === 'FAILED') {
+          if (this._provisioningWatchGen === gen) this._provisioningWatchGen = null;
+          return;
+        }
+        if (this._destroyed || this._sessionGeneration !== gen) return;
+        this._scheduleProvisioningCheck();
+      })();
+    }, delay);
+  }
+
+  private _stopProvisioningWatch(): void {
+    this._provisioningWatchGen = null;
+    if (this._provisioningTimer !== null) {
+      clearTimeout(this._provisioningTimer);
+      this._provisioningTimer = null;
     }
   }
 
@@ -1840,7 +2300,9 @@ export class PollarClient {
    * `walletBalanceState`. For an arbitrary wallet, use {@link getWalletBalance}.
    */
   async refreshBalance(): Promise<void> {
-    if (!this._session?.wallet?.address) {
+    // Any chain counts: a Solana login has no Stellar `wallet.address`, and the
+    // server answers for every wallet the session holds.
+    if (!this.hasWallet()) {
       ++this._walletBalanceGen; // supersede any in-flight load (e.g. wallet went away)
       this._setWalletBalanceState({ step: 'error', message: 'No wallet connected' });
       return;
@@ -1992,7 +2454,9 @@ export class PollarClient {
    * session. Drives `enabledAssetsState`; mirrors {@link refreshBalance}.
    */
   async refreshAssets(): Promise<void> {
-    if (!this._session?.wallet?.address) {
+    // Any chain counts: a Solana login has no Stellar `wallet.address`, and the
+    // server answers for every wallet the session holds.
+    if (!this.hasWallet()) {
       ++this._enabledAssetsGen; // supersede any in-flight load (e.g. wallet went away)
       this._setEnabledAssetsState({ step: 'error', message: 'No wallet connected' });
       return;
@@ -2124,10 +2588,11 @@ export class PollarClient {
           (error as { details?: string; code?: string } | undefined)?.details ?? (error as { code?: string } | undefined)?.code;
         return { status: 'error', ...(details && { details }) };
       }
-      const signed = await this.signTx(xdr);
+      const signed = await this._signTx(xdr, undefined, false);
       if (signed.status === 'error') {
         return { status: 'error', ...(signed.details && { details: signed.details }) };
       }
+      if (signed.status === 'cosign_pending') return { status: 'cosign_pending', request: signed.request };
       return this.submitTx(signed.signedXdr);
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
@@ -2166,10 +2631,11 @@ export class PollarClient {
           (error as { details?: string; code?: string } | undefined)?.details ?? (error as { code?: string } | undefined)?.code;
         return { status: 'error', ...(details && { details }) };
       }
-      const signed = await this.signTx(data.content.sponsorSignedXdr);
+      const signed = await this._signTx(data.content.sponsorSignedXdr, undefined, false);
       if (signed.status === 'error') {
         return { status: 'error', ...(signed.details && { details: signed.details }) };
       }
+      if (signed.status === 'cosign_pending') return { status: 'cosign_pending', request: signed.request };
       return this.submitTx(signed.signedXdr);
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
@@ -2206,13 +2672,20 @@ export class PollarClient {
     try {
       this._setTransactionState({ step: 'building' });
       const { data, error } = await this._api.POST('/tx/build', { body });
-      if (!error && data?.success && data.content) {
-        this._setTransactionState({ step: 'built', buildData: data.content });
-        return { status: 'built', buildData: data.content };
+      const built = !error && data?.success ? stellarBuildOf(data.content) : null;
+      if (built) {
+        this._setTransactionState({ step: 'built', buildData: built });
+        return { status: 'built', buildData: built };
       }
-      const details = (error as { details?: string } | undefined)?.details;
-      this._setTransactionState({ step: 'error', phase: 'building', ...(details && { details }) });
-      return { status: 'error', ...(details && { details }) };
+      const { details, code, message } = this._resolveTxApiError(error, data);
+      this._setTransactionState({
+        step: 'error',
+        phase: 'building',
+        ...(details && { details }),
+        ...(code && { code }),
+        ...(message && { message }),
+      });
+      return { status: 'error', ...(details && { details }), ...(code && { code }), ...(message && { message }) };
     } catch (err) {
       this._log.error('[PollarClient] buildTx failed', err);
       this._setTransactionState({ step: 'error', phase: 'building' });
@@ -2226,11 +2699,15 @@ export class PollarClient {
 
   /**
    * The registered wallet adapters (built-in Freighter/Albedo first, then any
-   * `config.walletAdapters`), as `{ id, meta }` for the login UI to render one
-   * button per adapter. Reach a login via `login({ provider: id })`.
+   * `config.walletAdapters`), as `{ id, meta, chain }` for the login UI to render
+   * one button per adapter. Reach a login via `login({ provider: id })`.
    */
-  listWalletAdapters(): { id: WalletId; meta: WalletAdapterMeta }[] {
-    return Array.from(this._walletAdapters.values()).map((a) => ({ id: a.type, meta: this._safeMeta(a.meta) }));
+  listWalletAdapters(): { id: WalletId; meta: WalletAdapterMeta; chain: WalletChain }[] {
+    return Array.from(this._walletAdapters.values()).map((a) => ({
+      id: a.type,
+      meta: this._safeMeta(a.meta),
+      chain: a.chain ?? 'STELLAR',
+    }));
   }
 
   /**
@@ -2296,16 +2773,79 @@ export class PollarClient {
   }
 
   /**
+   * Whether the signed-in user has a wallet on any chain. False for an app that
+   * creates wallets on demand (or never) until {@link createWallet} runs. Not the
+   * same as `getWallet() !== null`: a Solana login has a wallet but no Stellar one.
+   */
+  hasWallet(): boolean {
+    return this.getWallets().length > 0;
+  }
+
+  /**
+   * Create the signed-in user's wallet, for an app whose wallet creation is set
+   * to "on demand" in the dashboard. Idempotent: a user who already has one gets
+   * it back. Updates the session and notifies subscribers the way a login does.
+   *
+   * Throws {@link PollarApiError}: `SDK_WALLET_PROVISIONING_DISABLED` when the
+   * app creates no wallets, `SDK_WALLET_PROVISIONING_UNSUPPORTED` for a user who
+   * signed in with their own wallet or a passkey.
+   */
+  async createWallet(): Promise<WalletInfo> {
+    if (!this._session) throw new PollarApiError('SDK_AUTH_INVALID_TOKEN');
+    const gen = this._sessionGeneration;
+    // Only a co-signed (Turnkey) wallet needs the device key; a custodial app ignores it.
+    const devicePublicKey = await this.cosign.publicKeyHex().catch(() => undefined);
+    const { data, error } = await this._api.POST('/wallet/provision', {
+      body: devicePublicKey ? { devicePublicKey } : {},
+    });
+    const content = data?.content;
+    if (error || !content) {
+      const body = (typeof error === 'object' && error !== null ? error : {}) as Record<string, unknown>;
+      throw new PollarApiError(typeof body.code === 'string' ? body.code : 'SDK_WALLET_PROVISIONING_FAILED', body);
+    }
+    if (this._destroyed || this._sessionGeneration !== gen || !this._session) {
+      throw new PollarApiError('SDK_AUTH_INVALID_TOKEN');
+    }
+
+    this._session = {
+      ...this._session,
+      wallet: toPersistedWallet(content.wallet),
+      wallets: content.wallets.map(toPersistedWallet),
+    };
+    try {
+      await this._persistSession(gen, this._session);
+    } catch (err) {
+      this._log.error('[PollarClient] Failed to persist the created wallet', err);
+    }
+    if (this._authState.step === 'authenticated') {
+      this._setAuthState({ ...this._authState, session: this._session });
+    }
+    const provisioning = this._session.wallet.provisioning;
+    if (provisioning) this._dispatchWalletState(provisioning);
+    this._startProvisioningWatch();
+
+    const wallet = this.getWallet();
+    if (!wallet) throw new PollarApiError('SDK_WALLET_PROVISIONING_FAILED');
+    return wallet;
+  }
+
+  /**
    * Maps a persisted wallet to the public {@link WalletInfo} union. Shared by
    * `getWallet` and `getWallets` so the two can never disagree about how a
    * given custody is presented.
    */
+  /** The outcome a signing call returns for a user with no wallet yet. */
+  private _walletRequired(): { status: 'error'; code: string; details: string } {
+    return { status: 'error', code: WALLET_REQUIRED_CODE, details: 'This user has no wallet yet. Call createWallet().' };
+  }
+
   private _toWalletInfo(w: PollarPersistedWallet | undefined, opts: { includeChain: boolean }): WalletInfo | null {
     if (!w || !w.address) return null;
     // Wallet-status extras carried on every custody (see WalletInfo).
     const extra = {
       ...(opts.includeChain && w.chain !== undefined ? { chain: w.chain } : {}),
       ...(w.existsOnStellar !== undefined ? { existsOnStellar: w.existsOnStellar } : {}),
+      ...(w.provisioning !== undefined ? { provisioning: w.provisioning } : {}),
       ...(w.fundingMode !== undefined ? { fundingMode: w.fundingMode } : {}),
     };
     switch (w.type) {
@@ -2352,6 +2892,20 @@ export class PollarClient {
    * is threaded through if the consumer previously called `buildTx`.
    */
   async signTx(unsignedXdr: string, options?: { skipSponsorship?: boolean }): Promise<SignOutcome> {
+    return this._signTx(unsignedXdr, options, true);
+  }
+
+  /**
+   * `signTx` behind the confirmation step. `confirm` is false when the caller
+   * already asked the user (`signAndSubmitTx`) and for wallet setup (account
+   * creation, trustlines), which a custodial wallet performs without asking
+   * and so is never prompted whatever the custody.
+   */
+  private async _signTx(
+    unsignedXdr: string,
+    options: { skipSponsorship?: boolean } | undefined,
+    confirm: boolean,
+  ): Promise<SignOutcome> {
     this._txStartGen = this._sessionGeneration;
     const noSigner = this._externalSignerMissing();
     if (noSigner) return noSigner;
@@ -2366,6 +2920,10 @@ export class PollarClient {
       };
     }
     const buildData = this._currentBuildData();
+    if (confirm) {
+      const answer = await this._confirm({ kind: 'sign', network: 'STELLAR', unsignedXdr, ...(buildData && { buildData }) });
+      if (!answer.ok) return this._declined('signing', buildData, answer);
+    }
     this._setTransactionState({ step: 'signing', ...(buildData && { buildData }) });
 
     // External adapter signs directly (smart sessions already returned above).
@@ -2403,12 +2961,13 @@ export class PollarClient {
     // default the backend also applies sponsorship (per the app's dashboard
     // config), returning a fee-bumped envelope the caller can broadcast directly
     // - the app pays the fee. Pass `skipSponsorship` to force the user to pay.
-    const address = this._session?.wallet?.address ?? '';
+    const address = this._session?.wallet?.address;
+    if (!address) return this._walletRequired();
     try {
       const { data, error } = await this._api.POST('/tx/sign', {
         body: { address, unsignedXdr, ...(options?.skipSponsorship && { skipSponsorship: true }) },
       });
-      if (!error && data?.success && data.content?.signedXdr) {
+      if (!error && data?.success && data.content && 'signedXdr' in data.content) {
         const { signedXdr, idempotencyKey, sponsored } = data.content;
         this._setTransactionState({
           step: 'signed',
@@ -2417,6 +2976,10 @@ export class PollarClient {
           ...(buildData && { buildData }),
         });
         return { status: 'signed', signedXdr, submissionToken: idempotencyKey, sponsored };
+      }
+      const pendingRequest = this._cosignPendingOf(data);
+      if (pendingRequest) {
+        return this._settleCosign(pendingRequest, { intent: 'sign', phase: 'signing', ...(buildData && { buildData }) });
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -2500,7 +3063,8 @@ export class PollarClient {
     }
 
     // Embedded path: backend enforces the app's auth-entry policy, then signs.
-    const address = this._session?.wallet?.address ?? '';
+    const address = this._session?.wallet?.address;
+    if (!address) return this._walletRequired();
     try {
       const { data, error } = await this._api.POST('/tx/sign-auth-entry', {
         body: { address, entryXdr, validUntilLedger: options.validUntilLedger },
@@ -2534,7 +3098,8 @@ export class PollarClient {
     if (this._session?.wallet?.type === 'smart') {
       return { status: 'error', details: 'SEP-53 message signing is not supported for smart (passkey) wallets.' };
     }
-    const address = this._session?.wallet?.address ?? '';
+    const address = this._session?.wallet?.address;
+    if (!address) return this._walletRequired();
 
     // External adapter signs directly (smart already returned above).
     if (this._walletAdapter) {
@@ -2591,7 +3156,8 @@ export class PollarClient {
         details: 'SEP-10 is for classic accounts; smart (passkey) wallets cannot sign a SEP-10 challenge.',
       };
     }
-    const address = this._session?.wallet?.address ?? '';
+    const address = this._session?.wallet?.address;
+    if (!address) return this._walletRequired();
 
     if (this._walletAdapter) {
       if (!this._walletAdapter.signTransaction) {
@@ -2637,6 +3203,277 @@ export class PollarClient {
    * is the raw diagnostic. Lets tx flows surface a typed reason instead of an
    * opaque details string.
    */
+  /**
+   * The request a signing call answered with instead of a signature: a 2xx
+   * whose code is `SDK_COSIGN_PENDING` (openapi-fetch files every 2xx under
+   * `data`, so the 202 arrives here, not in `error`).
+   */
+  private _cosignPendingOf(data: unknown): CosignRequest | null {
+    const d = data as
+      | { code?: string; content?: { pendingSignature?: { kind?: string; request?: CosignRequest } } }
+      | undefined;
+    const request =
+      d?.code === 'SDK_COSIGN_PENDING' && d.content?.pendingSignature?.kind === 'cosign'
+        ? d.content.pendingSignature.request
+        : null;
+    if (request) this._noteCosignRequest(request);
+    return request ?? null;
+  }
+
+  /** Current pending co-sign requests, as last learned from the API. */
+  getCosignState(): CosignState {
+    return { ...this._cosignState, pending: [...this._cosignState.pending] };
+  }
+
+  /** Subscribe to co-sign state. Replays the current value on subscribe. */
+  onCosignStateChange(cb: (state: CosignState) => void): () => void {
+    this._cosignStateListeners.add(cb);
+    try {
+      cb(this.getCosignState());
+    } catch (err) {
+      this._log.error('[PollarClient] onCosignStateChange listener threw on replay', err);
+    }
+    return () => {
+      this._cosignStateListeners.delete(cb);
+    };
+  }
+
+  /** The confirmations waiting for the user under `confirmation: 'prompt'`. */
+  getPendingConfirmations(): PendingConfirmation[] {
+    return [...this._confirmations.values()];
+  }
+
+  /**
+   * Subscribe to the confirmations a signing call is waiting on. Replays the
+   * current list on subscribe. `@pollar/react` and `@pollar/react-native`
+   * render them; a headless app shows each one and calls `confirm()` or
+   * `reject()`. Under `'prompt'` a signing call fails with
+   * `SDK_CONFIRMATION_UNAVAILABLE` while nothing is subscribed, rather than
+   * signing unasked.
+   */
+  onConfirmationRequest(cb: (pending: PendingConfirmation[]) => void): () => void {
+    this._confirmationListeners.add(cb);
+    try {
+      cb(this.getPendingConfirmations());
+    } catch (err) {
+      this._log.error('[PollarClient] onConfirmationRequest listener threw on replay', err);
+    }
+    return () => {
+      this._confirmationListeners.delete(cb);
+    };
+  }
+
+  private _emitConfirmations(): void {
+    const snapshot = this.getPendingConfirmations();
+    for (const cb of this._confirmationListeners) {
+      try {
+        cb(snapshot);
+      } catch (err) {
+        this._log.error('[PollarClient] onConfirmationRequest listener threw', err);
+      }
+    }
+  }
+
+  /**
+   * Ask the user before a signature, per the confirmation policy: `'auto'`
+   * answers yes at once, `'prompt'` publishes the request to the subscribers
+   * and waits for one of them to settle it. Setup signatures never come here.
+   */
+  private _confirm(input: Omit<ConfirmationRequest, 'id' | 'createdAt'>): Promise<ConfirmationAnswer> {
+    if (this._confirmation === 'auto') return Promise.resolve({ ok: true });
+    if (this._confirmationListeners.size === 0) {
+      return Promise.resolve({
+        ok: false,
+        code: 'SDK_CONFIRMATION_UNAVAILABLE',
+        details:
+          "confirmation is 'prompt' but nothing shows the prompt: mount PollarProvider or subscribe with onConfirmationRequest",
+      });
+    }
+    const id = randomUUID();
+    return new Promise((resolve) => {
+      const settle = (answer: ConfirmationAnswer) => () => {
+        if (!this._confirmations.delete(id)) return;
+        this._emitConfirmations();
+        resolve(answer);
+      };
+      this._confirmations.set(id, {
+        ...input,
+        id,
+        createdAt: new Date().toISOString(),
+        confirm: settle({ ok: true }),
+        reject: settle({ ok: false, code: 'SDK_CONFIRMATION_DECLINED', details: 'the user declined the transaction' }),
+      });
+      this._emitConfirmations();
+    });
+  }
+
+  /** The outcome of a signing call the user did not confirm; the state machine ends in `error` for the modal UIs. */
+  private _declined(
+    phase: TxErrorPhase,
+    buildData: TxBuildContent | undefined,
+    answer: { code: string; details: string },
+  ): { status: 'error'; code: string; details: string } {
+    this._setTransactionState({
+      step: 'error',
+      phase,
+      code: answer.code,
+      details: answer.details,
+      ...(buildData && { buildData }),
+    });
+    return { status: 'error', code: answer.code, details: answer.details };
+  }
+
+  /**
+   * What a signing call does with the 202 a co-signed wallet answers with.
+   * `cosignManual` hands the request back as `cosign_pending`. Otherwise the
+   * device votes here: `approve` refreshes, verifies the payload against what
+   * Turnkey is about to sign and stamps the approval; that vote completes the
+   * quorum, so the request normally comes back final and the call ends the way
+   * a custodial one does. Any failure on the way (a payload that does not
+   * match what was asked, a rebuild that fails) rejects the request, which
+   * ends it for good. Turnkey finishing late is polled
+   * a few times; past that the request is returned pending and
+   * `client.cosign.get(id, { sync: true })` reads its outcome.
+   */
+  private _settleCosign(
+    request: CosignRequest,
+    ctx: { intent: 'sign'; phase: 'signing'; buildData?: TxBuildContent },
+  ): Promise<SignOutcome>;
+  private _settleCosign(
+    request: CosignRequest,
+    ctx: { intent: 'sign_and_send'; phase: 'signing-submitting' | 'building-signing-submitting'; buildData?: TxBuildContent },
+  ): Promise<SubmitOutcome>;
+  private async _settleCosign(request: CosignRequest, ctx: CosignSettleContext): Promise<SignOutcome | SubmitOutcome> {
+    const { buildData } = ctx;
+    this._setTransactionState({ step: 'awaiting_cosign', request, ...(buildData && { buildData }) });
+    if (this._cosignManual) return { status: 'cosign_pending', request, ...(buildData && { buildData }) };
+    this._autoHandling.add(request.id);
+    try {
+      let resolved = await this.cosign.approve(request);
+      for (let i = 0; i < 10 && resolved.status === 'PENDING'; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        resolved = await this.cosign.get(request.id, { sync: true });
+      }
+      return await this._outcomeOfCosign(resolved, ctx);
+    } catch (err) {
+      const code = err instanceof PollarApiError ? err.code : undefined;
+      let details = err instanceof Error ? err.message : undefined;
+      if (err instanceof PollarApiError && code === 'SDK_COSIGN_VERIFICATION_FAILED') {
+        const verification = err.body.verification as { reason?: string } | undefined;
+        details = verification?.reason ?? details;
+      }
+      // This call reports the send as failed, so the request must not stay
+      // approvable: the prompt would later offer a send the user was told failed.
+      await this.cosign.reject(request).catch((rejectErr) => {
+        this._log.warn('[PollarClient] could not reject a co-sign request after a failed send', rejectErr);
+      });
+      this._setTransactionState({
+        step: 'error',
+        phase: ctx.phase,
+        ...(buildData && { buildData }),
+        ...(details && { details }),
+        ...(code && { code }),
+      });
+      return { status: 'error', ...(details && { details }), ...(code && { code }) };
+    } finally {
+      this._autoHandling.delete(request.id);
+    }
+  }
+
+  /** The signing outcome a final (or still pending) co-sign request amounts to. */
+  private async _outcomeOfCosign(resolved: CosignRequest, ctx: CosignSettleContext): Promise<SignOutcome | SubmitOutcome> {
+    const { buildData } = ctx;
+    const extra = buildData ? { buildData } : {};
+    if (resolved.status === 'PENDING') return { status: 'cosign_pending', request: resolved, ...extra };
+    if (resolved.status !== 'APPROVED') {
+      return {
+        status: 'error',
+        code: `SDK_COSIGN_${resolved.status}`,
+        details: resolved.failureReason ?? `co-sign request ${resolved.status.toLowerCase()}`,
+        ...extra,
+      };
+    }
+    if (ctx.intent === 'sign') {
+      if (resolved.signedXdr) return { status: 'signed', signedXdr: resolved.signedXdr };
+      return { status: 'error', code: 'SDK_COSIGN_NO_SIGNATURE', details: 'the approved request carries no signature' };
+    }
+    const submit = resolved.submit;
+    if (!submit) {
+      if (resolved.signedXdr) return this.submitTx(resolved.signedXdr);
+      return {
+        status: 'error',
+        code: 'SDK_COSIGN_NO_SIGNATURE',
+        details: 'the approved request carries no signature',
+        ...extra,
+      };
+    }
+    if (submit.status === 'SUCCESS') return { status: 'success', hash: submit.hash, ...extra };
+    if (submit.status === 'PENDING') return this._awaitTxConfirmation(submit.hash, ctx.phase, buildData, extra);
+    return {
+      status: 'error',
+      hash: submit.hash,
+      ...(submit.resultCode && { details: submit.resultCode, resultCode: submit.resultCode }),
+      ...(submit.message && { message: submit.message }),
+      ...extra,
+    };
+  }
+
+  /**
+   * Fold a request into the co-sign store and, when it is the one the
+   * transaction state machine is waiting on, move that machine too: the vote
+   * either produced a signed XDR (split flow), submitted the transaction
+   * (atomic flows) or ended it.
+   */
+  private _noteCosignRequest(request: CosignRequest): void {
+    if (request.status !== 'PENDING') this._settledCosign.add(request.id);
+    else if (this._settledCosign.has(request.id)) return;
+    const pending = this._cosignState.pending.filter((r) => r.id !== request.id);
+    if (request.status === 'PENDING' && !this._autoHandling.has(request.id)) pending.push(request);
+    const lastResolved = request.status !== 'PENDING' ? request : this._cosignState.lastResolved;
+    this._cosignState = { pending, ...(lastResolved ? { lastResolved } : {}) };
+    const snapshot = this.getCosignState();
+    for (const cb of this._cosignStateListeners) {
+      try {
+        cb(snapshot);
+      } catch (err) {
+        this._log.error('[PollarClient] onCosignStateChange listener threw', err);
+      }
+    }
+
+    const tx = this._transactionState;
+    if (!tx || tx.step !== 'awaiting_cosign' || tx.request.id !== request.id || request.status === 'PENDING') return;
+    const buildData = tx.buildData;
+    if (request.status !== 'APPROVED') {
+      this._setTransactionState({
+        step: 'error',
+        phase: 'signing',
+        details: request.failureReason ?? `co-sign request ${request.status.toLowerCase()}`,
+        code: `SDK_COSIGN_${request.status}`,
+        ...(buildData && { buildData }),
+      });
+      return;
+    }
+    if (request.submit) {
+      if (request.submit.status === 'SUCCESS') {
+        this._setTransactionState({ step: 'success', hash: request.submit.hash, ...(buildData && { buildData }) });
+      } else if (request.submit.status === 'PENDING') {
+        this._setTransactionState({ step: 'submitted', hash: request.submit.hash, ...(buildData && { buildData }) });
+      } else {
+        this._setTransactionState({
+          step: 'error',
+          phase: 'submitting',
+          ...(request.submit.resultCode && { details: request.submit.resultCode }),
+          ...(request.submit.message && { message: request.submit.message }),
+          ...(buildData && { buildData }),
+        });
+      }
+      return;
+    }
+    if (request.signedXdr) {
+      this._setTransactionState({ step: 'signed', signedXdr: request.signedXdr, ...(buildData && { buildData }) });
+    }
+  }
+
   private _resolveTxApiError(error: unknown, data?: unknown): { details?: string; code?: string; message?: string } {
     // On a non-2xx the failure envelope is in `error`; on a 2xx with
     // `success:false` it rides in `data` - fall back to it so the backend's
@@ -2773,7 +3610,8 @@ export class PollarClient {
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
       if (!error && data?.success && data.content) {
-        const { hash, status: backendStatus, resultCode } = data.content;
+        const { hash, status: backendStatus } = data.content;
+        const resultCode = 'resultCode' in data.content ? data.content.resultCode : undefined;
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash, ...(buildData && { buildData }) });
           return { status: 'success', hash, ...outcomeExtra };
@@ -2856,10 +3694,19 @@ export class PollarClient {
       return { status: 'error', details: 'missing unsigned transaction' };
     }
 
+    const confirmBuild = this._currentBuildData();
+    const answer = await this._confirm({
+      kind: 'sign_and_send',
+      network: 'STELLAR',
+      unsignedXdr,
+      ...(confirmBuild && { buildData: confirmBuild }),
+    });
+    if (!answer.ok) return this._declined('signing-submitting', confirmBuild, answer);
+
     if (this._walletAdapter) {
       // External - the composed signTx+submitTx already emit the granular
       // state-machine sequence. We just pass outcomes through.
-      const signed = await this.signTx(unsignedXdr);
+      const signed = await this._signTx(unsignedXdr, undefined, false);
       if (signed.status === 'error') {
         const buildData = this._currentBuildData();
         return {
@@ -2868,6 +3715,7 @@ export class PollarClient {
           ...(signed.details && { details: signed.details }),
         };
       }
+      if (signed.status === 'cosign_pending') return { status: 'cosign_pending', request: signed.request };
       return this.submitTx(signed.signedXdr);
     }
 
@@ -2888,7 +3736,7 @@ export class PollarClient {
         body,
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
-      if (!error && data?.success && data.content?.hash) {
+      if (!error && data?.success && data.content && 'hash' in data.content) {
         const {
           hash,
           status: backendStatus,
@@ -2919,6 +3767,14 @@ export class PollarClient {
           ...outcomeExtra,
           ...(resultCode && { details: resultCode, resultCode }),
         };
+      }
+      const pendingRequest = this._cosignPendingOf(data);
+      if (pendingRequest) {
+        return this._settleCosign(pendingRequest, {
+          intent: 'sign_and_send',
+          phase: 'signing-submitting',
+          ...(buildData && { buildData }),
+        });
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -2982,7 +3838,12 @@ export class PollarClient {
     if (this._walletAdapter) {
       const built = await this.buildTx(operation, params, options);
       if (built.status === 'error') {
-        return { status: 'error', ...(built.details && { details: built.details }) };
+        return {
+          status: 'error',
+          ...(built.details && { details: built.details }),
+          ...(built.code && { code: built.code }),
+          ...(built.message && { message: built.message }),
+        };
       }
       if (!built.buildData.unsignedXdr) {
         return { status: 'error', details: 'build returned no unsigned transaction' };
@@ -2995,6 +3856,13 @@ export class PollarClient {
       this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: 'No wallet connected' });
       return { status: 'error', details: 'No wallet connected' };
     }
+    const answer = await this._confirm({
+      kind: 'build_sign_submit',
+      network: 'STELLAR',
+      operation,
+      details: params as Record<string, unknown>,
+    });
+    if (!answer.ok) return this._declined('building-signing-submitting', undefined, answer);
     this._setTransactionState({ step: 'building-signing-submitting' });
     try {
       const { data, error } = await this._api.POST('/tx/build-sign-submit', {
@@ -3010,7 +3878,7 @@ export class PollarClient {
         // longer submit budget so a real success isn't cut at the 10s default.
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
-      if (!error && data?.success && data.content) {
+      if (!error && data?.success && data.content && 'hash' in data.content) {
         // This endpoint is multichain now, so its 200 is a union and only the
         // Stellar member carries `resultCode`. This call always sends a Stellar
         // body, but the type still has to be narrowed to say so.
@@ -3030,6 +3898,10 @@ export class PollarClient {
           ...(resultCode && { details: resultCode }),
         });
         return { status: 'error', hash, ...(resultCode && { details: resultCode, resultCode }) };
+      }
+      const pendingRequest = this._cosignPendingOf(data);
+      if (pendingRequest) {
+        return this._settleCosign(pendingRequest, { intent: 'sign_and_send', phase: 'building-signing-submitting' });
       }
       const { details, code, message } = this._resolveTxApiError(error, data);
       this._setTransactionState({
@@ -3059,8 +3931,10 @@ export class PollarClient {
    * external adapters and passkey wallets via the split flow), while a chain
    * whose signature expires does the whole thing in one server-side call.
    *
-   * Embedded-only outside Stellar: a non-Stellar external wallet would have to
-   * sign client-side, and that path is not wired yet.
+   * A Solana wallet the user signs with themselves (SIWS login) is the one
+   * exception to the single call: the backend builds, the wallet signs here,
+   * the backend submits ({@link _sendSolanaExternal}). Polygon has no wallet the
+   * user brings: its wallets are custodial or co-signed, both sent in one call.
    */
   async sendPayment(params: SendPaymentParams): Promise<SubmitOutcome> {
     if (params.chain === undefined || params.chain === 'STELLAR') {
@@ -3071,38 +3945,57 @@ export class PollarClient {
       );
     }
 
-    if (params.chain !== 'SOLANA') {
-      return { status: 'error', details: `Sending on ${params.chain} is not supported yet.` };
-    }
-
+    const send = params as Extract<SendPaymentParams, { chain: 'SOLANA' | 'POLYGON' }>;
+    const chain = send.chain;
+    const label = chain === 'SOLANA' ? 'Solana' : 'Polygon';
     this._txStartGen = this._sessionGeneration;
-    if (!this._session?.wallet?.address) {
-      this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: 'No wallet connected' });
-      return { status: 'error', details: 'No wallet connected' };
+    // `session.wallet` is the Stellar wallet by contract (null after a SIWS
+    // login), so the other chains' wallets are looked up in `wallets[]`.
+    const wallet = this.getWallets().find((w) => w.chain === chain);
+    if (!wallet) {
+      this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details: `No ${label} wallet` });
+      return { status: 'error', details: `No ${label} wallet` };
     }
+    if (chain === 'POLYGON' && wallet.custody === 'external') {
+      const details = 'An external Polygon wallet signs its own transactions; Pollar does not send from it.';
+      this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', details });
+      return { status: 'error', details };
+    }
+    const answer = await this._confirm({
+      kind: 'build_sign_submit',
+      network: chain,
+      operation: 'payment',
+      details: { destination: send.destination, amount: send.amount, ...(send.mint ? { mint: send.mint } : {}) },
+    });
+    if (!answer.ok) return this._declined('building-signing-submitting', undefined, answer);
+
+    if (chain === 'SOLANA' && wallet.custody === 'external')
+      return this._sendSolanaExternal(send as Extract<SendPaymentParams, { chain: 'SOLANA' }>);
 
     this._setTransactionState({ step: 'building-signing-submitting' });
     try {
       const { data, error } = await this._api.POST('/tx/build-sign-submit', {
         body: {
-          chain: 'SOLANA',
+          chain,
           operation: 'payment',
           params: {
-            destination: params.destination,
-            amount: params.amount,
-            ...(params.mint ? { mint: params.mint } : {}),
+            destination: send.destination,
+            amount: send.amount,
+            // The asset is the chain-specific part: an SPL mint on Solana, an
+            // ERC-20 contract on Polygon (`token` on the wire).
+            ...(send.mint ? (chain === 'SOLANA' ? { mint: send.mint } : { token: send.mint }) : {}),
           },
-          // Required on Solana: its submit is a single non-idempotent shot, so
-          // the backend dedupes on this key. Minted per call so a transport
-          // retry converges on the original transfer instead of sending twice.
+          // Required on both: the submit is a single non-idempotent shot, so the
+          // backend dedupes on this key. Minted per call so a transport retry
+          // converges on the original transfer instead of sending twice.
           idempotencyKey: randomUUID(),
           waitForConfirmation: false,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union; this branch is the Solana member
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union, and its Polygon member is not in the generated schema until it is regenerated from this sdk-api
         } as any,
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
 
-      if (!error && data?.success && data.content) {
+      if (!error && data?.success && data.content && 'hash' in data.content) {
         const { hash, status: backendStatus } = data.content as { hash: string; status: string };
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash });
@@ -3114,6 +4007,10 @@ export class PollarClient {
         }
         this._setTransactionState({ step: 'error', phase: 'building-signing-submitting' });
         return { status: 'error', hash };
+      }
+      const pendingRequest = this._cosignPendingOf(data);
+      if (pendingRequest) {
+        return this._settleCosign(pendingRequest, { intent: 'sign_and_send', phase: 'building-signing-submitting' });
       }
 
       const { details, code, message } = this._resolveTxApiError(error, data);
@@ -3130,6 +4027,108 @@ export class PollarClient {
       this._setTransactionState({ step: 'error', phase: 'building-signing-submitting', ...(details && { details }) });
       return { status: 'error', ...(details && { details }) };
     }
+  }
+
+  /**
+   * A Solana transfer from a wallet the user signs with themselves: the backend
+   * compiles it around the user's address (`/tx/build`), the connected wallet
+   * signs it, and the backend broadcasts it (`/tx/submit`), adding the app's
+   * sponsor signature when the token is sponsored. One `idempotencyKey` ties
+   * the two calls to one record. The blockhash the build binds lasts about a
+   * minute, which is why the wallet is asked to sign right away.
+   */
+  private async _sendSolanaExternal(params: Extract<SendPaymentParams, { chain: 'SOLANA' }>): Promise<SubmitOutcome> {
+    const noSigner = this._externalSignerMissing();
+    if (noSigner) {
+      this._setTransactionState({ step: 'error', phase: 'building', details: noSigner.details });
+      return noSigner;
+    }
+    const adapter = this._walletAdapter;
+    if (!adapter?.signSolanaTransaction) {
+      throw new Error(`[PollarClient] wallet adapter "${adapter?.type}" cannot sign a Solana transaction`);
+    }
+    const idempotencyKey = randomUUID();
+    const body = {
+      chain: 'SOLANA',
+      operation: 'payment',
+      params: { destination: params.destination, amount: params.amount, ...(params.mint ? { mint: params.mint } : {}) },
+      idempotencyKey,
+    };
+
+    this._setTransactionState({ step: 'building' });
+    let unsignedTransaction: string;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union; this is the Solana member
+      const { data, error } = await this._api.POST('/tx/build', { body: body as any });
+      const content = !error && data?.success ? (data.content as unknown as { unsignedTransaction?: string }) : null;
+      if (!content?.unsignedTransaction) {
+        const { details, code, message } = this._resolveTxApiError(error, data);
+        this._setTransactionState({
+          step: 'error',
+          phase: 'building',
+          ...(details && { details }),
+          ...(code && { code }),
+          ...(message && { message }),
+        });
+        return { status: 'error', ...(details && { details }), ...(code && { code }), ...(message && { message }) };
+      }
+      unsignedTransaction = content.unsignedTransaction;
+    } catch (err) {
+      const details = err instanceof Error ? err.message : undefined;
+      this._setTransactionState({ step: 'error', phase: 'building', ...(details && { details }) });
+      return { status: 'error', ...(details && { details }) };
+    }
+
+    this._setTransactionState({ step: 'signing' });
+    let signedTransaction: string;
+    try {
+      const signed = await adapter.signSolanaTransaction(hexToBytes(unsignedTransaction), this._solanaChainId());
+      signedTransaction = bytesToHex(signed);
+    } catch (err) {
+      const details = err instanceof Error ? err.message : undefined;
+      this._setTransactionState({ step: 'error', phase: 'signing', ...(details && { details }) });
+      return { status: 'error', ...(details && { details }) };
+    }
+
+    this._setTransactionState({ step: 'submitting' });
+    try {
+      const { data, error } = await this._api.POST('/tx/submit', {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union; this is the Solana member
+        body: { chain: 'SOLANA', signedTransaction, idempotencyKey, waitForConfirmation: false } as any,
+        headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
+      });
+      if (!error && data?.success && data.content && 'hash' in data.content) {
+        const { hash, status: backendStatus } = data.content as { hash: string; status: string };
+        if (backendStatus === 'SUCCESS') {
+          this._setTransactionState({ step: 'success', hash });
+          return { status: 'success', hash };
+        }
+        if (backendStatus === 'PENDING') {
+          this._setTransactionState({ step: 'submitted', hash });
+          return this._awaitTxConfirmation(hash, 'submitting', undefined, {});
+        }
+        this._setTransactionState({ step: 'error', phase: 'submitting' });
+        return { status: 'error', hash };
+      }
+      const { details, code, message } = this._resolveTxApiError(error, data);
+      this._setTransactionState({
+        step: 'error',
+        phase: 'submitting',
+        ...(details && { details }),
+        ...(code && { code }),
+        ...(message && { message }),
+      });
+      return { status: 'error', ...(details && { details }), ...(code && { code }), ...(message && { message }) };
+    } catch (err) {
+      const details = err instanceof Error ? err.message : undefined;
+      this._setTransactionState({ step: 'error', phase: 'submitting', ...(details && { details }) });
+      return { status: 'error', ...(details && { details }) };
+    }
+  }
+
+  /** The Wallet Standard chain id the connected Solana wallet signs for; testnet means devnet here. */
+  private _solanaChainId(): 'solana:mainnet' | 'solana:devnet' {
+    return this.getNetwork() === 'mainnet' ? 'solana:mainnet' : 'solana:devnet';
   }
 
   /** Alias for {@link buildAndSignAndSubmitTx} - shorter "just do the thing" name. */
@@ -3176,12 +4175,13 @@ export class PollarClient {
         options: options ?? {},
       } as TxBuildBody;
       const { data, error } = await this._api.POST('/tx/build', { body });
-      if (error || !data?.success || !data.content?.smart) {
+      const built = !error && data?.success ? stellarBuildOf(data.content) : null;
+      if (!built?.smart) {
         const details = (error as { details?: string } | undefined)?.details ?? 'Failed to build transaction';
         this._setTransactionState({ step: 'error', phase: 'building', details });
         return { status: 'error', details };
       }
-      buildData = data.content;
+      buildData = built;
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
       this._setTransactionState({ step: 'error', phase: 'building', ...(details && { details }) });
@@ -3235,7 +4235,8 @@ export class PollarClient {
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
       if (!error && data?.success && data.content) {
-        const { hash, status: backendStatus, resultCode } = data.content;
+        const { hash, status: backendStatus } = data.content;
+        const resultCode = 'resultCode' in data.content ? data.content.resultCode : undefined;
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash, buildData });
           return { status: 'success', hash, ...outcomeExtra };
@@ -3287,40 +4288,117 @@ export class PollarClient {
     }
   }
 
+  // --- Requirement steps ------------------------------------------------------
+
+  getAppRequirements(): Promise<AppRequirements> {
+    return getAppRequirements(this._api);
+  }
+
+  getRequirementForm(formId: string): Promise<RequirementForm> {
+    return getRequirementForm(this._api, formId);
+  }
+
+  submitRequirementForm(formId: string, answers: RequirementFormAnswers): Promise<RequirementFormSubmitted> {
+    return submitRequirementForm(this._api, formId, answers);
+  }
+
+  getRegistryCheck(optionId: string): Promise<RegistryCheck> {
+    return getRegistryCheck(this._api, optionId);
+  }
+
+  submitRegistryCheck(optionId: string, edit: RegistryCheckEdit): Promise<RegistryCheckSubmitted> {
+    return submitRegistryCheck(this._api, optionId, edit);
+  }
+
+  getProviderRegistration(corridorId: string): Promise<ProviderRegistration> {
+    return getProviderRegistration(this._api, corridorId);
+  }
+
+  submitProviderRegistration(corridorId: string): Promise<ProviderRegistrationSubmitted> {
+    return submitProviderRegistration(this._api, corridorId);
+  }
+
   // --- KYC ------------------------------------------------------------------
 
-  getKycStatus(providerId?: string) {
-    return getKycStatus(this._api, providerId);
+  /** With `corridorId` or `cardProviderId` the read is scoped to that route's or provider's steps. */
+  getKycStatus(providerId?: string, corridorId?: string, cardProviderId?: string) {
+    return getKycStatus(this._api, providerId, corridorId, cardProviderId);
   }
 
-  getKycProviders(country: string) {
-    return getKycProviders(this._api, country);
+  getKycProviders(country: string, corridorId?: string, cardProviderId?: string) {
+    return getKycProviders(this._api, country, corridorId, cardProviderId);
   }
 
-  startKyc(body: KycStartBody): Promise<KycStartResponse> {
+  startKyc(body: KycStartBody & { cardProviderId?: string }): Promise<KycStartResponse> {
     return startKyc(this._api, body);
   }
 
-  resolveKyc(providerId: string, level?: KycLevel) {
-    return resolveKyc(this._api, providerId, level);
+  resolveKyc(
+    providerId: string,
+    level?: KycLevel,
+    country?: string,
+    corridorId?: string,
+    idempotencyKey?: string,
+    cardProviderId?: string,
+  ) {
+    return resolveKyc(this._api, providerId, level, country, corridorId, idempotencyKey, cardProviderId);
   }
 
-  pollKycStatus(providerId: string, opts?: { intervalMs?: number; timeoutMs?: number }): Promise<KycStatus> {
+  pollKycDecision(
+    providerId: string,
+    opts?: { intervalMs?: number; timeoutMs?: number; corridorId?: string; cardProviderId?: string },
+  ): Promise<KycStatusContent> {
+    return pollKycDecision(this._api, providerId, opts);
+  }
+
+  pollKycStatus(
+    providerId: string,
+    opts?: { intervalMs?: number; timeoutMs?: number; corridorId?: string; cardProviderId?: string },
+  ): Promise<KycStatus> {
     return pollKycStatus(this._api, providerId, opts);
   }
 
   // --- Ramps ----------------------------------------------------------------
 
-  getRampsQuote(query: RampsQuoteQuery): Promise<RampsQuoteResponse> {
-    return getRampsQuote(this._api, query);
-  }
-  /** Registered executable routes; uses the session's authenticated DPoP transport. */
-  getRampRoutes() {
+  /** Discover the application's available asset and payment routes. */
+  getRampRoutes(): Promise<import('../types').RampsRoutesResponse> {
     return getRampRoutes(this._api);
   }
-  /** Continues only the saved action/version explicitly accepted by the user. */
-  continueRampTransaction(txId: string, body: RampContinuation) {
-    return continueRampTransaction(this._api, txId, body);
+  /** Submit an explicit continuation for the saved action and transaction version. */
+  continueRamp(txId: string, body: RampContinuationBody): Promise<RampsTransactionResponse> {
+    return continueRamp(this._api, txId, body);
+  }
+
+  /** Compatibility alias for consumers of the Anclap workflow client. */
+  continueRampTransaction(txId: string, body: RampContinuationBody): Promise<RampsTransactionResponse> {
+    return continueRamp(this._api, txId, body);
+  }
+  /** Register a signer for a chain and payload encoding; returns its cleanup function. */
+  registerRampSigningHandler(chain: RampChain, encoding: string, handler: RampSigningHandler): () => void {
+    return this._rampSigners.register(chain, encoding, handler);
+  }
+  /** Explicit user action only. Reading/restoring a workflow never invokes this. */
+  async signRampAction(txId: string, snapshot: RampSnapshot): Promise<RampsTransactionResponse> {
+    const fresh = await this.getRampTransaction(txId);
+    const action = fresh.nextAction;
+    if (
+      snapshot.txId !== txId ||
+      snapshot.transactionVersion !== fresh.transactionVersion ||
+      snapshot.nextAction?.actionId !== action?.actionId ||
+      action?.kind !== 'sign_transaction' ||
+      fresh.reconciliationRequired ||
+      !(Date.parse(action.expiresAt) > Date.now()) ||
+      ['completed', 'failed', 'refunded'].includes(fresh.lifecycleState ?? fresh.status)
+    )
+      throw new Error('The ramp action changed. Refresh before signing.');
+    const handler = this._rampSigners.resolve(action.chain, action.payload.encoding);
+    if (!handler) throw new Error(`Register a ramp signing handler for ${action.chain}/${action.payload.encoding}.`);
+    const signedPayload = await handler(action);
+    return this.continueRamp(txId, { actionId: action.actionId, transactionVersion: fresh.transactionVersion!, signedPayload });
+  }
+
+  getRampsQuote(query: RampsQuoteQuery): Promise<RampsQuoteResponse> {
+    return getRampsQuote(this._api, query);
   }
 
   /** Countries (+ fiat currency) the app's enabled ramp anchors support on its network. */
@@ -3348,6 +4426,11 @@ export class PollarClient {
 
   getRampTransaction(txId: string): Promise<RampsTransactionResponse> {
     return getRampTransaction(this._api, txId);
+  }
+
+  /** Run the pending step of a ramp whose funds are in transit now, instead of at the next pass. */
+  retryRampTransaction(txId: string): Promise<RampsTransactionResponse> {
+    return retryRampTransaction(this._api, txId);
   }
 
   pollRampTransaction(txId: string, opts?: { intervalMs?: number; timeoutMs?: number }): Promise<RampTxStatus> {
@@ -3574,6 +4657,133 @@ export class PollarClient {
     return this.runTx(build.operation, build.params);
   }
 
+  // --- Cards -------------------------------------------------------------------
+
+  /**
+   * The card providers this app enabled on its network. An empty array means
+   * Cards is off for this app - hide any card UI. `cardProviderId` can be left
+   * out of every other cards call while there is exactly one.
+   */
+  async getCardProviders(): Promise<CardProvider[]> {
+    return (await getCardProviders(this._api)).providers;
+  }
+
+  /**
+   * The platform's steps before the provider's own onboarding (KYC, forms, registry
+   * checks, registration) and where the user stands. Complete a KYC step with
+   * {@link resolveKyc} passing `cardProviderId`, a form with {@link submitRequirementForm},
+   * a registry check with {@link submitRegistryCheck}, a registration with
+   * {@link submitCardProviderRegistration}.
+   */
+  async getCardRequirements(params: CardProviderParams = {}): Promise<CardRequirements> {
+    return getCardRequirements(this._api, params.cardProviderId);
+  }
+
+  /** The provider registration step: whether the user is registered, can be now, and what is shared. */
+  getCardProviderRegistration(cardProviderId: string): Promise<CardProviderRegistration> {
+    return getCardProviderRegistration(this._api, cardProviderId);
+  }
+
+  /** The user's consent: signs them up with the card provider from the verified identity and form answers. */
+  submitCardProviderRegistration(cardProviderId: string): Promise<CardProviderRegistrationSubmitted> {
+    return submitCardProviderRegistration(this._api, cardProviderId);
+  }
+
+  /** The user's registration with the provider, or null before {@link createCardHolder}. */
+  async getCardHolder(params: CardProviderParams = {}): Promise<CardHolder | null> {
+    return (await getCardHolder(this._api, params.cardProviderId)).holder;
+  }
+
+  /**
+   * Register the user with the card provider. Name and email default to the
+   * profile the session carries; pass them when the app collects its own.
+   */
+  async createCardHolder(
+    params: CardProviderParams & { firstName?: string; lastName?: string; email?: string } = {},
+  ): Promise<CardHolder> {
+    return (await createCardHolder(this._api, params)).holder;
+  }
+
+  /**
+   * Send the user's identity data to the provider. `termsAccepted` must be true:
+   * the provider's terms (see `CardProvider.termsUrl`) are shown by the app.
+   * The returned holder carries the `verificationLink` the user opens to finish.
+   */
+  async submitCardKyc(params: CardProviderParams & { termsAccepted: boolean; kyc: CardKycInput }): Promise<CardHolder> {
+    return (await submitCardKyc(this._api, params)).holder;
+  }
+
+  /** Occupation codes the KYC form accepts. */
+  async getCardOccupations(params: CardProviderParams = {}): Promise<CardOccupation[]> {
+    return (await getCardOccupations(this._api, params.cardProviderId)).occupations;
+  }
+
+  /** The user's cards. Never includes card numbers; see {@link revealCardSecrets}. */
+  async getCards(params: CardProviderParams = {}): Promise<CardInfo[]> {
+    return (await getCards(this._api, params.cardProviderId)).cards;
+  }
+
+  /** Issue a virtual card. Needs an approved KYC. */
+  async issueCard(
+    params: CardProviderParams & { nickname?: string; limit?: { amount: number; frequency: string } } = {},
+  ): Promise<CardInfo> {
+    return (await issueCard(this._api, params)).card;
+  }
+
+  /** Credit limit, spending power and balance due, read live from the provider. */
+  async getCardBalance(params: CardProviderParams = {}): Promise<CardBalance | null> {
+    return (await getCardBalance(this._api, params.cardProviderId)).balance;
+  }
+
+  /** Deposits, purchases and fees, newest first. */
+  async getCardTransactions(
+    params: CardProviderParams & { cardId?: string; limit?: number; offset?: number } = {},
+  ): Promise<CardTransactionsPage> {
+    return getCardTransactions(this._api, params);
+  }
+
+  /** Where the card's collateral is deposited, one address per network the provider accepts. */
+  async getCardDepositAddresses(params: CardProviderParams = {}): Promise<CardDepositAddress[]> {
+    return (await getCardDepositAddresses(this._api, params.cardProviderId)).depositAddresses;
+  }
+
+  /**
+   * Move USDC from the user's Stellar wallet to the card's collateral. A
+   * custodial wallet pays at once; an external wallet is asked to sign the
+   * payment here, and `cancelled` means it declined. The returned funding then
+   * advances on its own; follow it with {@link getCardFunding}.
+   */
+  async fundCard(params: CardProviderParams & { amount: string }): Promise<CardFundingOutcome> {
+    const started = await createCardFunding(this._api, params);
+    if (!started.pendingSignature) return { status: 'ok', funding: started.funding };
+    const signed = await this.signTx(started.pendingSignature.unsignedXdr);
+    if (signed.status !== 'signed') return { status: 'cancelled', funding: started.funding };
+    const { funding } = await submitCardFundingSignature(this._api, started.funding.id, { signedXdr: signed.signedXdr });
+    return { status: 'ok', funding };
+  }
+
+  async getCardFunding(fundingId: string): Promise<CardFunding> {
+    return (await getCardFunding(this._api, fundingId)).funding;
+  }
+
+  /** The user's fundings, newest first. */
+  async listCardFundings(params: CardProviderParams = {}): Promise<CardFunding[]> {
+    return (await listCardFundings(this._api, params.cardProviderId)).fundings;
+  }
+
+  /**
+   * The full card number and CVC, decrypted on this device with a one-shot key
+   * the server never sees. Show them and drop them: never store or log the
+   * result. On WebCrypto where the runtime has it, in plain JavaScript on React
+   * Native.
+   */
+  async revealCardSecrets(cardId: string, params: CardProviderParams = {}): Promise<CardSecrets> {
+    const { publicKeyPem } = await getCardSecretsPublicKey(this._api, params.cardProviderId);
+    const session = await createCardSecretsSession(publicKeyPem);
+    const encrypted = await getCardSecrets(this._api, cardId, { ...params, sessionId: session.sessionId });
+    return openCardSecrets(session, encrypted);
+  }
+
   private _setTxHistoryState(next: TxHistoryState): void {
     this._txHistoryState = next;
     for (const cb of this._txHistoryStateListeners) cb(next);
@@ -3658,6 +4868,7 @@ export class PollarClient {
       // readable `response.body`, so those clients poll the non-streaming
       // status endpoint instead. `isBrowser` is false in RN and SSR alike.
       useStreaming: isBrowser,
+      loginTimeoutMs: this._loginTimeoutMs,
       signal,
       // Suppress terminal writes from a flow that was CANCELLED or SUPERSEDED
       // (its `signal` is aborted) so a late-resolving loser can't clobber the
@@ -3715,6 +4926,11 @@ export class PollarClient {
       },
       ...(this._passkey ? { passkey: this._passkey } : {}),
       ...(this._deviceLabel ? { deviceLabel: this._deviceLabel } : {}),
+      getDevicePublicKey: () =>
+        this.cosign.publicKeyHex().catch((err: unknown) => {
+          this._log.warn('[PollarClient] Could not produce the co-signing device key; logging in without it', err);
+          return undefined;
+        }),
     };
   }
 
@@ -3747,6 +4963,16 @@ export class PollarClient {
     });
   }
 
+  /**
+   * Every branch below that surfaces a session arms the provisioning watch.
+   *
+   * The watch is what ends a "preparing your account" screen, and each branch
+   * can restore a wallet mid-creation: a cross-tab rotation, an expired token
+   * refreshed inline (which never reaches `_resume`), and the optimistic path
+   * (whose `_resume` can fail on a flaky network and back off for 30s).
+   * `_startProvisioningWatch` is idempotent per session, so arming it here and
+   * again from `_doResume` costs nothing.
+   */
   private async _restoreSession(): Promise<void> {
     if (this._destroyed) return;
     // Capture the pre-restore state so we can tell a genuine restore (cold
@@ -3844,7 +5070,12 @@ export class PollarClient {
       if (isSameVerifiedSession) {
         this._log.info('[PollarClient] Session token rotated (cross-tab); keeping verified');
         this._setAuthState({ step: 'authenticated', session: this._session, verified: true });
+        // The row may carry more than a token: a sibling tab's watch writes the
+        // provisioning value it found, and this tab's own poll will find nothing
+        // left to report once the row is adopted.
+        this._emitWalletStateIfChanged(prevSession, this._session);
         this._scheduleNextRefresh();
+        this._startProvisioningWatch();
         return;
       }
 
@@ -3864,6 +5095,8 @@ export class PollarClient {
         }
         if (this._session) {
           this._setAuthState({ step: 'authenticated', session: this._session, verified: true });
+          this._emitWalletStateIfChanged(prevSession, this._session);
+          this._startProvisioningWatch();
         }
         return;
       }
@@ -3877,7 +5110,9 @@ export class PollarClient {
       // server hasn't confirmed the session is still alive (it may have been
       // revoked elsewhere), so `verified: false`.
       this._setAuthState({ step: 'authenticated', session: this._session, verified: false });
+      this._emitWalletStateIfChanged(prevSession, this._session);
       this._scheduleNextRefresh();
+      this._startProvisioningWatch();
       // Fire-and-forget: revalidate + repopulate the profile in the background.
       // Deliberately NOT awaited so `_initialized` resolves immediately and the
       // UI never blocks on a network round-trip at startup.
@@ -3972,6 +5207,10 @@ export class PollarClient {
       this._profile = { ...content };
       this._resetResumeBackoff();
       this._setAuthState({ step: 'authenticated', session: this._session, verified: true });
+      // A wallet restored mid-creation resumes its watch here. The server's own
+      // resume re-enqueues a creation that never landed, so by the time the
+      // first check fires there is something to wait for again.
+      this._startProvisioningWatch();
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
       // Network failure (no response) - keep the optimistic (unverified) session
@@ -3995,20 +5234,6 @@ export class PollarClient {
     // Applied identically to `wallet` and to every entry of `wallets[]` so the
     // back-compat field and the array can't end up describing the same wallet
     // differently.
-    const toPersistedWallet = (w: PollarApplicationConfigContent['wallet']): PollarPersistedWallet => ({
-      type: w.type,
-      // `provider` (the login method) was added to the wire after the generated
-      // OpenAPI types were last cut, so read it defensively until they're regen'd.
-      ...((w as { provider?: string }).provider ? { provider: (w as { provider?: string }).provider as string } : {}),
-      address: w.address ?? w.publicKey ?? null,
-      ...(w.chain !== undefined ? { chain: w.chain } : {}),
-      ...(w.existsOnStellar !== undefined ? { existsOnStellar: w.existsOnStellar } : {}),
-      ...(w.fundingMode !== undefined ? { fundingMode: w.fundingMode } : {}),
-      ...(w.createdAt !== undefined ? { createdAt: w.createdAt } : {}),
-      ...(w.linkedAt !== undefined ? { linkedAt: w.linkedAt } : {}),
-      ...(w.network !== undefined ? { network: w.network } : {}),
-      ...(w.deployTxHash !== undefined ? { deployTxHash: w.deployTxHash } : {}),
-    });
 
     // Record which DPoP key this session's tokens are bound to (= the token's
     // `cnf.jkt`) so a later restore can detect key loss up front instead of
@@ -4044,6 +5269,7 @@ export class PollarClient {
     this._sessionGeneration++;
     this._resetResumeBackoff();
     const gen = this._sessionGeneration;
+    const prevSession = this._session;
     this._session = persisted;
     this._recordOwnedSession(persisted.clientSessionId);
 
@@ -4081,7 +5307,11 @@ export class PollarClient {
     // Fresh login/refresh response came straight from the server, so the
     // session is already server-validated -> `verified: true`.
     this._setAuthState({ step: 'authenticated', session: persisted, verified: true });
+    this._emitWalletStateIfChanged(prevSession, persisted);
     this._scheduleNextRefresh();
+    // A login that returned before the account was on the ledger leaves the
+    // wallet CREATING. Nothing else would tell the app when that ends.
+    this._startProvisioningWatch();
   }
 
   /**
@@ -4095,6 +5325,7 @@ export class PollarClient {
    */
   private async _clearSession(): Promise<boolean> {
     this._log.info('[PollarClient] Session cleared');
+    this._stopProvisioningWatch();
     // Identify the session being torn down BEFORE dropping it: the persisted
     // row is shared by every document (and every client instance) on this
     // origin using this API key, so it may only be removed by the client that
@@ -4271,6 +5502,7 @@ export class PollarClient {
   }
 
   private _setAuthState(next: AuthState): void {
+    const wasAuthenticated = this._authState.step === 'authenticated';
     this._authState = next;
     this._log.debug(`[PollarClient] auth:${next.step}`);
     // Dispatch a clone: `next.session` is the live `_session` the middleware
@@ -4280,6 +5512,25 @@ export class PollarClient {
     // per emission is safe - verified no useSyncExternalStore / ref-dedupe.)
     const snapshot = this._cloneAuthState(next);
     for (const cb of this._authStateListeners) cb(snapshot);
+    // Nobody is left to answer a prompt once the session is gone; the signing
+    // calls waiting on one end as declined instead of hanging.
+    if (next.step === 'idle') for (const c of [...this._confirmations.values()]) c.reject();
+    // A co-signed wallet may have setup waiting for this device (its account
+    // creation, a trustline the app enabled): read the list once the session
+    // is in place so recognized setup is approved without a prompt. Anything
+    // else reaches the store, and the UI, as usual. Custodial wallets get an
+    // empty list back.
+    if (
+      !wasAuthenticated &&
+      next.step === 'authenticated' &&
+      next.session?.wallet?.type === 'internal' &&
+      next.session.wallet.address &&
+      !this._cosignManual
+    ) {
+      void this.cosign.pending().catch((err) => {
+        this._log.warn('[PollarClient] could not read the pending co-sign requests', err);
+      });
+    }
   }
 
   private _setTransactionState(next: TransactionState): void {
@@ -4338,4 +5589,13 @@ export class PollarClient {
     if ('buildData' in s && s.buildData) return s.buildData;
     return undefined;
   }
+}
+
+/**
+ * The Stellar build out of a `/tx/build` answer. The route also answers a Solana
+ * build for an external wallet (`chain: 'SOLANA'`), which no Stellar flow reads.
+ */
+function stellarBuildOf(content: TxBuildResponse['content'] | undefined): TxBuildContent | null {
+  if (!content || ('chain' in content && content.chain === 'SOLANA')) return null;
+  return content as TxBuildContent;
 }

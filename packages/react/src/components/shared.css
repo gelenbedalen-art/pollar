@@ -48,6 +48,25 @@
   overflow-y: auto;
 }
 
+/* Host-app dark mode support. Branding remains the source of truth when no
+ * `html.dark` class is present; this override lets applications that already
+ * toggle the standard dark class update every Pollar modal as well. The
+ * `!important` declarations are intentional because the modal chrome is also
+ * represented as inline CSS variables. */
+html.dark .pollar-modal-card {
+  --pollar-bg: #1a1a1a !important;
+  --pollar-border: #374151 !important;
+  --pollar-text: #ffffff !important;
+  --pollar-muted: #9ca3af !important;
+  --pollar-input-bg: #374151 !important;
+  --pollar-error-bg: #2a1515 !important;
+  --pollar-error-border: #7f1d1d !important;
+  --pollar-error-text: #f87171 !important;
+  --pollar-success-text: #4ade80 !important;
+  --pollar-logo-on-light-display: none !important;
+  --pollar-logo-on-dark-display: block !important;
+}
+
 /* --- Common input -------------------------------------------------------------- */
 .pollar-input {
   width: 100%;
@@ -322,8 +341,9 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  margin-top: 1.25rem;
   border-top: 1px solid var(--pollar-border);
-  padding-top: 1.5rem;
+  padding-top: 1rem;
 }
 
 .pollar-footer-protected {
@@ -331,22 +351,20 @@
   color: var(--pollar-muted);
 }
 
-.pollar-footer-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .pollar-footer-logo {
-  height: 18px;
-  width: 18px;
-  object-fit: contain;
+  height: 16px;
+  width: auto;
 }
 
-.pollar-footer-name {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--pollar-text);
+/* A Pollar logo with a light and a dark version renders both; only one shows.
+ * The theme picks it through these two variables (see buildModalCssVars), and
+ * `html.dark` overrides them above. */
+.pollar-logo-on-light {
+  display: var(--pollar-logo-on-light-display, block);
+}
+
+.pollar-logo-on-dark {
+  display: var(--pollar-logo-on-dark-display, none);
 }
 
 .pollar-footer-version {

@@ -1,5 +1,5 @@
 import type { Storage } from '../storage/types';
-import type { KeyManager } from './types';
+import type { KeyManager, KeyManagerOptions } from './types';
 
 /**
  * Module-level registry for the platform-default `KeyManager` factory. Each
@@ -13,7 +13,7 @@ import type { KeyManager } from './types';
  * import; the RN entry keeps the pure-JS fallback.
  */
 
-type KeyManagerFactory = (storage: Storage, apiKey: string) => KeyManager;
+type KeyManagerFactory = (storage: Storage, apiKey: string, options?: KeyManagerOptions) => KeyManager;
 
 let _factory: KeyManagerFactory | null = null;
 
@@ -32,12 +32,12 @@ export function _setDefaultKeyManagerFactory(factory: KeyManagerFactory): void {
  * imported in a way that bypassed the entry-point module (a bundler or
  * test setup bug).
  */
-export function defaultKeyManager(storage: Storage, apiKey: string): KeyManager {
+export function defaultKeyManager(storage: Storage, apiKey: string, options?: KeyManagerOptions): KeyManager {
   if (!_factory) {
     throw new Error(
       '[PollarClient] No default KeyManager factory registered. ' +
         'Did you import from "@pollar/core" via a non-standard path?',
     );
   }
-  return _factory(storage, apiKey);
+  return _factory(storage, apiKey, options);
 }

@@ -1,7 +1,7 @@
 import { base64urlEncode } from '../lib/base64url';
 import { hashApiKey } from '../lib/api-key-hash';
 import { canonicalEcJwk, computeJwkThumbprint } from './thumbprint';
-import type { KeyManager, PublicEcJwk } from './types';
+import type { KeyManager, KeyManagerOptions, PublicEcJwk } from './types';
 
 /**
  * `KeyManager` backed by Web Crypto + IndexedDB. The ECDSA P-256 keypair is
@@ -104,6 +104,8 @@ function isCryptoKeyPair(v: unknown): v is CryptoKeyPair {
 
 export class WebCryptoKeyManager implements KeyManager {
   private readonly apiKey: string;
+  /** Separates independent keys of the same api key in the store; empty for the DPoP key. */
+  private readonly namespace: string;
   private apiKeyHash: string | null = null;
   private keyPair: CryptoKeyPair | null = null;
   private publicJwk: PublicEcJwk | null = null;
@@ -115,11 +117,12 @@ export class WebCryptoKeyManager implements KeyManager {
    */
   private _initPromise: Promise<void> | null = null;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, options?: KeyManagerOptions) {
     if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.subtle) {
       throw new Error('[PollarClient:keys] SubtleCrypto is unavailable. DPoP requires a secure context (HTTPS or localhost).');
     }
     this.apiKey = apiKey;
+    this.namespace = options?.namespace ?? '';
   }
 
   /**
@@ -151,7 +154,8 @@ export class WebCryptoKeyManager implements KeyManager {
 
   private async _doInit(): Promise<void> {
     if (!this.apiKeyHash) {
-      this.apiKeyHash = await hashApiKey(this.apiKey);
+      const hash = await hashApiKey(this.apiKey);
+      this.apiKeyHash = this.namespace ? `${hash}:${this.namespace}` : hash;
     }
 
     let pair: CryptoKeyPair | undefined;

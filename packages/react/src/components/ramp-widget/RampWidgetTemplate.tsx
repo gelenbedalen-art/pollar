@@ -6,11 +6,12 @@ import type {
   RampDirection,
   RampInstructionField,
   RampQuote,
+  RampQuoteRequirement,
   RampScannable,
   RampTxStatus,
 } from '@pollar/core';
-import { RouteDisplay } from './RouteDisplay';
-import { CopyButton } from '../commons';
+import { LockedRouteDisplay, RouteDisplay } from './RouteDisplay';
+import { CopyButton, PollarModalFooter } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
 export type RampStep = 'input' | 'loading_quote' | 'select_route' | 'contact' | 'status' | 'error';
@@ -48,7 +49,7 @@ export interface RampFieldSpec {
   key: string;
   label: string;
   type: 'text' | 'email' | 'tel' | 'select';
-  bankType?: 'CLABE' | 'PIX' | 'PSE' | 'ACH' | 'BREB';
+  bankType?: string;
   /** For `type: 'select'` - dropdown choices (e.g. Stereum's Bolivian banks). */
   options?: { value: string; label: string; placeholder?: string }[];
   /** Declared but not mandatory (Abroad's tax id). Blank must not block Continue. */
@@ -83,7 +84,12 @@ function placeholderFor(field: RampFieldSpec, fields: RampFieldSpec[], values: R
   return field.placeholder;
 }
 
+const CHAIN_NAME = { STELLAR: 'Stellar', POLYGON: 'Polygon', SOLANA: 'Solana' } as const;
+const EXPLORER_NAME = { STELLAR: 'Stellar Expert', POLYGON: 'Polygonscan', SOLANA: 'Solana Explorer' } as const;
+
 interface RampWidgetTemplateProps {
+  workflowContent?: React.ReactNode;
+  routeSelector?: React.ReactNode;
   theme: string;
   accentColor: string;
   /** Per-app modal chrome overrides (background, card + button radius). */
@@ -107,6 +113,8 @@ interface RampWidgetTemplateProps {
   countriesLoading: boolean;
   refreshing: boolean;
   quotes: RampQuote[];
+  /** Routes not quoted until the user completes the requirement step their corridor names (KYC, form, registry check or provider registration). */
+  kycRequired: RampQuoteRequirement[];
   isLoading: boolean;
   // status step
   provider: string;
@@ -115,27 +123,48 @@ interface RampWidgetTemplateProps {
   tosUrl: string | null;
   /** Provider gated the flow on KYC and published no link; nothing was signed. */
   kycBlocking: boolean;
+  /**
+   * Which part of provider onboarding is outstanding, when any is. Optional
+   * because this template is exported for integrators who render their own
+   * chrome: a required prop would break every one of them on upgrade. Omitted,
+   * the gate falls back to the identity-verification wording.
+   */
+  onboardingStatus?: 'kyc' | 'endorsement' | 'awaiting_provider' | null;
   /** The gate has since cleared - the user needs a fresh quote to continue. */
   kycJustApproved: boolean;
+  /** Superseded by `txHash`, which carries the settlement on any chain; read when `txHash` is absent. */
   stellarTxHash: string | null;
-  /** Stellar Expert URL for `stellarTxHash` (network-aware); null when unknown. */
+  /** The on-chain transaction that settled the ramp, on `txChain`. */
+  txHash?: string | null;
+  /** Chain of `txHash`; Stellar when omitted. */
+  txChain?: 'STELLAR' | 'POLYGON' | 'SOLANA' | null;
+  /** Explorer URL for the transaction (chain- and network-aware); null when unknown. */
   explorerUrl: string | null;
+  /**
+   * The user's money is in one of their wallets between two steps of the route.
+   * Optional for integrators rendering their own chrome; omitted, the state is
+   * not shown.
+   */
+  fundsInTransit?: boolean;
+  /** A retry of the pending step is in flight. */
+  retrying?: boolean;
+  onRetryTransit?: () => void;
   depositInstructions: RampDepositInstructions | null;
   canComplete: boolean;
   completing: boolean;
-  workflowLabel?: string | undefined;
-  workflowNote?: string | undefined;
   savedRamps?: Array<{ txId: string; provider: string }>;
   onResumeRamp?: (id: string) => void;
   onExploreRoutes?: (() => void) | undefined;
-  onWorkflowContinue?: () => void;
   errorMsg: string | null;
+  /** Neutral guidance on the route list, e.g. after identity verification sent the user back to it. */
+  noticeMsg?: string | null;
   onDirectionChange: (d: RampDirection) => void;
   onAmountChange: (v: string) => void;
   onFieldChange: (key: string, value: string) => void;
   onCountryChange: (v: string) => void;
   onFindRoute: () => void;
   onSelectQuote: (q: RampQuote) => void;
+  onVerifyRoute: (requirement: RampQuoteRequirement) => void;
   onContactContinue: () => void;
   onOpenKyc: () => void;
   onOpenTos: () => void;
@@ -181,6 +210,8 @@ function displayValue(field: RampInstructionField): string {
 }
 
 export function RampWidgetTemplate({
+  workflowContent,
+  routeSelector,
   theme,
   accentColor,
   styleOverrides,
@@ -198,31 +229,37 @@ export function RampWidgetTemplate({
   countriesLoading,
   refreshing,
   quotes,
+  kycRequired,
   isLoading,
   provider,
   txStatus,
   kycUrl,
   tosUrl,
   kycBlocking,
+  onboardingStatus,
   kycJustApproved,
   stellarTxHash,
+  txHash,
+  txChain,
   explorerUrl,
+  fundsInTransit = false,
+  retrying = false,
+  onRetryTransit,
   depositInstructions,
   canComplete,
   completing,
-  workflowLabel,
-  workflowNote,
   savedRamps = [],
   onResumeRamp,
   onExploreRoutes,
-  onWorkflowContinue,
   errorMsg,
+  noticeMsg,
   onDirectionChange,
   onAmountChange,
   onFieldChange,
   onCountryChange,
   onFindRoute,
   onSelectQuote,
+  onVerifyRoute,
   onContactContinue,
   onOpenKyc,
   onOpenTos,
@@ -232,6 +269,8 @@ export function RampWidgetTemplate({
   onRefresh,
   onClose,
 }: RampWidgetTemplateProps) {
+  const settledHash = txHash ?? stellarTxHash;
+  const chainName = CHAIN_NAME[txChain ?? 'STELLAR'];
   const cssVars = buildModalCssVars(theme, accentColor, styleOverrides, 'hero');
 
   const stepTitle: Record<RampStep, string> = {
@@ -331,7 +370,16 @@ export function RampWidgetTemplate({
           ))}
         </section>
       )}
-
+      {step === 'status' && onExploreRoutes && (
+        <>
+          <button type="button" className="pollar-btn-secondary" disabled={completing} onClick={onExploreRoutes}>
+            Try another route
+          </button>
+          <p className="pollar-ramp-payment-note">
+            This keeps the current operation pending; it does not cancel a payment or refund funds.
+          </p>
+        </>
+      )}
       {step === 'input' && (
         <>
           <div className="pollar-tabs">
@@ -419,6 +467,7 @@ export function RampWidgetTemplate({
 
       {step === 'select_route' && (
         <>
+          {noticeMsg && <p className="pollar-ramp-payment-note">{noticeMsg}</p>}
           <div className="pollar-ramp-route-list">
             {quotes.map((q, i) => (
               <RouteDisplay
@@ -427,6 +476,14 @@ export function RampWidgetTemplate({
                 busy={startingQuoteId != null && q.quoteId === startingQuoteId}
                 disabled={startingQuoteId != null && q.quoteId !== startingQuoteId}
                 onSelect={onSelectQuote}
+              />
+            ))}
+            {kycRequired.map((r) => (
+              <LockedRouteDisplay
+                key={`${r.rampProviderId}:${r.corridorId}`}
+                requirement={r}
+                disabled={startingQuoteId != null}
+                onVerify={onVerifyRoute}
               />
             ))}
           </div>
@@ -510,7 +567,9 @@ export function RampWidgetTemplate({
         </>
       )}
 
-      {step === 'status' && (
+      {step === 'input' && routeSelector}
+      {step === 'status' && workflowContent}
+      {step === 'status' && !workflowContent && (
         <div className="pollar-ramp-payment">
           <div className="pollar-ramp-payment-field">
             <span className="pollar-ramp-payment-label">Provider</span>
@@ -531,22 +590,36 @@ export function RampWidgetTemplate({
             </div>
           </div>
 
-          {stellarTxHash && (
+          {fundsInTransit && txStatus !== 'completed' && txStatus !== 'failed' && (
             <div className="pollar-ramp-payment-field">
-              <span className="pollar-ramp-payment-label">Stellar tx</span>
+              <span className="pollar-ramp-payment-label">Funds in transit</span>
+              <p className="pollar-ramp-payment-note">
+                Your money is safe in your own wallet, waiting for the next step of the transfer.
+              </p>
+              {onRetryTransit && (
+                <button type="button" className="pollar-btn-secondary" onClick={onRetryTransit} disabled={retrying}>
+                  {retrying ? 'Retrying...' : 'Retry now'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {settledHash && (
+            <div className="pollar-ramp-payment-field">
+              <span className="pollar-ramp-payment-label">{chainName} tx</span>
               <div className="pollar-ramp-payment-value" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <code style={{ flex: 1, wordBreak: 'break-all' }}>
-                  {stellarTxHash.slice(0, 8)}…{stellarTxHash.slice(-8)}
+                  {settledHash.slice(0, 8)}…{settledHash.slice(-8)}
                 </code>
-                <CopyButton value={stellarTxHash} label="Copy transaction hash" />
+                <CopyButton value={settledHash} label="Copy transaction hash" />
                 {explorerUrl && (
                   <a
                     href={explorerUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="pollar-copy-btn"
-                    aria-label="View on Stellar Expert"
-                    title="View on Stellar Expert"
+                    aria-label={`View on ${EXPLORER_NAME[txChain ?? 'STELLAR']}`}
+                    title={`View on ${EXPLORER_NAME[txChain ?? 'STELLAR']}`}
                   >
                     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden>
                       <path
@@ -654,10 +727,23 @@ export function RampWidgetTemplate({
             </button>
           )}
 
-          {/* Link-less KYC gate: there is nowhere to send the user, so say what
-              is blocking and keep the withdraw button out of reach. No funds
-              have moved and nothing was signed. */}
-          {kycBlocking && (
+          {/* Link-less gate: there is nowhere to send the user, so say what is
+              blocking and keep the withdraw button out of reach. No funds have
+              moved and nothing was signed.
+
+              Two different situations reach this, and telling the user the wrong
+              one is worse than saying nothing: `awaiting_provider` means their
+              verification is already done and the provider is finishing its own
+              setup, so asking them to "complete verification" sends them back
+              through a flow that cannot change anything. */}
+          {kycBlocking && onboardingStatus === 'awaiting_provider' && (
+            <p className="pollar-ramp-payment-note">
+              {provider} is still setting up your account for this payment method. Your verification is complete and there is
+              nothing left for you to do — nothing has been sent, and this will update on its own once {provider} is ready.
+            </p>
+          )}
+
+          {kycBlocking && onboardingStatus !== 'awaiting_provider' && (
             <p className="pollar-ramp-payment-note">
               {provider} needs to verify your identity before this payout. Nothing has been sent yet — complete verification
               with {provider}, and this will update on its own.
@@ -678,13 +764,6 @@ export function RampWidgetTemplate({
             </>
           )}
 
-          {workflowNote && <p className="pollar-ramp-payment-note">{workflowNote}</p>}
-          {workflowLabel && (
-            <button type="button" className="pollar-btn-primary" disabled={completing} onClick={onWorkflowContinue}>
-              {completing ? 'Continuing…' : workflowLabel}
-            </button>
-          )}
-
           {canComplete && (
             <button type="button" className="pollar-btn-primary" disabled={completing} onClick={onCompleteWithdraw}>
               {completing ? (
@@ -696,17 +775,6 @@ export function RampWidgetTemplate({
                 "I've completed KYC — withdraw"
               )}
             </button>
-          )}
-
-          {onExploreRoutes && (
-            <>
-              <button type="button" className="pollar-btn-secondary" disabled={completing} onClick={onExploreRoutes}>
-                Try another route
-              </button>
-              <p className="pollar-ramp-payment-note">
-                This keeps the current operation pending; it does not cancel a payment or refund funds.
-              </p>
-            </>
           )}
 
           {errorMsg && (
@@ -736,6 +804,7 @@ export function RampWidgetTemplate({
           </div>
         </div>
       )}
+      <PollarModalFooter />
     </div>
   );
 }

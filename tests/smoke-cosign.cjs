@@ -1,0 +1,743 @@
+// @pollar smoke test: Turnkey co-signed wallets from the client's side.
+//
+// Run with `node tests/smoke-cosign.cjs` after the build. Mocks `fetch`,
+// `window` and `localStorage`, so no network is needed. Covers: the device key
+// lives apart from the DPoP key and survives a logout; the X-Stamp a device
+// produces verifies as a DER ECDSA signature; the Stellar transaction hash is
+// recomputed from the envelope without a parser (unsigned and sponsor-signed);
+// under `cosignManual` a 202 SDK_COSIGN_PENDING becomes a cosign_pending
+// outcome and an awaiting_cosign tx state, approve verifies against Turnkey,
+// relays the vote and moves the tx state to the submit outcome; by default the
+// client settles the vote itself and signing calls end as they do for a
+// custodial wallet, recognized setup is approved at login without a prompt and
+// a mismatching payload is rejected; `confirmation: 'prompt'` asks before any
+// signature; the setup recognizer reads the XDR field by field.
+
+const path = require('node:path');
+const crypto = require('node:crypto');
+
+globalThis.window = {
+  location: { origin: 'https://x.test', href: 'https://x.test/' },
+  addEventListener: () => {},
+  removeEventListener: () => {},
+};
+globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+
+const sdk = require(path.resolve(__dirname, '../packages/core/dist/index.js'));
+const rn = require(path.resolve(__dirname, '../packages/core/dist/index.rn.js'));
+
+let pass = 0;
+let fail = 0;
+function check(label, ok, extra) {
+  if (ok) {
+    pass++;
+    console.log(`  OK    ${label}`);
+  } else {
+    fail++;
+    console.log(`  FAIL  ${label}`, extra ?? '');
+  }
+}
+
+// A testnet payment from SOURCE, as `@stellar/stellar-sdk` builds it, with and
+// without the sponsor's signature, and the hash the account signs.
+const SOURCE = 'GDVEU3DD4KOFECV66VIHWEZOYX4ZKR3WV27L464SIIPOU2IUI3JCZA57';
+const UNSIGNED_XDR =
+  'AAAAAgAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAGQAAAAAAAAwOgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAAAAAAAAAAOThwAAAAAAAAAAA';
+const ONE_SIG_XDR =
+  'AAAAAgAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAGQAAAAAAAAwOgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAAAAAAAAAAOThwAAAAAAAAAABNen2GAAAAED7r9F6PCr/GYCllw0ozw6NFfLDR6ppk+EdM/kcVomZvly6pX4RjkQvkfZj2kwIqFk+19LQ53n9ptmo/yk6ojAH';
+const HASH = 'e4cc94b9663d79110f5478a7c19703d6507f5d8b08cfe6c11f0e698524151355';
+const TESTNET = 'Test SDF Network ; September 2015';
+
+// Setup transactions as sdk-api composes them for SOURCE (the user), with
+// SPONSOR paying the reserves: account creation, a sponsored USDC trustline, a
+// self-paid trustline on a 12-character asset; and two that must not pass as
+// setup: a sponsored payment, and the creation of another account.
+const OTHER = 'GBTL47RTFR5EKMZSXWOQU735WBK7LRPPDIDK3JTNTCZZ7NUBBRDTVSK2';
+const CREATE_XDR =
+  'AAAAAgAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAASwAAAAAAAAACwAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAMAAAAAAAAAEAAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAAAAAAAAAAAAAOpKbGPinFIKvvVQexMuxfmVR3auvr57kkIe6mkURtIsAAAAAAAAAAAAAAABAAAAAOpKbGPinFIKvvVQexMuxfmVR3auvr57kkIe6mkURtIsAAAAEQAAAAAAAAABNen2GAAAAEBt3SKhjmrNkP8ukT+YhcvRd2gTi7dDpgiMy4nG8/S3yFs9EEQOBqk+ifNCDfsBLpRypbzdexR9pBv5ScCEXvME';
+const TRUST_XDR =
+  'AAAAAgAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAASwAAAAAAAAADAAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAMAAAAAAAAAEAAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAAEAAAAA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iwAAAAGAAAAAVVTREMAAAAAZr5+Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzp//////////wAAAAEAAAAA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iwAAAARAAAAAAAAAAE16fYYAAAAQFjusQ6hBDCry1PoMqJDnAuHPO4E2tr0Xc9COwQ5I2fCxqsbgTLvfxfJflqpDMk6JrHp00rXUoGD1zvfeTN9bwc=';
+const SELF_TRUST_XDR =
+  'AAAAAgAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAGQAAAAAAAAADQAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAEAAAAAAAAABgAAAAJFVVJDREVNTzEyAAAAAAAAZr5+Myx6RTMyvZ0Kf32wVfXF7xoGraZtmLOftoEMRzp//////////wAAAAAAAAAA';
+const SPONSORED_PAYMENT_XDR =
+  'AAAAAgAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAASwAAAAAAAAADgAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAMAAAAAAAAAEAAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAAAEAAAAA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iwAAAABAAAAAGa+fjMsekUzMr2dCn99sFX1xe8aBq2mbZizn7aBDEc6AAAAAAAAAAAC+vCAAAAAAQAAAADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAAAABEAAAAAAAAAAA==';
+const CREATE_OTHER_XDR =
+  'AAAAAgAAAAD9FyQ4WqDHW2T7eM1gL6HZkf3r92sTxY7XAurINen2GAAAAGQAAAAAAAAADwAAAAEAAAAAAAAAAAAAAABqzRtIAAAAAAAAAAEAAAAAAAAAAAAAAABmvn4zLHpFMzK9nQp/fbBV9cXvGgatpm2Ys5+2gQxHOgAAAAAAmJaAAAAAAAAAAAA=';
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function waitFor(predicate, ms = 3_000) {
+  const until = Date.now() + ms;
+  while (!predicate() && Date.now() < until) await sleep(20);
+  return predicate();
+}
+
+function request(overrides = {}) {
+  return {
+    id: 'req-1',
+    kind: 'TX',
+    network: 'STELLAR',
+    status: 'PENDING',
+    subOrgId: 'sub-org-1',
+    activityId: 'act-1',
+    fingerprint: 'fp-1',
+    signWith: SOURCE,
+    unsignedPayload: UNSIGNED_XDR,
+    payloadHash: HASH,
+    intent: 'sign_and_send',
+    refreshable: false,
+    operation: 'payment',
+    summary: 'Send 1.5 XLM',
+    details: { amount: '1.5', destination: 'GD6RO...' },
+    expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+    ...overrides,
+  };
+}
+
+(async () => {
+  // 1. Pure helpers.
+  check('stellarTransactionHashHex: unsigned envelope', (await sdk.stellarTransactionHashHex(UNSIGNED_XDR, TESTNET)) === HASH);
+  check(
+    'stellarTransactionHashHex: envelope with one signature',
+    (await sdk.stellarTransactionHashHex(ONE_SIG_XDR, TESTNET)) === HASH,
+  );
+  check(
+    'stellarTransactionHashHex: another network gives another hash',
+    (await sdk.stellarTransactionHashHex(UNSIGNED_XDR, 'Public Global Stellar Network ; September 2015')) !== HASH,
+  );
+
+  // 2. Device key: its own namespace, survives the DPoP reset of a logout.
+  const storage = rn.createMemoryAdapter();
+  const dpop = new rn.NobleKeyManager(storage, 'pk_smoke_cosign');
+  const device = new rn.NobleKeyManager(storage, 'pk_smoke_cosign', { namespace: 'cosign' });
+  await dpop.init();
+  await device.init();
+  const deviceJwk = await device.getPublicJwk();
+  check('device key differs from the DPoP key', (await dpop.getThumbprint()) !== (await device.getThumbprint()));
+  await dpop.reset();
+  const deviceAgain = new rn.NobleKeyManager(storage, 'pk_smoke_cosign', { namespace: 'cosign' });
+  await deviceAgain.init();
+  check('device key survives the DPoP reset', (await deviceAgain.getThumbprint()) === (await device.getThumbprint()));
+
+  // 3. Stamp: compressed public key + DER signature that node verifies.
+  const publicKeyHex = sdk.compressedPublicKeyHex(deviceJwk);
+  check('compressed public key is 33 bytes with a 02/03 prefix', /^0[23][0-9a-f]{64}$/.test(publicKeyHex));
+  const body = JSON.stringify({
+    organizationId: 'sub-org-1',
+    type: 'ACTIVITY_TYPE_APPROVE_ACTIVITY',
+    parameters: { fingerprint: 'fp-1' },
+  });
+  const raw = await device.sign(new TextEncoder().encode(body));
+  const der = sdk.rawSignatureToDer(raw);
+  const keyObject = crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: deviceJwk.x, y: deviceJwk.y }, format: 'jwk' });
+  check(
+    'raw r||s converts to a DER signature node verifies',
+    crypto.verify('sha256', Buffer.from(body), { key: keyObject, dsaEncoding: 'der' }, Buffer.from(der)),
+  );
+  const stamp = JSON.parse(
+    Buffer.from(
+      sdk.encodeStamp({
+        publicKey: publicKeyHex,
+        scheme: 'SIGNATURE_SCHEME_TK_API_P256',
+        signature: Buffer.from(der).toString('hex'),
+      }),
+      'base64url',
+    ).toString(),
+  );
+  check(
+    'encodeStamp is base64url JSON with publicKey, scheme and signature',
+    stamp.publicKey === publicKeyHex && stamp.scheme === 'SIGNATURE_SCHEME_TK_API_P256' && typeof stamp.signature === 'string',
+  );
+
+  // 4. The client against a mocked sdk-api.
+  const apiKey = 'pk_smoke_cosign_client';
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(apiKey));
+  const apiKeyHash = Array.from(new Uint8Array(digest).slice(0, 16))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const SESSION = JSON.stringify({
+    clientSessionId: 'cs',
+    userId: 'u',
+    status: 'CONSUMED',
+    token: { accessToken: 'AT', refreshToken: 'RT', expiresAt: Math.floor(Date.now() / 1000) + 600 },
+    user: { ready: true },
+    wallet: { type: 'internal', provider: 'email', address: SOURCE, chain: 'STELLAR', provisioning: 'READY' },
+    wallets: [{ type: 'internal', provider: 'email', address: SOURCE, chain: 'STELLAR' }],
+    data: {
+      mail: 'u@x.test',
+      first_name: '',
+      last_name: '',
+      avatar: '',
+      providers: { email: { address: 'u@x.test' }, google: null, github: null, wallet: null },
+    },
+  });
+  async function makeClient(extra) {
+    const storage = sdk.createMemoryAdapter();
+    await storage.set(`pollar:${apiKeyHash}:session`, SESSION);
+    const c = new sdk.PollarClient({
+      apiKey,
+      storage,
+      baseUrl: 'https://x.test',
+      stellarNetwork: 'testnet',
+      logLevel: 'silent',
+      ...extra,
+    });
+    await c.ready();
+    return c;
+  }
+
+  const calls = [];
+  let approveCalls = 0;
+  let rejectCalls = 0;
+  let pendingList = [request()];
+  let relayStampPublicKey = null;
+  let turnkeyPayload = HASH;
+  // What Turnkey "holds" for the other kinds the device verifies.
+  const SOLANA_FROM = 'HUwbU1P7nxJvACyYMYChUCUZ1tCQqCyjWeT27gPYYSaU';
+  const SOLANA_UNSIGNED = 'ab'.repeat(40);
+  let turnkeySolanaTx = SOLANA_UNSIGNED;
+  const ACCOUNT_PAYLOAD = {
+    walletId: 'wallet-tk',
+    accounts: [
+      {
+        curve: 'CURVE_ED25519',
+        pathFormat: 'PATH_FORMAT_BIP32',
+        path: "m/44'/501'/0'/0'",
+        addressFormat: 'ADDRESS_FORMAT_SOLANA',
+        name: 'SOLANA',
+      },
+    ],
+  };
+  let turnkeyAccounts = ACCOUNT_PAYLOAD;
+  let refreshCalls = 0;
+  let refreshedRequest = null;
+  const quorumReports = [];
+  let quorumThreshold = 2;
+  const deletedApiKeys = [];
+  let mockDeviceKeyHex = null;
+  const deviceKeyHexForMock = () => mockDeviceKeyHex ?? '02' + 'ff'.repeat(32);
+  let approvedRequest = request({
+    status: 'APPROVED',
+    signedXdr: ONE_SIG_XDR,
+    submit: { hash: 'abc123', status: 'SUCCESS' },
+    resolvedAt: new Date().toISOString(),
+  });
+
+  globalThis.fetch = async (req) => {
+    const url = new URL(req.url);
+    const method = req.method ?? 'GET';
+    calls.push(`${method} ${url.pathname}`);
+    const json = (status, body) =>
+      new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    if (url.pathname === '/v2/auth/session/resume')
+      return json(200, {
+        success: true,
+        code: 'SDK_SESSION_RESUMED',
+        content: {
+          mail: 'u@x.test',
+          first_name: '',
+          last_name: '',
+          avatar: '',
+          providers: { email: { address: 'u@x.test' }, google: null, github: null, wallet: null },
+        },
+      });
+    if (url.pathname === '/v2/tx/sign') {
+      return json(202, {
+        success: true,
+        code: 'SDK_COSIGN_PENDING',
+        content: { pendingSignature: { kind: 'cosign', request: request({ intent: 'sign' }) } },
+      });
+    }
+    if (url.pathname === '/v2/tx/sign-and-send') {
+      return json(202, {
+        success: true,
+        code: 'SDK_COSIGN_PENDING',
+        content: { pendingSignature: { kind: 'cosign', request: request() } },
+      });
+    }
+    if (url.pathname === '/v2/cosign/requests')
+      return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { requests: pendingList } });
+    if (url.pathname === '/v2/cosign/devices') {
+      return json(200, {
+        success: true,
+        code: 'SDK_COSIGN_DEVICES',
+        content: {
+          subOrgId: 'sub-org-1',
+          endUserId: 'tk-user',
+          quorumState: 'ACTIVE_2_OF_2',
+          devices: [
+            {
+              id: 'dev-1',
+              publicKey: deviceKeyHexForMock(),
+              tkApiKeyId: 'tk-key-1',
+              label: 'onboarding device',
+              enrolledVia: 'ONBOARDING',
+              lastSeenAt: null,
+              createdAt: new Date().toISOString(),
+            },
+            {
+              id: 'dev-2',
+              publicKey: '02' + 'ee'.repeat(32),
+              tkApiKeyId: 'tk-key-2',
+              label: 'laptop',
+              enrolledVia: 'DEVICE',
+              lastSeenAt: null,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+    }
+    if (url.pathname === '/v2/cosign/quorum/verify') {
+      quorumReports.push(JSON.parse(await req.text()));
+      return json(200, {
+        success: true,
+        code: 'SDK_COSIGN_VERIFIED',
+        content: { quorumState: quorumReports[quorumReports.length - 1].ok ? 'VERIFIED' : 'BROKEN' },
+      });
+    }
+    if (url.pathname === '/v2/cosign/requests/req-1/refresh') {
+      refreshCalls++;
+      return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { request: refreshedRequest ?? request() } });
+    }
+    if (url.pathname === '/v2/cosign/relay') {
+      const body = JSON.parse(await req.text());
+      const stampJson = JSON.parse(Buffer.from(body.stamp, 'base64url').toString());
+      relayStampPublicKey = stampJson.publicKey;
+      const inner = JSON.parse(body.body);
+      if (body.path === '/public/v1/query/get_activity') {
+        const intent =
+          inner.activityId === 'act-sol'
+            ? {
+                signTransactionIntentV2: {
+                  signWith: SOLANA_FROM,
+                  unsignedTransaction: turnkeySolanaTx,
+                  type: 'TRANSACTION_TYPE_SOLANA',
+                },
+              }
+            : inner.activityId === 'act-acc'
+              ? { createWalletAccountsIntent: turnkeyAccounts }
+              : { signRawPayloadIntentV2: { signWith: SOURCE, payload: turnkeyPayload } };
+        return json(200, {
+          success: true,
+          code: 'SDK_COSIGN_REQUEST',
+          content: { status: 200, body: { activity: { id: inner.activityId, intent } } },
+        });
+      }
+      if (body.path === '/public/v1/query/get_organization') {
+        return json(200, {
+          success: true,
+          code: 'SDK_COSIGN_REQUEST',
+          content: {
+            status: 200,
+            body: {
+              organizationData: {
+                rootQuorum: { threshold: quorumThreshold, userIds: ['tk-user', 'tk-approver'] },
+                users: [
+                  { userId: 'tk-user', apiKeys: [{ credential: { publicKey: relayStampPublicKey } }] },
+                  { userId: 'tk-approver', apiKeys: [{ credential: { publicKey: '02' + 'aa'.repeat(32) } }] },
+                ],
+              },
+            },
+          },
+        });
+      }
+      if (body.path === '/public/v1/submit/delete_api_keys') {
+        deletedApiKeys.push(inner.parameters.apiKeyIds);
+        return json(200, {
+          success: true,
+          code: 'SDK_COSIGN_REQUEST',
+          content: { status: 200, body: { activity: { status: 'ACTIVITY_STATUS_COMPLETED' } } },
+        });
+      }
+      if (body.path === '/public/v1/submit/reject_activity') {
+        rejectCalls++;
+        return json(200, {
+          success: true,
+          code: 'SDK_COSIGN_REJECTED',
+          content: {
+            status: 200,
+            body: {},
+            request: request({
+              status: 'REJECTED',
+              failureReason: 'rejected by the device',
+              resolvedAt: new Date().toISOString(),
+            }),
+          },
+        });
+      }
+      if (body.path === '/public/v1/submit/approve_activity') {
+        approveCalls++;
+        // The vote completes the activity, so the list no longer carries it;
+        // the answer names the request that was voted on.
+        const voted = pendingList.find((r) => r.fingerprint === inner.parameters.fingerprint);
+        pendingList = pendingList.filter((r) => r.fingerprint !== inner.parameters.fingerprint);
+        return json(200, {
+          success: true,
+          code: 'SDK_COSIGN_APPROVED',
+          content: {
+            status: 200,
+            body: {},
+            request: voted ? { ...approvedRequest, id: voted.id, fingerprint: voted.fingerprint } : approvedRequest,
+          },
+        });
+      }
+      return json(400, { success: false, code: 'VALIDATION_ERROR' });
+    }
+    return json(404, { success: false, code: 'NOT_FOUND', path: url.pathname });
+  };
+
+  // `cosignManual`: the raw flow, where the app votes through `client.cosign`.
+  const client = await makeClient({ cosignManual: true });
+  check('session restored with a wallet', client.getWallet()?.address === SOURCE);
+  check('a manual client does not read the pending requests at login', !calls.includes('GET /v2/cosign/requests'));
+
+  const txStates = [];
+  client.onTransactionStateChange((s) => txStates.push(s.step));
+  const cosignStates = [];
+  client.onCosignStateChange((s) => cosignStates.push(s.pending.length));
+
+  const signOutcome = await client.signTx(UNSIGNED_XDR);
+  check(
+    'signTx answers cosign_pending with the request',
+    signOutcome.status === 'cosign_pending' && signOutcome.request.id === 'req-1',
+  );
+  check('tx state is awaiting_cosign', txStates.includes('awaiting_cosign'));
+  check('cosign store lists the pending request', client.getCosignState().pending.length === 1);
+
+  const sendOutcome = await client.signAndSubmitTx(UNSIGNED_XDR);
+  check('signAndSubmitTx answers cosign_pending too', sendOutcome.status === 'cosign_pending');
+
+  const verification = await client.cosign.verify(request());
+  check(
+    'verify: local hash equals Pollar hash and Turnkey payload',
+    verification.ok === true && verification.localHash === HASH,
+    verification,
+  );
+  check(
+    'verify read the activity through the relay',
+    calls.some((c) => c === 'POST /v2/cosign/relay'),
+  );
+  const deviceKeyHex = await client.cosign.publicKeyHex();
+  check('relay stamped with the device key', relayStampPublicKey === deviceKeyHex);
+
+  const tampered = await client.cosign.verify(request({ payloadHash: '00'.repeat(32) }));
+  check('verify refuses a request whose hash does not match the transaction', tampered.ok === false);
+  turnkeyPayload = 'ff'.repeat(32);
+  const turnkeyDisagrees = await client.cosign.verify(request());
+  check(
+    'verify refuses when Turnkey holds a different payload',
+    turnkeyDisagrees.ok === false && /Turnkey/.test(turnkeyDisagrees.reason),
+  );
+  turnkeyPayload = HASH;
+
+  let threw = null;
+  try {
+    await client.cosign.approve(request({ payloadHash: '00'.repeat(32) }));
+  } catch (err) {
+    threw = err;
+  }
+  check(
+    'approve throws SDK_COSIGN_VERIFICATION_FAILED instead of voting on a mismatch',
+    threw && threw.code === 'SDK_COSIGN_VERIFICATION_FAILED',
+  );
+  check('no approve_activity was relayed for the mismatch', !calls.includes('approve'));
+
+  const approved = await client.cosign.approve(request());
+  check(
+    'approve relays the vote and returns the resolved request',
+    approved.status === 'APPROVED' && approved.submit?.hash === 'abc123',
+  );
+  check('tx state reached success from the approved submit', txStates[txStates.length - 1] === 'success');
+  check(
+    'cosign store dropped the resolved request',
+    client.getCosignState().pending.length === 0 && client.getCosignState().lastResolved?.id === 'req-1',
+  );
+
+  // Refresh: a request Pollar composed is rebuilt right before the vote; one the
+  // client composed is not.
+  check('approve did not refresh a request the client composed', refreshCalls === 0);
+  refreshedRequest = request({ refreshable: true, activityId: 'act-2', fingerprint: 'fp-2' });
+  await client.signAndSubmitTx(UNSIGNED_XDR);
+  const approvedAfterRefresh = await client.cosign.approve(request({ refreshable: true }));
+  check('approve refreshes a refreshable request first', refreshCalls === 1);
+  check('approve then verified and voted on the refreshed activity', approvedAfterRefresh.status === 'APPROVED');
+  refreshedRequest = null;
+
+  // Solana: the device compares the serialized unsigned transaction with the intent.
+  const solanaRequest = request({
+    id: 'req-sol',
+    network: 'SOLANA',
+    activityId: 'act-sol',
+    fingerprint: 'fp-sol',
+    signWith: SOLANA_FROM,
+    unsignedPayload: SOLANA_UNSIGNED,
+    payloadHash: crypto.createHash('sha256').update(SOLANA_UNSIGNED).digest('hex'),
+    refreshable: true,
+  });
+  const solanaOk = await client.cosign.verify(solanaRequest);
+  check(
+    'verify accepts a Solana request whose unsigned transaction Turnkey holds byte for byte',
+    solanaOk.ok === true,
+    solanaOk,
+  );
+  turnkeySolanaTx = 'cd'.repeat(40);
+  const solanaBad = await client.cosign.verify(solanaRequest);
+  check('verify refuses a Solana request when Turnkey holds another transaction', solanaBad.ok === false);
+  turnkeySolanaTx = SOLANA_UNSIGNED;
+  const solanaWrongSigner = await client.cosign.verify({
+    ...solanaRequest,
+    signWith: 'SomeoneElse111111111111111111111111111111111',
+  });
+  check('verify refuses a Solana request Turnkey would sign with another account', solanaWrongSigner.ok === false);
+
+  // ACCOUNT: the device compares wallet id and derivation parameters.
+  const accountRequest = request({
+    id: 'req-acc',
+    kind: 'ACCOUNT',
+    network: 'SOLANA',
+    intent: 'add_accounts',
+    activityId: 'act-acc',
+    fingerprint: 'fp-acc',
+    signWith: 'wallet-tk',
+    unsignedPayload: JSON.stringify(ACCOUNT_PAYLOAD),
+    payloadHash: crypto.createHash('sha256').update(JSON.stringify(ACCOUNT_PAYLOAD)).digest('hex'),
+    refreshable: true,
+  });
+  const accountOk = await client.cosign.verify(accountRequest);
+  check('verify accepts an account derivation whose parameters match the intent', accountOk.ok === true, accountOk);
+  turnkeyAccounts = { ...ACCOUNT_PAYLOAD, accounts: [{ ...ACCOUNT_PAYLOAD.accounts[0], path: "m/44'/501'/1'/0'" }] };
+  const accountBad = await client.cosign.verify(accountRequest);
+  check('verify refuses an account derivation with a different path', accountBad.ok === false);
+  turnkeyAccounts = ACCOUNT_PAYLOAD;
+
+  // Quorum: read from Turnkey with the device key and recorded server-side.
+  mockDeviceKeyHex = await client.cosign.publicKeyHex();
+  const quorum = await client.cosign.inspectQuorum();
+  check(
+    'inspectQuorum sees the 2-of-2 with this device registered',
+    quorum.ok === true && quorum.deviceRegistered === true,
+    quorum,
+  );
+  check('inspectQuorum recorded the reading as VERIFIED', quorumReports.length === 1 && quorumReports[0].ok === true);
+  quorumThreshold = 1;
+  const brokenQuorum = await client.cosign.inspectQuorum();
+  check('inspectQuorum reports a threshold other than 2 as broken', brokenQuorum.ok === false && brokenQuorum.threshold === 1);
+  check('the broken reading was recorded too', quorumReports.length === 2 && quorumReports[1].ok === false);
+  quorumThreshold = 2;
+
+  // Devices: another device is revoked through this device's own vote; this one needs force.
+  const afterRevoke = await client.cosign.revokeDevice('dev-2');
+  check(
+    'revokeDevice relayed delete_api_keys for the other device',
+    deletedApiKeys.length === 1 && deletedApiKeys[0][0] === 'tk-key-2',
+  );
+  check('revokeDevice returns the device list', Array.isArray(afterRevoke.devices));
+  let selfRevoke = null;
+  try {
+    await client.cosign.revokeDevice('dev-1');
+  } catch (err) {
+    selfRevoke = err;
+  }
+  check(
+    'revoking the current device is refused without force',
+    selfRevoke && selfRevoke.code === 'SDK_COSIGN_DEVICE_NOT_ENROLLED',
+  );
+  check('no delete_api_keys was relayed for the refused self-revoke', deletedApiKeys.length === 1);
+
+  // A rejected vote ends the tx with an error state.
+  approvedRequest = request({ status: 'REJECTED', failureReason: 'user said no', resolvedAt: new Date().toISOString() });
+  await client.signAndSubmitTx(UNSIGNED_XDR);
+  await client.cosign.approve(request(), { verify: false });
+  check('a rejected request moves the tx state to error', txStates[txStates.length - 1] === 'error');
+  client.destroy();
+
+  // 5. Default policy: the device settles its own vote, so a co-signed wallet
+  // answers the way a custodial one does.
+  approvedRequest = request({
+    status: 'APPROVED',
+    signedXdr: ONE_SIG_XDR,
+    submit: { hash: 'abc123', status: 'SUCCESS' },
+    resolvedAt: new Date().toISOString(),
+  });
+  const CREATE_HASH = await sdk.stellarTransactionHashHex(CREATE_XDR, TESTNET);
+  const setupRequest = request({
+    id: 'req-setup',
+    fingerprint: 'fp-setup',
+    intent: 'account_create',
+    operation: 'create_account',
+    unsignedPayload: CREATE_XDR,
+    payloadHash: CREATE_HASH,
+    summary: 'Create your account',
+    details: {},
+  });
+  pendingList = [setupRequest];
+  turnkeyPayload = CREATE_HASH;
+  const approvesBeforeLogin = approveCalls;
+  const auto = await makeClient({});
+  const autoPending = [];
+  auto.onCosignStateChange((s) => autoPending.push(s.pending.length));
+  const settledAtLogin = await waitFor(() => approveCalls > approvesBeforeLogin);
+  check('login reads the pending requests and approves recognized setup without a prompt', settledAtLogin);
+  check('the setup request never reached the pending list', Math.max(...autoPending) === 0, autoPending);
+  turnkeyPayload = HASH;
+  pendingList = [request()];
+  await auto.cosign.pending();
+  check(
+    'a pending payment is not approved on its own',
+    approveCalls === approvesBeforeLogin + 1 && auto.getCosignState().pending.length === 1,
+  );
+  pendingList = [];
+  await auto.cosign.pending();
+
+  const autoStates = [];
+  auto.onTransactionStateChange((s) => autoStates.push(s.step));
+  // A `sign` request comes back with the signature only; the app submits.
+  approvedRequest = request({
+    status: 'APPROVED',
+    intent: 'sign',
+    signedXdr: ONE_SIG_XDR,
+    resolvedAt: new Date().toISOString(),
+  });
+  const autoSign = await auto.signTx(UNSIGNED_XDR);
+  check(
+    'signTx on a co-signed wallet returns signed, as a custodial one does',
+    autoSign.status === 'signed' && autoSign.signedXdr === ONE_SIG_XDR,
+    autoSign,
+  );
+  check(
+    'the tx state passed through awaiting_cosign and ended signed',
+    autoStates.includes('awaiting_cosign') && autoStates[autoStates.length - 1] === 'signed',
+    autoStates,
+  );
+  check(
+    'the settled request never reached the pending list',
+    Math.max(...autoPending) <= 1 && auto.getCosignState().pending.length === 0,
+  );
+  approvedRequest = request({
+    status: 'APPROVED',
+    signedXdr: ONE_SIG_XDR,
+    submit: { hash: 'abc123', status: 'SUCCESS' },
+    resolvedAt: new Date().toISOString(),
+  });
+  const autoSend = await auto.signAndSubmitTx(UNSIGNED_XDR);
+  check('signAndSubmitTx returns success with the hash', autoSend.status === 'success' && autoSend.hash === 'abc123', autoSend);
+  check('the tx state ended in success', autoStates[autoStates.length - 1] === 'success');
+
+  // Two reads at once (provider + modal, or strict mode) must vote once.
+  const setupRequest2 = request({
+    id: 'req-setup-2',
+    fingerprint: 'fp-setup-2',
+    intent: 'account_create',
+    operation: 'create_account',
+    unsignedPayload: CREATE_XDR,
+    payloadHash: CREATE_HASH,
+    summary: 'Create your account',
+    details: {},
+  });
+  pendingList = [setupRequest2];
+  turnkeyPayload = CREATE_HASH;
+  const approvesBeforeConcurrent = approveCalls;
+  await Promise.all([auto.cosign.pending(), auto.cosign.pending(), auto.cosign.pending()]);
+  check('three concurrent pending() reads vote once on the same setup request', approveCalls === approvesBeforeConcurrent + 1);
+  check('nothing is left pending after the concurrent reads', auto.getCosignState().pending.length === 0);
+  // A pending copy of a request already seen final (a late refresh, a stale
+  // list) must not reopen the prompt.
+  pendingList = [request({ id: 'req-setup-2', fingerprint: 'fp-setup-2' })];
+  await auto.cosign.pending();
+  check('a stale pending copy of a settled request never reaches the store', auto.getCosignState().pending.length === 0);
+  pendingList = [];
+  turnkeyPayload = HASH;
+
+  turnkeyPayload = 'ff'.repeat(32);
+  const mismatch = await auto.signTx(UNSIGNED_XDR);
+  check(
+    'a payload Turnkey disagrees with ends as an error, not a signature',
+    mismatch.status === 'error' && mismatch.code === 'SDK_COSIGN_VERIFICATION_FAILED',
+    mismatch,
+  );
+  check('the mismatching request was rejected by the device', rejectCalls === 1);
+  check('the tx state ended in error', autoStates[autoStates.length - 1] === 'error');
+  turnkeyPayload = HASH;
+  auto.destroy();
+
+  // 6. `confirmation: 'prompt'`: the user is asked before any signature.
+  const prompt = await makeClient({ confirmation: 'prompt' });
+  const unavailable = await prompt.signTx(UNSIGNED_XDR);
+  check(
+    'prompt without a subscriber refuses to sign',
+    unavailable.status === 'error' && unavailable.code === 'SDK_CONFIRMATION_UNAVAILABLE',
+    unavailable,
+  );
+  const seen = [];
+  let answer = 'confirm';
+  const unsubscribe = prompt.onConfirmationRequest((list) => {
+    for (const c of list) {
+      seen.push(c);
+      c[answer]();
+    }
+  });
+  const confirmedSign = await prompt.signTx(UNSIGNED_XDR);
+  check('prompt: a confirmed signTx goes on to sign', confirmedSign.status === 'signed', confirmedSign);
+  check(
+    'the confirmation carried the kind, network and envelope',
+    seen[0]?.kind === 'sign' && seen[0]?.network === 'STELLAR' && seen[0]?.unsignedXdr === UNSIGNED_XDR,
+  );
+  answer = 'reject';
+  const callsBeforeDecline = calls.length;
+  const declined = await prompt.signAndSubmitTx(UNSIGNED_XDR);
+  check(
+    'prompt: a declined call returns SDK_CONFIRMATION_DECLINED',
+    declined.status === 'error' && declined.code === 'SDK_CONFIRMATION_DECLINED' && seen[1]?.kind === 'sign_and_send',
+    declined,
+  );
+  const declinedRun = await prompt.buildAndSignAndSubmitTx('payment', { destination: OTHER, amount: '1' });
+  check(
+    'prompt: build-sign-submit asks before any request leaves',
+    declinedRun.status === 'error' && seen[2]?.kind === 'build_sign_submit' && seen[2]?.operation === 'payment',
+    declinedRun,
+  );
+  check('nothing was sent for the declined calls', calls.length === callsBeforeDecline);
+  check('no confirmation is left pending', prompt.getPendingConfirmations().length === 0);
+  unsubscribe();
+  prompt.destroy();
+
+  // 7. The setup recognizer: what the device approves on its own.
+  const setup = (overrides) => request({ intent: 'account_create', operation: 'create_account', ...overrides });
+  const created = sdk.recognizedSetupRequest(setup({ unsignedPayload: CREATE_XDR }));
+  check('recognizes the sponsored creation of this account', created.ok === true && created.kind === 'account_create', created);
+  const trust = sdk.recognizedSetupRequest(
+    setup({ intent: 'sign_and_send', operation: 'change_trust', unsignedPayload: TRUST_XDR }),
+  );
+  check('recognizes a sponsored trustline on this account', trust.ok === true && trust.kind === 'change_trust', trust);
+  const selfTrust = sdk.recognizedSetupRequest(
+    setup({ intent: 'sign_and_send', operation: 'change_trust', unsignedPayload: SELF_TRUST_XDR }),
+  );
+  check('recognizes a self-paid trustline with a 12-character asset', selfTrust.ok === true, selfTrust);
+  const payment = sdk.recognizedSetupRequest(
+    setup({ intent: 'sign_and_send', operation: 'change_trust', unsignedPayload: SPONSORED_PAYMENT_XDR }),
+  );
+  check('refuses a payment announced as a trustline', payment.ok === false, payment);
+  const other = sdk.recognizedSetupRequest(setup({ unsignedPayload: CREATE_OTHER_XDR }));
+  check('refuses the creation of another account', other.ok === false && /another account/.test(other.reason), other);
+  const asSomeoneElse = sdk.recognizedSetupRequest(setup({ unsignedPayload: CREATE_XDR, signWith: OTHER }));
+  check('refuses setup signed by an account the transaction does not set up', asSomeoneElse.ok === false, asSomeoneElse);
+  check('refuses a plain payment request', sdk.recognizedSetupRequest(request()).ok === false);
+  check(
+    'recognizes an account derivation request',
+    sdk.recognizedSetupRequest(request({ kind: 'ACCOUNT', intent: 'add_accounts' })).ok === true,
+  );
+  check(
+    'refuses a resolved request',
+    sdk.recognizedSetupRequest(setup({ unsignedPayload: CREATE_XDR, status: 'APPROVED' })).ok === false,
+  );
+  check('stellarAccountBytes decodes a G-address to 32 bytes', sdk.stellarAccountBytes(SOURCE)?.length === 32);
+  check('stellarAccountBytes refuses a broken checksum', sdk.stellarAccountBytes(SOURCE.slice(0, -1) + 'A') === null);
+
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

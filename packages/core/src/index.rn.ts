@@ -19,8 +19,8 @@
 import { _setDefaultKeyManagerFactory } from './keys/factory';
 import { NobleKeyManager } from './keys/noble';
 
-_setDefaultKeyManagerFactory((storage, apiKey) => {
-  return new NobleKeyManager(storage, apiKey);
+_setDefaultKeyManagerFactory((storage, apiKey, options) => {
+  return new NobleKeyManager(storage, apiKey, options);
 });
 
 export * from './public';

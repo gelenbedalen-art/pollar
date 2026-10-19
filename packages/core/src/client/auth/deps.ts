@@ -25,6 +25,15 @@ export type FlowDeps = {
    * non-streaming `/auth/session/status/{id}/poll` endpoint instead.
    */
   useStreaming: boolean;
+  /**
+   * Per-request budget for the final `POST /auth/login`, in ms.
+   *
+   * It is not the client's default: that call is the one place a login does real
+   * server-side work (minting tokens, resolving the wallet, and - for an app on
+   * the inline path - creating the account on-chain), so the 10s that protects
+   * every other request would cut a login that is actually succeeding.
+   */
+  loginTimeoutMs: number;
   signal: AbortSignal;
   setAuthState: (state: AuthState) => void;
   /**
@@ -55,6 +64,13 @@ export type FlowDeps = {
    * sessions UI can show "iPhone - Safari" instead of a raw user-agent.
    */
   deviceLabel?: string;
+  /**
+   * The co-signing device key (SEC1 compressed P-256, hex). Sent with the login
+   * so a mainnet app in COSIGNED custody can register it as the user's root
+   * credential when it creates their Turnkey wallet. `undefined` when the key
+   * could not be produced; the login goes on without it.
+   */
+  getDevicePublicKey?: () => Promise<string | undefined>;
 };
 
 export async function createAuthSession(deps: FlowDeps): Promise<string | null> {
