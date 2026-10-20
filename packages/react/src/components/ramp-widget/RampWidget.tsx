@@ -26,6 +26,7 @@ import { RequirementFormModal } from '../requirement-form-modal/RequirementFormM
 import { RegistryCheckModal } from '../registry-check-modal/RegistryCheckModal';
 import { ProviderRegistrationModal } from '../provider-registration-modal/ProviderRegistrationModal';
 import { pendingFromQuote, requiredRampKyc, type PendingRequirement } from './ramp-kyc';
+import { quoteRampOptions, unavailableRampMessage } from './ramp-quotes';
 
 interface RampWidgetProps {
   onClose: () => void;
@@ -174,6 +175,15 @@ function savedRampsOf(key: string): SavedRamp[] {
   }
 }
 
+function hiddenRampsOf(key: string): string[] {
+  try {
+    const value: unknown = JSON.parse(readRampStorage(`${key}:hidden`) ?? '[]');
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 type RampChain = NonNullable<RampsTransactionResponse['chain']>;
 
 /** The explorer transaction URL of a ramp's settlement, by its chain; testnet is Solana devnet and Polygon Amoy. */
@@ -242,6 +252,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [savedRamps, setSavedRamps] = useState<SavedRamp[]>([]);
   const [legacySignature, setLegacySignature] = useState<RampResult['pendingSignature']>(undefined);
   function acceptWorkflow(incoming: RampSnapshot) {
+    if (hiddenRampsOf(storageKey).includes(incoming.txId)) return false;
     const next = mergeRampSnapshot(workflowRef.current, incoming);
     workflowRef.current = next;
     setWorkflow(next);
@@ -260,8 +271,6 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     return next === incoming;
   }
   const [routes, setRoutes] = useState<RampRoute[]>([]);
-  const [routeId, setRouteId] = useState('');
-  const selectedRoute = routes.find((route) => route.routeId === routeId);
   const countries = mergeRampCountries(legacyCountries, routes);
   useEffect(() => {
     if (!country && countries[0]) {
@@ -290,7 +299,10 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     if (typeof window === 'undefined' || !walletAddress) return;
     setSavedRamps(savedRampsOf(storageKey));
     if (readRampStorage(`${storageKey}:selection`) === '1') return;
-    const savedId = new URLSearchParams(window.location.search).get('rampTxId') || readRampStorage(storageKey);
+    const hidden = hiddenRampsOf(storageKey);
+    const savedId = [new URLSearchParams(window.location.search).get('rampTxId'), readRampStorage(storageKey)].find(
+      (id) => id && !hidden.includes(id),
+    );
     if (!savedId) return;
     let active = true;
     void client
@@ -443,7 +455,6 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   }, []);
 
   function handleCountryChange(code: string) {
-    setRouteId('');
     setCountry(code);
     const match = countries.find((c) => c.code === code);
     if (match?.currency) setCurrency(match.currency);
@@ -457,14 +468,17 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     try {
       await loadCountries(false);
       if (step === 'select_route') {
-        const result = await client.getRampsQuote({
-          country,
-          amount: Number(amount),
-          amountExact: amount,
-          currency,
-          direction,
-          ...(selectedRoute ? { routeId: selectedRoute.routeId, chain: selectedRoute.asset.chain } : {}),
-        });
+        const result = await quoteRampOptions(
+          client,
+          {
+            country,
+            amount: Number(amount),
+            amountExact: amount,
+            currency,
+            direction,
+          },
+          routes,
+        );
         setQuotes(result.quotes ?? []);
         setRequirementsRequired(result.requirementsRequired ?? []);
       } else if (step === 'status' && txId) {
@@ -516,6 +530,19 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     if (!keepMessage) setErrorMsg(null);
   }
 
+  function dismissSavedRamp(id: string) {
+    if (completionLocked.current) return;
+    const pending = savedRampsOf(storageKey).filter((ramp) => ramp.txId !== id);
+    writeRampStorage(`${storageKey}:saved`, JSON.stringify(pending));
+    writeRampStorage(`${storageKey}:hidden`, JSON.stringify([...new Set([...hiddenRampsOf(storageKey), id])]));
+    if (readRampStorage(storageKey) === id) writeRampStorage(storageKey, null);
+    setSavedRamps(pending);
+    if (txId === id) resetToInput();
+    setNoticeMsg(
+      'Removed from this tab’s pending list. The operation may still be active at the provider; no payment was cancelled or refunded.',
+    );
+  }
+
   /**
    * EXTERNAL wallets (Freighter/Albedo): the backend returns an unsigned XDR the
    * user must sign locally, then we resume the flow. `sep10` yields the anchor
@@ -565,24 +592,21 @@ export function RampWidget({ onClose }: RampWidgetProps) {
    * it is shown locked, so "no providers" only means nothing came back at all.
    */
   async function loadQuotes(): Promise<boolean> {
-    const result = await client.getRampsQuote({
-      country,
-      amount: Number(amount),
-      amountExact: amount,
-      currency,
-      direction,
-      ...(selectedRoute ? { routeId: selectedRoute.routeId, chain: selectedRoute.asset.chain } : {}),
-    });
+    const result = await quoteRampOptions(
+      client,
+      {
+        country,
+        amount: Number(amount),
+        amountExact: amount,
+        currency,
+        direction,
+      },
+      routes,
+    );
     const list = result.quotes ?? [];
     const locked = result.requirementsRequired ?? [];
     if (list.length === 0 && locked.length === 0) {
-      // A provider that serves the route but is down is not "no providers".
-      const down = (result.unavailable ?? []).map((u) => u.provider);
-      setErrorMsg(
-        down.length > 0
-          ? `${down.join(', ')} ${down.length === 1 ? 'is' : 'are'} temporarily unavailable. Please try again later.`
-          : `No ramp providers available for ${country} yet.`,
-      );
+      setErrorMsg(unavailableRampMessage(country, result.unavailable ?? []));
       setStep('error');
       return false;
     }
@@ -859,34 +883,6 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   return (
     <div className="pollar-overlay" style={overlayStyle} onClick={onClose}>
       <RampWidgetTemplate
-        routeSelector={
-          step === 'input' &&
-          routes.length > 0 && (
-            <label onClick={(e) => e.stopPropagation()}>
-              Asset and payment route
-              <select
-                disabled={countriesLoading || refreshing}
-                value={routeId}
-                onChange={(e) => {
-                  const route = routes.find((item) => item.routeId === e.target.value);
-                  setRouteId(e.target.value);
-                  if (route) {
-                    setCountry(route.country);
-                    setCurrency(route.fiatCurrency);
-                    setDirection(route.direction);
-                  }
-                }}
-              >
-                <option value="">Choose a route</option>
-                {routes.map((route) => (
-                  <option key={route.routeId} value={route.routeId}>
-                    {route.direction} · {route.fiatCurrency} / {route.asset.code} · {route.asset.chain} · {route.rail}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )
-        }
         workflowContent={
           workflow ? (
             <RampWorkflow
@@ -944,6 +940,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         completing={completing}
         savedRamps={savedRamps}
         onResumeRamp={resumeSavedRamp}
+        onDismissRamp={dismissSavedRamp}
+        onDismissCurrentRamp={workflow ? () => dismissSavedRamp(workflow.txId) : undefined}
         onExploreRoutes={
           workflow
             ? () => {
@@ -955,7 +953,6 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         noticeMsg={noticeMsg}
         onDirectionChange={(next) => {
           setDirection(next);
-          setRouteId('');
         }}
         onAmountChange={(next) => {
           // Editing the amount is the user acting on the limit message, so it

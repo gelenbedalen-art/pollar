@@ -43,7 +43,15 @@ export function RouteDisplay({ quote, busy = false, disabled = false, onSelect }
       <div className="pollar-ramp-route-left">
         <span className="pollar-ramp-route-provider">{quote.provider}</span>
         <span className="pollar-ramp-route-meta">
-          {busy ? 'Starting…' : `${RAIL_LABELS[quote.rail] ?? quote.rail} · ${quote.protocol} · ${quote.estimatedTime}`}
+          {busy
+            ? 'Starting…'
+            : [
+                quote.route ? `${quote.route.asset.code} on ${quote.route.asset.chain}` : null,
+                RAIL_LABELS[quote.rail] ?? quote.rail,
+                quote.estimatedTime,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
         </span>
       </div>
       <div className="pollar-ramp-route-right">
