@@ -1,6 +1,6 @@
 'use client';
 
-import { type CosignRequest, type CosignVerification } from '@pollar/core';
+import { type CosignRequest, type CosignVerification, fromBaseUnits } from '@pollar/core';
 import { cropAddress, PollarModalFooter } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
@@ -51,6 +51,17 @@ function expiresIn(request: CosignRequest): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** A base-unit amount with the `decimals` and `symbol` written next to it, as the user reads it; null when either is missing. */
+function readableAmount(details: Record<string, unknown>): { amount: string; symbol: string } | null {
+  const { amount, decimals, symbol } = details;
+  if (typeof amount !== 'string' || typeof decimals !== 'number' || typeof symbol !== 'string') return null;
+  try {
+    return { amount: fromBaseUnits(amount, decimals), symbol };
+  } catch {
+    return null;
+  }
+}
+
 function detailRows(request: CosignRequest): Array<[string, string]> {
   const details = (request.details ?? {}) as Record<string, unknown>;
   const rows: Array<[string, string]> = [];
@@ -62,8 +73,9 @@ function detailRows(request: CosignRequest): Array<[string, string]> {
     ]);
   };
   push('Destination', details.destination);
-  push('Amount', details.amount);
-  push('Asset', details.asset ?? details.assetCode);
+  const readable = readableAmount(details);
+  push('Amount', readable ? `${readable.amount} ${readable.symbol}` : details.amount);
+  push('Asset', details.asset ?? details.assetCode ?? readable?.symbol);
   push('Network', request.network);
   return rows;
 }
