@@ -112,10 +112,18 @@ const base = {
   };
   let creates = 0,
     walletSigns = 0;
-  main.getRampRoutes = async () => ({ routes: [route] });
+  const quoteQueries = [];
+  main.getRampRoutes = async () => ({
+    routes: [route, { ...route, routeId: 'other-country', country: 'PE', direction: 'onramp' }],
+  });
   main.getRampCountries = async () => ({ countries: [] });
   main.getRampsQuote = async (query) => {
-    assert.equal(query.chain, 'POLYGON');
+    quoteQueries.push(query);
+    assert.notEqual(query.routeId, 'other-country');
+    if (query.chain !== undefined) {
+      assert.equal(query.chain, 'POLYGON');
+      assert.equal(query.routeId, route.routeId);
+    }
     assert.equal(query.currency, 'MXN');
     return {
       quotes: [
@@ -172,13 +180,13 @@ const base = {
       ),
     ),
   );
-  const pendingRoute = [...document.querySelectorAll('select')].find((select) =>
-    [...select.options].some((option) => option.value === route.routeId),
+  assert.equal(document.querySelectorAll('select').length, 0);
+  assert.equal(
+    [...document.querySelectorAll('button')].find((button) => button.textContent === 'Find best route').disabled,
+    true,
   );
-  assert.ok(pendingRoute);
-  assert.equal(pendingRoute.disabled, true);
   await React.act(async () => resolveCountries({ countries: [{ code: 'BO', currency: 'BOB' }] }));
-  assert.equal(pendingRoute.disabled, false);
+  assert.equal(document.querySelectorAll('select').length, 1, 'Only country selection belongs before quotes');
   await React.act(async () => loadingRoot.unmount());
   main.getRampCountries = async () => ({ countries: [] });
   const widgetRoot = createRoot(document.getElementById('root'));
@@ -192,13 +200,10 @@ const base = {
         ),
       ),
     );
-    const routeSelect = [...document.querySelectorAll('select')].find((select) =>
-      [...select.options].some((option) => option.value === route.routeId),
-    );
-    assert.ok(routeSelect);
+    assert.equal(document.querySelectorAll('select').length, 1);
+    assert.doesNotMatch(document.body.textContent, /Asset and payment route|Choose a route/);
     await React.act(async () => {
-      routeSelect.value = route.routeId;
-      routeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      [...document.querySelectorAll('button')].find((button) => button.textContent === 'Sell').click();
     });
     await React.act(async () => {
       const input = document.querySelector('input[type=number]');
@@ -214,9 +219,20 @@ const base = {
       row.textContent.includes('Registered fixture'),
     );
     assert.ok(quoteRow);
+    assert.match(quoteRow.textContent, /NATIVE on POLYGON/);
+    assert.equal(
+      document.querySelectorAll('.pollar-ramp-route-card').length,
+      1,
+      'Default and explicit quotes must not duplicate the same route',
+    );
     await React.act(async () => quoteRow.click());
   }
   await startWidget(widgetRoot);
+  assert.ok(quoteQueries.some((query) => query.routeId === route.routeId && query.chain === 'POLYGON'));
+  assert.ok(
+    quoteQueries.some((query) => query.routeId === undefined),
+    'Legacy providers are quoted without a route selector',
+  );
   assert.equal(creates, 1);
   assert.equal(walletSigns, 0);
   assert.match(document.body.textContent, /1.123456789012 NATIVE/);
@@ -273,6 +289,51 @@ const base = {
   assert.ok(![...document.querySelectorAll('button')].some((button) => button.textContent === 'Authorize wallet request'));
   assert.equal(legacySigns, 1);
   await React.act(async () => completedRoot.unmount());
+  // Stereum's two CCTP signatures must stay on the legacy endpoint, independently
+  // of the STELLAR/xdr handler installed for Anclap's registered workflows.
+  main.registerRampSigningHandler('STELLAR', 'xdr', async () => {
+    throw new Error('Stereum must not use the Anclap workflow signer');
+  });
+  const stereumBase = { txId: 'stereum-tx', provider: 'Stereum', status: 'processing' };
+  main.createOffRamp = async () => ({
+    ...stereumBase,
+    pendingSignature: { action: 'cctp_approve', unsignedXdr: 'approve-xdr' },
+  });
+  const stereumSigns = [];
+  const stereumSubmissions = [];
+  main.signTx = async (xdr) => {
+    stereumSigns.push(xdr);
+    return { status: 'signed', signedXdr: `signed:${xdr}` };
+  };
+  main.submitRampSignature = async (txId, body) => {
+    assert.equal(txId, stereumBase.txId);
+    stereumSubmissions.push(body);
+    return {
+      ...stereumBase,
+      ...(body.action === 'cctp_approve' ? { pendingSignature: { action: 'cctp_burn', unsignedXdr: 'burn-xdr' } } : {}),
+    };
+  };
+  const stereumRoot = createRoot(document.getElementById('root'));
+  await startWidget(stereumRoot);
+  assert.equal(stereumSigns.length, 0);
+  for (const action of ['cctp_approve', 'cctp_burn']) {
+    const request = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Authorize wallet request',
+    );
+    assert.ok(request, `Stereum must expose ${action} for explicit authorization`);
+    await React.act(async () => {
+      request.click();
+      request.click();
+    });
+    assert.equal(stereumSubmissions.at(-1).action, action);
+  }
+  assert.deepEqual(stereumSigns, ['approve-xdr', 'burn-xdr']);
+  assert.deepEqual(stereumSubmissions, [
+    { signedXdr: 'signed:approve-xdr', action: 'cctp_approve' },
+    { signedXdr: 'signed:burn-xdr', action: 'cctp_burn' },
+  ]);
+  assert.ok(![...document.querySelectorAll('button')].some((button) => button.textContent === 'Authorize wallet request'));
+  await React.act(async () => stereumRoot.unmount());
   main.destroy();
   console.log(
     'Web ramp UI: generic and legacy explicit signing, duplicate protection, failures, exact terms and verification passed.',

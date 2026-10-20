@@ -17,12 +17,21 @@ export function RampWorkflow({
   const locked = useRef(false);
   useEffect(() => {
     setFields({});
+    setError(null);
   }, [model.action?.actionId]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
+  const fieldsComplete =
+    model.action?.kind !== 'collect_information' ||
+    model.action.fields.every((field) => {
+      const value = (fields[field.key] ?? '').trim();
+      if (!value) return field.optional;
+      if (field.type === 'email') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      return field.type !== 'select' || field.options?.some((option) => option.value === value);
+    });
   async function continueAction() {
-    if (!model.action || locked.current) return;
+    if (!model.action || locked.current || !fieldsComplete) return;
     locked.current = true;
     setBusy(true);
     onBusyChange?.(true);
@@ -46,41 +55,58 @@ export function RampWorkflow({
     }
   }
   return (
-    <section aria-label="Ramp progress" aria-live="polite">
-      <h3>{model.title}</h3>
+    <section
+      className="pollar-ramp-payment pollar-ramp-workflow"
+      aria-label="Ramp progress"
+      aria-live="polite"
+      aria-busy={busy}
+    >
+      <h3 className="pollar-ramp-payment-title">{model.title}</h3>
       {snapshot.terms && (
-        <p>
+        <p className="pollar-ramp-terms">
           {snapshot.terms.fiatAmount} {snapshot.terms.fiatCurrency} · {snapshot.terms.cryptoAmount} {snapshot.terms.assetCode}
           <br />
           Includes {snapshot.terms.feeAmount} {snapshot.terms.feeCurrency} fee
         </p>
       )}
       {model.details.map((item, index) => (
-        <p key={index}>
+        <p className="pollar-ramp-workflow-detail" key={index}>
           <strong>{item.label}: </strong>
           {item.value}
         </p>
       ))}
       {model.links.map((link, index) => (
         <p key={index}>
-          <a href={link.url} target="_blank" rel="noopener noreferrer">
+          <a className="pollar-btn-primary pollar-ramp-hosted-link" href={link.url} target="_blank" rel="noopener noreferrer">
             {link.label}
           </a>
         </p>
       ))}
       {model.qr && <QRCode value={model.qr} size={180} />}
       {model.qr && (
-        <button type="button" onClick={() => void navigator.clipboard.writeText(model.qr!)}>
+        <button
+          className="pollar-btn-secondary"
+          type="button"
+          onClick={() =>
+            void navigator.clipboard
+              .writeText(model.qr!)
+              .catch(() => setError('Unable to copy. Select the payment code to copy it manually.'))
+          }
+        >
           Copy payment code
         </button>
       )}
       {model.action?.kind === 'collect_information' &&
         model.action.fields.map((field) => (
-          <label key={field.key}>
-            {field.label}
-            {field.optional ? ' (optional)' : ''}
+          <label className="pollar-ramp-field" key={field.key}>
+            <span className="pollar-ramp-label">
+              {field.label}
+              {field.optional ? ' (optional)' : ''}
+            </span>
             {field.type === 'select' ? (
               <select
+                className="pollar-ramp-input"
+                disabled={busy}
                 value={fields[field.key] ?? ''}
                 onChange={(e) => setFields((previous) => ({ ...previous, [field.key]: e.target.value }))}
               >
@@ -93,18 +119,25 @@ export function RampWorkflow({
               </select>
             ) : (
               <input
+                className="pollar-ramp-input"
+                disabled={busy}
                 type={field.type}
                 placeholder={field.placeholder}
                 value={fields[field.key] ?? ''}
                 onChange={(e) => setFields((previous) => ({ ...previous, [field.key]: e.target.value }))}
               />
             )}
-            {field.hint && <small>{field.hint}</small>}
+            {field.hint && <small className="pollar-ramp-field-hint">{field.hint}</small>}
           </label>
         ))}
       {(model.canContinue || model.canSign) && (
-        <button type="button" disabled={busy} onClick={() => void continueAction()}>
-          {model.canSign ? 'Authorize' : 'Continue'}
+        <button
+          className="pollar-btn-primary"
+          type="button"
+          disabled={busy || !fieldsComplete}
+          onClick={() => void continueAction()}
+        >
+          {busy ? (model.canSign ? 'Waiting for your wallet…' : 'Continuing…') : model.canSign ? 'Authorize' : 'Continue'}
         </button>
       )}
       {snapshot.milestones?.map((milestone, index) => (
@@ -112,8 +145,12 @@ export function RampWorkflow({
           {milestone.kind.replace(/_/g, ' ')} · {milestone.verifiedAt}
         </p>
       ))}
-      {error && <p role="alert">{error}</p>}
-      <small>Reference: {snapshot.txId}</small>
+      {error && (
+        <p className="pollar-ramp-field-error" role="alert">
+          {error}
+        </p>
+      )}
+      <small className="pollar-ramp-reference">Reference: {snapshot.txId}</small>
     </section>
   );
 }

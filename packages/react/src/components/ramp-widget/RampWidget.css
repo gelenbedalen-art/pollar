@@ -259,6 +259,65 @@
   gap: 1rem;
 }
 
+.pollar-ramp-saved {
+  gap: 0.625rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--pollar-border);
+}
+
+.pollar-ramp-saved-row {
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+}
+
+.pollar-ramp-saved-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.pollar-ramp-saved-row > button:last-child:not(:first-child) {
+  width: auto;
+}
+
+.pollar-ramp-explore {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  border-top: 1px solid var(--pollar-border);
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+}
+
+.pollar-ramp-workflow p {
+  margin: 0;
+}
+
+.pollar-ramp-terms {
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--pollar-border);
+  border-radius: var(--pollar-card-border-radius, 10px);
+  background: var(--pollar-input-bg);
+  color: var(--pollar-text);
+  line-height: 1.6;
+  font-size: 0.875rem;
+}
+
+.pollar-ramp-workflow-detail,
+.pollar-ramp-reference {
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--pollar-muted);
+}
+
+.pollar-ramp-hosted-link {
+  display: flex;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .pollar-ramp-payment-title {
   font-size: 0.8125rem;
   font-weight: 600;

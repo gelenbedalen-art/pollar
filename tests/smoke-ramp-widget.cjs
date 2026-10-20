@@ -133,6 +133,20 @@ async function scenario(action, reconcile = false) {
   });
   assert.match(container.textContent, /Complete your deposit/);
   assert.equal(calls.length, previousCalls, 'Resuming must only fetch status');
+  const remove = buttons().find((button) => button.textContent === 'Remove from pending list');
+  assert.ok(remove);
+  await act(async () => remove.click());
+  assert.match(container.textContent, /no payment was cancelled or refunded/);
+  assert.ok(!buttons().some((button) => button.textContent.startsWith('Resume Anclap')));
+  assert.equal(calls.length, previousCalls, 'Hiding a reference must not dispatch a provider cancellation');
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await act(async () => {
+    root.render(renderWidget());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  assert.ok(!buttons().some((button) => button.textContent.startsWith('Resume Anclap')));
+  assert.doesNotMatch(container.textContent, /Complete your deposit/);
   await act(async () => root.unmount());
   container.remove();
   client.destroy();
