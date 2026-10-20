@@ -3981,8 +3981,7 @@ export class PollarClient {
           // converges on the original transfer instead of sending twice.
           idempotencyKey: randomUUID(),
           waitForConfirmation: false,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union, and its Polygon member is not in the generated schema until it is regenerated from this sdk-api
-        } as any,
+        },
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
 

@@ -537,8 +537,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     }
     const result = (await client.submitRampSignature(id, {
       signedXdr: outcome.signedXdr,
-      // The CCTP actions are not in the generated schema until it is regenerated.
-      action: ps.action as 'withdraw_payment',
+      action: ps.action,
     })) as RampResult;
     await applyResult(result);
   }
