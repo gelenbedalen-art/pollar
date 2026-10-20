@@ -781,7 +781,7 @@ Each also has a standalone `(api, ...)` export (`getRampsQuote`, `createOnRamp`,
 
 ### Generic ramp workflows
 
-To build and register your own provider, use the exported `RampAdapter`, `defineRampAdapter` and `RampAdapterClient` APIs from `@pollar/core` or the portable `@pollar/core/ramps` entry point. Existing clients also expose `registerRampAdapter()` and `client.rampAdapters`. See the [custom provider guide](../../docs/development/custom-ramp-adapters.md) and [complete example](../../examples/custom-ramp/adapter.ts). Custom registrations execute in your host; existing hosted API methods retain their behavior. Run private provider credentials and callback verification in your server or authenticated proxy.
+To build a provider package for Pollar's backend, use `RampAdapter`, `defineRampAdapter` and `defineRampAdapterRegistration` from `@pollar/core` or `@pollar/core/ramps`. Install its server registration in the backend, then consume its enabled routes through the existing `PollarClient` API methods. Pollar retains credentials, persistence, lifecycle and reconciliation. See the [server registration guide](../../docs/development/custom-ramp-adapters.md), [provider implementation](../../examples/custom-ramp/adapter.ts) and [application example](../../examples/custom-ramp/client.ts).
 
 `getRampRoutes()` returns executable currencies/assets/chains/rails and typed provider capabilities. `amountExact` preserves requested decimal values alongside the legacy numeric amount. Quotes expose exact `terms` and an optional `route`; transactions expose saved actions, versions and verified milestones. Render `describeRampAction(snapshot)` and use `mergeRampSnapshot(previous, incoming)` to ignore stale responses. Both official widgets use these helpers.
 

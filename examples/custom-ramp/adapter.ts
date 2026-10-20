@@ -6,7 +6,7 @@ import {
   type RampAdapterUserContext,
 } from '@pollar/core/ramps';
 
-/** Implement this transport against your provider or your authenticated server proxy. */
+/** Server-only transport: Pollar injects the configured authenticated provider client. */
 export interface ExampleProviderClient {
   quote(input: {
     direction: 'onramp' | 'offramp';
@@ -40,7 +40,7 @@ const routes: RampAdapterRoute[] = (['onramp', 'offramp'] as const).map((directi
   direction,
   country: 'US',
   fiatCurrency: 'USD',
-  rail: 'EXAMPLE_BANK',
+  rail: 'ACH',
   asset,
   limits: { denomination: 'fiat', min: '1', max: '100000' },
 }));
@@ -72,7 +72,7 @@ function observe(order: ExampleProviderOrder): RampAdapterObservation {
   };
 }
 
-/** No Pollar backend modifications or provider credentials in core are needed. */
+/** Installed in Pollar's backend; application code uses the standard PollarClient methods. */
 export function createExampleRampAdapter(provider: ExampleProviderClient): RampAdapter {
   return defineRampAdapter({
     adapterId: 'example-bank',

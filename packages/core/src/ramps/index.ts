@@ -1,3 +1,2 @@
-// Portable provider extension boundary: no wallet runtime, network calls or credentials.
+// Server provider extension contract; application methods use Pollar's authenticated API.
 export * from './adapter';
-export { RampAdapterClient } from './adapter-client';

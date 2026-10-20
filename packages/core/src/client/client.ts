@@ -1,6 +1,4 @@
 import { RampSigningRegistry, type RampSigningHandler, type RampSnapshot } from '../ramps/workflow';
-import { RampAdapterClient } from '../ramps/adapter-client';
-import type { RampAdapter } from '../ramps/adapter';
 import type { RampChain, RampContinuationBody } from '../types';
 import { createApiClient, fetchWithTimeout, PollarApiClient } from '../api/client';
 import { claimDistributionRule, listDistributionRules } from '../api/endpoints/distribution';
@@ -352,8 +350,6 @@ function toPersistedWallet(w: PollarApplicationConfigContent['wallet']): PollarP
 }
 
 export class PollarClient {
-  /** Custom providers, executed independently of Pollar's hosted ramp endpoints. */
-  readonly rampAdapters: RampAdapterClient;
   private readonly _rampSigners = new RampSigningRegistry();
   readonly apiKey: string;
   readonly id: string;
@@ -583,7 +579,6 @@ export class PollarClient {
     // server-side instance is recognisable. Non-enumerable and symbol-keyed, so
     // it never appears in `Object.keys` or a spread. See `isPollarClient`.
     Object.defineProperty(this, POLLAR_CLIENT_BRAND, { value: true, enumerable: false });
-    this.rampAdapters = new RampAdapterClient(config.rampAdapters);
     this.apiKey = config.apiKey;
     this.id = randomUUID();
     // v2 is the multichain SDK surface. It is a superset of v1 - every v1 route is
@@ -880,7 +875,6 @@ export class PollarClient {
     // instead of re-arming a timer or writing state after teardown.
     if (this._destroyed) return; // idempotent - don't double-decrement the registry
     this._destroyed = true;
-    this.rampAdapters.clear();
     if (isClientRuntime) {
       const siblings = liveClientsByApiKey.get(this.apiKey);
       if (siblings) {
@@ -4365,12 +4359,6 @@ export class PollarClient {
   }
 
   // --- Ramps ----------------------------------------------------------------
-
-  /** Register an application-owned provider; returns an instance-scoped cleanup function. */
-  registerRampAdapter(adapter: RampAdapter): () => void {
-    if (this._destroyed) throw new Error('PollarClient has been destroyed');
-    return this.rampAdapters.register(adapter);
-  }
 
   /** Discover the application's available asset and payment routes. */
   getRampRoutes(): Promise<import('../types').RampsRoutesResponse> {

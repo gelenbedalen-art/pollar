@@ -1,4 +1,17 @@
-import type { RampAction, RampChain, RampTerms } from '../types';
+// SPDX-License-Identifier: Apache-2.0
+// Canonical server adapter contract. Kept independent of generated HTTP schemas.
+export type RampAdapterChain = 'STELLAR' | 'POLYGON' | 'SOLANA';
+export type RampAdapterRail = 'SPEI' | 'PIX' | 'PSE' | 'ACH' | 'BREB' | 'QR';
+export type RampAdapterTerms = {
+  fiatCurrency: string;
+  fiatAmount: string;
+  cryptoAmount: string;
+  feeAmount: string;
+  feeCurrency: string;
+  assetCode: string;
+  assetChain: RampAdapterChain;
+  assetIssuer: string | null;
+};
 
 /** Provider amounts are exact decimal strings, never IEEE-754 calculations. */
 export type RampDecimal = string;
@@ -7,8 +20,8 @@ export type RampAdapterRoute = {
   direction: 'onramp' | 'offramp';
   country: string;
   fiatCurrency: string;
-  rail: string;
-  asset: { code: string; identifier: string | null; chain: RampChain; network: string; precision: number };
+  rail: RampAdapterRail;
+  asset: { code: string; identifier: string | null; chain: RampAdapterChain; network: string; precision: number };
   limits: { denomination: 'fiat' | 'crypto'; min: RampDecimal | null; max: RampDecimal | null };
 };
 
@@ -18,7 +31,7 @@ export type RampAdapterUserContext = {
   sdkUserId: string;
   providerId: string;
   configurationId: string;
-  wallet: { address: string; chain: RampChain; network: 'testnet' | 'mainnet'; custody: 'custodial' | 'external' };
+  wallet: { address: string; chain: string; network: 'testnet' | 'mainnet'; custody: 'custodial' | 'external' };
 };
 export type RampAdapterField = {
   key: string;
@@ -31,9 +44,50 @@ export type RampAdapterField = {
   placeholderFrom?: string;
   hint?: string;
 };
-type WithoutActionId<T> = T extends { actionId: string } ? Omit<T, 'actionId'> : never;
-/** Uses the same action vocabulary as the hosted API and shared UI helpers. */
-export type RampAdapterAction = WithoutActionId<RampAction>;
+export type RampAdapterAction =
+  | { kind: 'collect_information'; fields: RampAdapterField[] }
+  | { kind: 'hosted_redirect'; purpose: 'verification' | 'payment'; url: string; expiresAt: string | null }
+  | { kind: 'qr_payment'; payload: string; amount: RampDecimal; currency: string; expiresAt: string | null }
+  | {
+      kind: 'bank_transfer';
+      amount: RampDecimal;
+      currency: string;
+      details: Array<{ label: string; value: string }>;
+      reference: string | null;
+      expiresAt: string | null;
+    }
+  | { kind: 'user_ready'; purpose: 'create_order' | 'withdrawal_payment' | 'onramp_claim' }
+  | {
+      kind: 'verification';
+      steps: Array<{
+        stepId: string;
+        purpose: 'verification' | 'terms';
+        status: 'required' | 'awaiting_provider' | 'completed';
+        url: string | null;
+        instructions: string;
+      }>;
+      order: 'parallel' | 'sequential';
+    }
+  | {
+      kind: 'chain_transfer';
+      chain: string;
+      network: string;
+      asset: RampAdapterRoute['asset'];
+      amount: RampDecimal;
+      destination: string;
+      memo: { type: string; value: string } | null;
+    }
+  | {
+      kind: 'sign_transaction';
+      purpose: 'authentication' | 'withdrawal_payment' | 'onramp_claim';
+      chain: string;
+      network: string;
+      challengeRef: string;
+      payload: { encoding: string; value: string };
+      expiresAt: string;
+    }
+  | { kind: 'wait'; reason: 'verification_pending' | 'provider_processing' | 'settlement_verification' | 'reconciliation' };
+export type RampAdapterPublicAction = RampAdapterAction & { actionId: string };
 export type RampAdapterQuoteRequest = {
   route: RampAdapterRoute;
   amount: { value: RampDecimal; denomination: 'fiat' | 'crypto' };
@@ -42,7 +96,7 @@ export type RampAdapterQuoteRequest = {
 export type RampAdapterOffer = {
   providerQuoteRef: string | null;
   providerExpiresAt: string | null;
-  terms: RampTerms;
+  terms: RampAdapterTerms;
   requiredFields: RampAdapterField[];
   availableAmount: RampDecimal | null;
   kind?: 'firm' | 'indicative';
@@ -105,7 +159,7 @@ export function isRampAdapterError(value: unknown): value is RampAdapterError {
   );
 }
 export type RampAdapterPayment = {
-  chain: RampChain;
+  chain: string;
   network: string;
   assetCode: string;
   identifier: string | null;
@@ -119,7 +173,7 @@ export type RampAdapterPayment = {
 export type RampAdapterFact =
   | { kind: 'provider_processing' }
   | { kind: 'fiat_receipt_reported' | 'fiat_payout_reported'; reference: string | null }
-  | { kind: 'chain_transaction_reported'; chain: RampChain; hash: string; leg: 'source' | 'intermediate' | 'destination' }
+  | { kind: 'chain_transaction_reported'; chain: string; hash: string; leg: 'source' | 'intermediate' | 'destination' }
   | { kind: 'provider_rejection_reported' };
 export type RampAdapterObservation = {
   providerOrderRef: string | null;
@@ -154,7 +208,7 @@ export type RampAdapterCreateRequest = {
 };
 export type RampAdapterContinuation = {
   operation: RampAdapterOperation;
-  action: RampAction;
+  action: RampAdapterPublicAction;
   user: RampAdapterUserContext;
   signedPayload?: string;
   fields?: Record<string, string>;
@@ -167,13 +221,32 @@ export type RampAdapterRefundRequest = {
   currency: string;
 };
 
+export type RampAdapterFiatEvidence = {
+  kind: 'fiat_confirmed';
+  reference: string;
+  verifier: string;
+  purpose: 'receipt' | 'payout';
+  currency: string;
+  amount: RampDecimal;
+  authenticated: true;
+};
+export type RampAdapterSettlementVerifier = (input: {
+  user: RampAdapterUserContext;
+  terms: RampAdapterTerms;
+  providerOrderRef: string;
+  observation: RampAdapterObservation;
+}) => Promise<RampAdapterFiatEvidence | null>;
+
 /**
- * Implement with an injected provider client or your own authenticated server proxy.
- * Credentials, persistence, verified settlement and authorization belong to the host.
- * Neither registration nor a provider success registers a route in Pollar's hosted API.
+ * Implement on the Pollar server with an injected authenticated provider client.
+ * Install its registration in the backend; applications consume the existing HTTP API.
+ * Pollar owns persistence, authorization, operation dispatch and verified settlement.
  */
 export interface RampAdapter {
   readonly adapterId: string;
+  readonly protocol?: 'SEP-24' | 'REST';
+  /** Server-trusted authenticated receipt reader. A status report alone is not a receipt. */
+  verifySettlement?: RampAdapterSettlementVerifier;
   capabilities(user: RampAdapterUserContext): Promise<RampAdapterCapabilities>;
   quote(input: RampAdapterQuoteRequest): Promise<RampAdapterOffer>;
   create(input: RampAdapterCreateRequest): Promise<RampAdapterSubmission>;
@@ -191,7 +264,7 @@ export interface RampAdapter {
     offer: RampAdapterOffer;
     signedPayload?: string;
   }): Promise<void>;
-  mapInputs?(input: Record<string, string>): Record<string, string>;
+  mapInputs?(input: Record<string, unknown>): Record<string, string>;
   quotePolicy?(input: { route: RampAdapterRoute; saved: RampAdapterOffer; refreshed: RampAdapterOffer }): boolean;
   continue?(input: RampAdapterContinuation): Promise<RampAdapterSubmission>;
   verifyAndNormalizeCallback?(input: {
@@ -210,4 +283,35 @@ export function defineRampAdapter<T extends RampAdapter>(adapter: T): T {
   for (const method of ['capabilities', 'quote', 'create', 'status', 'reconcile'] as const)
     if (typeof adapter[method] !== 'function') throw new RampAdapterError('INVALID_INPUT', 'correct_input');
   return adapter;
+}
+
+/** Server scope resolved by Pollar, never taken from a frontend registration request. */
+export type RampAdapterProviderScope = { applicationId: string; providerId: string; network: 'mainnet' | 'testnet' };
+export type RampAdapterDependencies<Client = unknown> = {
+  configurationId: string;
+  client: Client;
+  timeoutMs: number;
+  clock: () => Date;
+  logger: { warn(message: string, fields: { code: string }): void };
+};
+export type RampAdapterRegistration<Client = unknown> = {
+  defaultChain: RampAdapterChain;
+  resolveConfiguration(scope: RampAdapterProviderScope): Promise<RampAdapterDependencies<Client>>;
+  factory(dependencies: RampAdapterDependencies<Client>): RampAdapter;
+};
+export type RampAdapterPlugin<Client = unknown> = RampAdapterRegistration<Client> & { readonly adapterId: string };
+/** Installed during backend startup. This does not upload code or credentials from a browser. */
+export function defineRampAdapterRegistration<Client>(
+  adapterId: string,
+  registration: RampAdapterRegistration<Client>,
+): RampAdapterPlugin<Client> {
+  if (
+    !adapterId?.trim() ||
+    adapterId !== adapterId.trim() ||
+    !['STELLAR', 'POLYGON', 'SOLANA'].includes(registration.defaultChain) ||
+    typeof registration.resolveConfiguration !== 'function' ||
+    typeof registration.factory !== 'function'
+  )
+    throw new RampAdapterError('INVALID_INPUT', 'operator');
+  return { ...registration, adapterId };
 }
