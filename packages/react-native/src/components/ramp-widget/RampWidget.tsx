@@ -87,7 +87,7 @@ interface RampResult {
   tosUrl?: string;
   kycRequired?: boolean;
   stellarTxHash?: string;
-  pendingSignature?: { unsignedXdr: string; action: 'sep10' | 'withdraw_payment' };
+  pendingSignature?: { unsignedXdr: string; action: 'sep10' | 'withdraw_payment' | 'cctp_approve' | 'cctp_burn' };
   depositInstructions?: RampDepositInstructions;
 }
 
@@ -702,6 +702,14 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   }
 
   async function resumeWithSignature(id: string, ps: NonNullable<RampResult['pendingSignature']>) {
+    // The CCTP approve and burn of an off-ramp from an external Stellar wallet
+    // are signed by that wallet through the web widget's flow, which this
+    // widget does not have; signing them here would take the wrong path.
+    if (ps.action === 'cctp_approve' || ps.action === 'cctp_burn') {
+      setErrorMsg('This withdrawal needs a signature from an external wallet, which this app does not support yet.');
+      setStep('error');
+      return;
+    }
     const outcome = await client.signTx(ps.unsignedXdr, { skipSponsorship: ps.action === 'sep10' });
     if (outcome.status === 'cosign_pending') {
       // A co-signed wallet answers with the request the user's device must
