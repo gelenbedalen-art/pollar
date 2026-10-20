@@ -4036,7 +4036,9 @@ export class PollarClient {
     }
     const adapter = this._walletAdapter;
     if (!adapter?.signSolanaTransaction) {
-      throw new Error(`[PollarClient] wallet adapter "${adapter?.type}" cannot sign a Solana transaction`);
+      const details = `Wallet "${adapter?.type}" cannot sign a Solana transaction.`;
+      this._setTransactionState({ step: 'error', phase: 'building', details });
+      return { status: 'error', details };
     }
     const idempotencyKey = randomUUID();
     const body = {
@@ -4049,7 +4051,9 @@ export class PollarClient {
     this._setTransactionState({ step: 'building' });
     let unsignedTransaction: string;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union; this is the Solana member
+      // The published /tx/build body is v1's Stellar one: the route's second
+      // validator, not the Solana-or-Stellar union, is what reaches the schema.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above
       const { data, error } = await this._api.POST('/tx/build', { body: body as any });
       const content = !error && data?.success ? (data.content as unknown as { unsignedTransaction?: string }) : null;
       if (!content?.unsignedTransaction) {
@@ -4084,8 +4088,7 @@ export class PollarClient {
     this._setTransactionState({ step: 'submitting' });
     try {
       const { data, error } = await this._api.POST('/tx/submit', {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the generated body type is a union; this is the Solana member
-        body: { chain: 'SOLANA', signedTransaction, idempotencyKey, waitForConfirmation: false } as any,
+        body: { chain: 'SOLANA', signedTransaction, idempotencyKey, waitForConfirmation: false },
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
       if (!error && data?.success && data.content && 'hash' in data.content) {
