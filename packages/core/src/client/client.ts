@@ -55,8 +55,7 @@ import {
 import { buildProof } from '../dpop';
 import { CosignManager } from '../cosign/manager';
 import type { ConfirmationRequest, CosignRequest, CosignState, PendingConfirmation, TxErrorPhase } from '../types';
-import { CosignGroupConsents } from '../cosign/groups';
-import { recognizedSetupRequest } from '../cosign/recognize';
+import { autoApprovesCosignRequest } from '../cosign/recognize';
 import { defaultKeyManager } from '../keys/factory';
 import type { KeyManager } from '../keys/types';
 import { hashApiKey } from '../lib/api-key-hash';
@@ -530,13 +529,6 @@ export class PollarClient {
   readonly cosign: CosignManager;
   private _cosignState: CosignState = { pending: [] };
   private _cosignStateListeners = new Set<(state: CosignState) => void>();
-  /** The approval groups the user consented to on this device; see `cosign/groups`. */
-  private readonly _cosignGroups = new CosignGroupConsents({
-    load: async () => (this._apiKeyHash ? await this._storage.get(`pollar:${this._apiKeyHash}:cosign-groups`) : null),
-    save: async (value) => {
-      if (this._apiKeyHash) await this._storage.set(`pollar:${this._apiKeyHash}:cosign-groups`, value);
-    },
-  });
 
   /** The confirmation policy; see `PollarClientConfig.confirmation` and `cosignManual`. */
   private readonly _confirmation: 'auto' | 'prompt';
@@ -677,15 +669,12 @@ export class PollarClient {
       // chain) is approved without a prompt only when the device can read it
       // and it names this wallet; a custodial wallet does the same setup
       // silently. Under `cosignManual` the app votes on everything itself.
-      // A step of a group the user already approved (a ramp's swap after its
-      // approve) is voted without asking again, verified like any other.
-      autoApprove: (request) =>
-        !this._cosignManual && (recognizedSetupRequest(request).ok || this._cosignGroups.covers(request)),
+      // Anything else, a ramp step included, asks the user for itself.
+      autoApprove: (request) => autoApprovesCosignRequest(request, { manual: this._cosignManual }),
       markAutoHandled: (id, handled) => {
         if (handled) this._autoHandling.add(id);
         else this._autoHandling.delete(id);
       },
-      onApproved: (request) => this._cosignGroups.grant(request),
     });
 
     // Stellar SEP ownership-proof namespace. Thin object over the private
@@ -762,7 +751,9 @@ export class PollarClient {
     // Compute the storage namespace first - every subsequent storage op
     // (including the cross-tab listener below and `_restoreSession`) reads it.
     this._apiKeyHash = await hashApiKey(this.apiKey);
-    await this._cosignGroups.load();
+    // An earlier SDK stored approval consents for grouped ramp steps here; every
+    // co-signed transaction now asks for itself, so none may be left behind.
+    await this._storage.remove(`pollar:${this._apiKeyHash}:cosign-groups`).catch(() => undefined);
     // `destroy()` can only unhook a listener that is already attached, so a
     // client destroyed during the await above would otherwise leave the handler
     // below wired to `window` for the document's lifetime - a dead client that

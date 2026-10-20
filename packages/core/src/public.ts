@@ -29,8 +29,6 @@ export { compressedPublicKeyHex, rawSignatureToDer, encodeStamp } from './cosign
 export { stellarTransactionHashHex } from './cosign/stellar-hash';
 export { recognizedSetupRequest, stellarAccountBytes } from './cosign/recognize';
 export type { SetupRecognition } from './cosign/recognize';
-export { cosignGroupOf, cosignStepKeyOf, stepInGroup } from './cosign/groups';
-export type { CosignGroup } from './cosign/groups';
 export type { BuildProofArgs } from './dpop';
 
 export { FreighterAdapter, AlbedoAdapter, WalletType, isInteractiveAuthAdapter } from './wallets';

@@ -225,3 +225,12 @@ export function recognizedSetupRequest(request: CosignRequest): SetupRecognition
   if (setupOps === 0) return { ok: false, reason: 'no setup operation in the transaction' };
   return { ok: true, kind: setupKind };
 }
+
+/**
+ * Whether this device votes a request Pollar opened without asking the user:
+ * only wallet setup it recognizes, and never under `cosignManual`. Every other
+ * request, a ramp step included, is shown to the user on its own.
+ */
+export function autoApprovesCosignRequest(request: CosignRequest, options: { manual: boolean }): boolean {
+  return !options.manual && recognizedSetupRequest(request).ok;
+}

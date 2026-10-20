@@ -79,6 +79,18 @@ UI workflow helpers exported from core are `describeRampAction`,
 `mergeRampSnapshot` and `mergeRampCountries`, with `RampSnapshot` and
 `RampSigningHandler` types; registry and URL internals are private.
 
+### Co-sign approval groups removed
+
+Every co-signed transaction now asks the user for itself, ramp steps included;
+a ramp no longer groups its steps under one approval, and the device no longer
+votes a later step on a stored consent. Wallet setup the device recognizes
+(account creation, trustlines, a new chain) is still approved without a prompt.
+
+`cosignGroupOf`, `cosignStepKeyOf`, `stepInGroup` and the `CosignGroup` type are
+no longer exported, and the cosign modal no longer lists a group's steps.
+A request's `stepKey` stays on the request itself. A device that stored group
+consents under 0.11.5 drops them on its first start with this version.
+
 ## 0.11.4 -> 0.11.5
 
 No code change is needed. `@pollar/react@0.11.5` and `@pollar/react-native@0.11.5`

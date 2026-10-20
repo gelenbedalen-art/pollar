@@ -17,6 +17,12 @@
 - Native provider configuration/platform/Privy adapter changes clean up and replace
   the owned client. Login Back and Retry keep their modal open; logout still clears
   saved ramp state. Native route choices follow the theme and show selection.
+- Co-signed approvals are one per transaction: the approval groups of 0.11.5
+  (one confirmation for a ramp's swap or bridge steps, later steps voted on a
+  stored consent) are removed. Recognized wallet setup is still approved
+  without a prompt. `cosignGroupOf`, `cosignStepKeyOf`, `stepInGroup` and
+  `CosignGroup` are no longer exported. See
+  [UPGRADE.md](./UPGRADE.md#co-sign-approval-groups-removed).
 - **Migration:** native provider initialization, transaction modal behavior,
   balance refresh, configuration errors, context types and open-ended bank types
   have changed. See [UPGRADE.md](./UPGRADE.md#0115---0120).

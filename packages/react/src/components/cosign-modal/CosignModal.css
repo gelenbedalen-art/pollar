@@ -175,24 +175,3 @@ html.dark .pollar-cosign-modal {
   border-color: var(--pollar-accent);
   color: var(--pollar-accent-text, #fff);
 }
-
-.pollar-cosign-group {
-  margin: 8px 0 12px;
-  padding: 10px 12px;
-  border-radius: var(--pollar-card-border-radius);
-  border: 1px solid var(--pollar-border);
-}
-
-.pollar-cosign-group-title {
-  margin: 0 0 4px;
-  font-weight: 600;
-}
-
-.pollar-cosign-group-steps {
-  margin: 8px 0 0;
-  padding-left: 20px;
-}
-
-.pollar-cosign-group-step-current {
-  font-weight: 600;
-}
