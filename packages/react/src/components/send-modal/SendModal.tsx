@@ -1,6 +1,6 @@
 'use client';
 
-import { toBaseUnits, WalletBalanceRecord, WalletChain } from '@pollar/core';
+import { fromBaseUnits, toBaseUnits, WalletBalanceRecord, WalletChain } from '@pollar/core';
 import { useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
 import { walletNotReadyReason } from '../../lib/wallet-provisioning';
@@ -17,6 +17,16 @@ interface SendModalProps {
 }
 
 const MAX_MEMO_ID = 18446744073709551615n;
+
+// A self-paid SOL send needs the fee on top of the amount: 5000 lamports per
+// signature plus the priority fee. Max leaves this much behind.
+const SOLANA_FEE_MARGIN_LAMPORTS = 10_000n;
+
+/** The most a native SOL send can move out of `available` (decimal SOL) once the fee is left behind. */
+function solanaMaxAfterFee(available: string): string {
+  const lamports = BigInt(toBaseUnits(available, 9)) - SOLANA_FEE_MARGIN_LAMPORTS;
+  return fromBaseUnits((lamports > 0n ? lamports : 0n).toString(), 9);
+}
 
 /** A Stellar memo as the build endpoint takes it, undefined when the field is
  *  empty, or an error string the form shows. Text is capped at 28 BYTES on-chain
@@ -252,7 +262,16 @@ export function SendModal({ onClose }: SendModalProps) {
 
   function handleMax() {
     if (selectedAsset?.available !== null && selectedAsset?.available !== undefined) {
-      setAmount(selectedAsset.available);
+      const paysOwnSolFee = selectedChain === 'SOLANA' && selectedAsset.type === 'native' && selectedAsset.sponsored !== true;
+      let max = selectedAsset.available;
+      if (paysOwnSolFee) {
+        try {
+          max = solanaMaxAfterFee(selectedAsset.available);
+        } catch {
+          // Not a readable SOL amount: the submit check reports it.
+        }
+      }
+      setAmount(max);
       setFormError('');
     }
   }
