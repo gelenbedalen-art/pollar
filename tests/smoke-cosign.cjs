@@ -195,7 +195,12 @@ function request(overrides = {}) {
   let turnkeyPayload = HASH;
   // What Turnkey "holds" for the other kinds the device verifies.
   const SOLANA_FROM = 'HUwbU1P7nxJvACyYMYChUCUZ1tCQqCyjWeT27gPYYSaU';
-  const SOLANA_UNSIGNED = 'ab'.repeat(40);
+  const SOLANA_TO = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+  // A v0 message moving 0.25 SOL (250000000 lamports) from SOLANA_FROM to SOLANA_TO,
+  // fee paid by the sender: the device decodes it and compares it with `details`.
+  const SOLANA_UNSIGNED =
+    '01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008001000103f4e3670e7fc3b4421922d9820007b1f3066b368eb34f6e710be324c3e663' +
+    '9f617e8c088760bfde1dddcf32c17f209b8242ee52aaf131facd88d0ea2c6d0b06f20000000000000000000000000000000000000000000000000000000000000000070707070707070707070707070707070707070707070707070707070707070701020200010c0200000080b2e60e0000000000';
   let turnkeySolanaTx = SOLANA_UNSIGNED;
   const ACCOUNT_PAYLOAD = {
     walletId: 'wallet-tk',
@@ -474,6 +479,8 @@ function request(overrides = {}) {
     signWith: SOLANA_FROM,
     unsignedPayload: SOLANA_UNSIGNED,
     payloadHash: crypto.createHash('sha256').update(SOLANA_UNSIGNED).digest('hex'),
+    operation: 'transfer',
+    details: { destination: SOLANA_TO, amount: '250000000', mint: null },
     refreshable: true,
   });
   const solanaOk = await client.cosign.verify(solanaRequest);
@@ -482,7 +489,7 @@ function request(overrides = {}) {
     solanaOk.ok === true,
     solanaOk,
   );
-  turnkeySolanaTx = 'cd'.repeat(40);
+  turnkeySolanaTx = SOLANA_UNSIGNED.replace('07'.repeat(32), '08'.repeat(32));
   const solanaBad = await client.cosign.verify(solanaRequest);
   check('verify refuses a Solana request when Turnkey holds another transaction', solanaBad.ok === false);
   turnkeySolanaTx = SOLANA_UNSIGNED;
