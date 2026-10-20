@@ -128,6 +128,8 @@ export interface DecodedSolanaInstruction {
 export interface DecodedSolanaTransaction {
   /** The fee payer: the first account key. */
   feePayer: string;
+  /** Signatures the message requires; each costs the base fee. */
+  requiredSignatures: number;
   instructions: DecodedSolanaInstruction[];
 }
 
@@ -140,7 +142,7 @@ export function decodeSolanaTransaction(hex: string): DecodedSolanaTransaction {
   const first = r.u8();
   const versioned = (first & 0x80) !== 0;
   if (versioned && (first & 0x7f) !== 0) throw new Error(`solana: message version ${first & 0x7f} is not supported`);
-  if (versioned) r.u8(); // numRequiredSignatures
+  const requiredSignatures = versioned ? r.u8() : first;
   r.u8(); // numReadonlySignedAccounts
   r.u8(); // numReadonlyUnsignedAccounts
 
@@ -170,7 +172,7 @@ export function decodeSolanaTransaction(hex: string): DecodedSolanaTransaction {
   if (!r.done) throw new Error('solana: trailing bytes');
   const feePayer = keys[0];
   if (!feePayer) throw new Error('solana: no fee payer');
-  return { feePayer, instructions };
+  return { feePayer, requiredSignatures, instructions };
 }
 
 function u64le(bytes: Uint8Array): bigint {
@@ -181,6 +183,60 @@ function u64le(bytes: Uint8Array): bigint {
 
 function u32le(bytes: Uint8Array): number {
   return (bytes[0]! | (bytes[1]! << 8) | (bytes[2]! << 16) | (bytes[3]! << 24)) >>> 0;
+}
+
+const SET_COMPUTE_UNIT_LIMIT = 2;
+const SET_COMPUTE_UNIT_PRICE = 3;
+const LAMPORTS_PER_SIGNATURE = 5_000n;
+const DEFAULT_UNITS_PER_INSTRUCTION = 200_000n;
+const MAX_COMPUTE_UNITS = 1_400_000n;
+/**
+ * The most a request may cost in fees: custody's own cap
+ * (SOLANA_MAX_TX_FEE_LAMPORTS, 0.001 SOL). The device enforces it again because
+ * the compute unit price is set by whoever builds the transaction, and an
+ * inflated one would pass every other check while the fee payer pays for it.
+ */
+export const SOLANA_MAX_FEE_LAMPORTS = 1_000_000n;
+
+/**
+ * The highest fee the transaction can be charged: the base fee per signature
+ * plus the priority fee at its compute unit limit (the runtime default when no
+ * limit is set). Compute budget instructions other than the limit and the price
+ * are refused, as is setting either twice.
+ */
+export function solanaMaxFeeLamports(
+  tx: DecodedSolanaTransaction,
+): { ok: true; lamports: bigint } | { ok: false; reason: string } {
+  let limit: bigint | null = null;
+  let price: bigint | null = null;
+  let others = 0n;
+  for (const ix of tx.instructions) {
+    if (ix.program !== COMPUTE_BUDGET) {
+      others++;
+      continue;
+    }
+    if (ix.data[0] === SET_COMPUTE_UNIT_LIMIT && ix.data.length === 5 && limit === null) {
+      limit = BigInt(u32le(ix.data.subarray(1, 5)));
+    } else if (ix.data[0] === SET_COMPUTE_UNIT_PRICE && ix.data.length === 9 && price === null) {
+      price = u64le(ix.data.subarray(1, 9));
+    } else {
+      return { ok: false, reason: 'a compute budget instruction other than one unit limit and one unit price' };
+    }
+  }
+  const units = limit ?? others * DEFAULT_UNITS_PER_INSTRUCTION;
+  const capped = units < MAX_COMPUTE_UNITS ? units : MAX_COMPUTE_UNITS;
+  // The price is in micro-lamports per unit, rounded up by the runtime.
+  const priority = ((price ?? 0n) * capped + 999_999n) / 1_000_000n;
+  return { ok: true, lamports: BigInt(tx.requiredSignatures) * LAMPORTS_PER_SIGNATURE + priority };
+}
+
+function checkSolanaFee(tx: DecodedSolanaTransaction): { ok: true } | { ok: false; reason: string } {
+  const fee = solanaMaxFeeLamports(tx);
+  if (!fee.ok) return fee;
+  if (fee.lamports > SOLANA_MAX_FEE_LAMPORTS) {
+    return { ok: false, reason: `the fee can reach ${fee.lamports} lamports, above the ${SOLANA_MAX_FEE_LAMPORTS} cap` };
+  }
+  return { ok: true };
 }
 
 const hex32 = (value: unknown) => (typeof value === 'string' ? value.replace(/^0x/i, '').toLowerCase() : null);
@@ -287,6 +343,8 @@ export function checkSolanaRequest(
     if (transfer.instructions.some((ix) => ix.program === TOKEN_MESSENGER_MINTER_V2)) {
       return { ok: false, reason: 'a CCTP burn the request does not declare' };
     }
+    const fee = checkSolanaFee(transfer);
+    if (!fee.ok) return fee;
     return checkSolanaTransfer(transfer, request.signWith, request.details ?? {});
   }
 
@@ -302,6 +360,8 @@ export function checkSolanaRequest(
     return { ok: false, reason: 'the burn carries an instruction for another program' };
   }
   if (burns.length !== 1) return { ok: false, reason: `expected one deposit_for_burn, found ${burns.length}` };
+  const fee = checkSolanaFee(tx);
+  if (!fee.ok) return fee;
   const burn = burns[0]!;
   if (burn.data.length < 52 || bytesToHex(burn.data.subarray(0, 8)) !== DEPOSIT_FOR_BURN) {
     return { ok: false, reason: 'not a deposit_for_burn' };

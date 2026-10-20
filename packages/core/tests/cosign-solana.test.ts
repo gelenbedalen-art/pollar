@@ -8,6 +8,8 @@ import {
   base58Of,
   checkSolanaRequest,
   decodeSolanaTransaction,
+  SOLANA_MAX_FEE_LAMPORTS,
+  solanaMaxFeeLamports,
   TOKEN_MESSENGER_MINTER_V2,
 } from '../src/cosign/solana';
 
@@ -261,4 +263,43 @@ test('a transfer request that does not state its transfer, or a payload this rea
   assert.equal(transferRequest([transferCheckedIx()], { destination: undefined }).ok, false);
   assert.equal(transferRequest([transferCheckedIx()], { amount: 1500000 }).ok, false);
   assert.equal(checkSolanaRequest('00', { operation: 'transfer', signWith: USER, details: {} }).ok, false);
+});
+
+const priceIx = (microLamports: bigint): Ix => ({ program: COMPUTE_BUDGET, accounts: [], data: [3, ...le(microLamports, 8)] });
+const limitIx = (units: bigint): Ix => ({ program: COMPUTE_BUDGET, accounts: [], data: [2, ...le(units, 4)] });
+
+test('the fee a transaction can reach is the base fee per signature plus the priority fee at its unit limit', () => {
+  // 3 signatures, 1 lamport per unit, 200k units: 15k + 200k.
+  const limited = decodeSolanaTransaction(
+    serialize({ payer: USER, instructions: [limitIx(200_000n), priceIx(1_000_000n), solIx()] }),
+  );
+  assert.deepEqual(solanaMaxFeeLamports(limited), { ok: true, lamports: 215_000n });
+  // No limit: 200k units per instruction that is not a compute budget one.
+  const unlimited = decodeSolanaTransaction(serialize({ payer: USER, instructions: [priceIx(1_000_000n), solIx(), memoIx] }));
+  assert.deepEqual(solanaMaxFeeLamports(unlimited), { ok: true, lamports: 415_000n });
+});
+
+test('a transfer or a burn whose priority fee can pass the cap is refused', () => {
+  const inflated = priceIx(10_000_000_000n);
+  assert.match(
+    (transferRequest([inflated, solIx(), memoIx], solDetails, USER) as { reason: string }).reason,
+    new RegExp(`above the ${SOLANA_MAX_FEE_LAMPORTS} cap`),
+  );
+  assert.match(
+    (transferRequest([limitIx(1_400_000n), priceIx(1_000_000n), createAtaIx(), transferCheckedIx()]) as { reason: string })
+      .reason,
+    /above the .* cap/,
+  );
+  assert.match(
+    (check(request(serialize({ payer: GAS, instructions: [inflated, burnIx()] }))) as { reason: string }).reason,
+    /above the .* cap/,
+  );
+});
+
+test('compute budget instructions beyond one unit limit and one unit price are refused', () => {
+  const heapFrame: Ix = { program: COMPUTE_BUDGET, accounts: [], data: [1, ...le(65_536n, 4)] };
+  for (const extra of [heapFrame, priceIx(1n)]) {
+    const result = transferRequest([budgetIx, extra, solIx()], solDetails, USER);
+    assert.match((result as { reason: string }).reason, /compute budget instruction/);
+  }
 });
