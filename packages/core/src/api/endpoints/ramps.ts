@@ -142,7 +142,7 @@ export async function getRampTransaction(api: PollarApiClient, txId: string): Pr
 export async function retryRampTransaction(api: PollarApiClient, txId: string): Promise<RampsTransactionResponse> {
   const { data, error } = await api.POST('/ramps/transaction/{txId}/retry', { params: { path: { txId } } });
   if (!data?.content || error) throw rampApiError(error, 'Failed to retry transaction');
-  return data.content as RampsTransactionResponse;
+  return data.content;
 }
 
 /**

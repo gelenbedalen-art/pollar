@@ -493,7 +493,12 @@ export type SessionsState =
   | { step: 'loaded'; sessions: SessionInfo[] }
   | { step: 'error'; message: string };
 
-export type TxBuildBody = NonNullable<pollarPaths['/tx/build']['post']['requestBody']>['content']['application/json'];
+// The Stellar build body. `/tx/build` also takes a Solana body for an external
+// wallet (`chain: 'SOLANA'`), which only `sendPayment` sends and builds itself.
+export type TxBuildBody = Exclude<
+  NonNullable<pollarPaths['/tx/build']['post']['requestBody']>['content']['application/json'],
+  { chain: 'SOLANA' }
+>;
 export type TxBuildResponse = pollarPaths['/tx/build']['post']['responses'][200]['content']['application/json'];
 
 export type TxSignAndSendBody = NonNullable<
@@ -507,7 +512,11 @@ export type TxSignBody = NonNullable<pollarPaths['/tx/sign']['post']['requestBod
 export type TxSignResponse = pollarPaths['/tx/sign']['post']['responses'][200]['content']['application/json'];
 export type TxSignContent = TxSignResponse['content'];
 
-export type TxSubmitSignedBody = NonNullable<pollarPaths['/tx/submit']['post']['requestBody']>['content']['application/json'];
+// The Stellar submit body; `/tx/submit` also takes the signed Solana transaction of an external wallet.
+export type TxSubmitSignedBody = Exclude<
+  NonNullable<pollarPaths['/tx/submit']['post']['requestBody']>['content']['application/json'],
+  { chain: 'SOLANA' }
+>;
 
 export type TxBuildSignSubmitBody = NonNullable<
   pollarPaths['/tx/build-sign-submit']['post']['requestBody']

@@ -3728,15 +3728,8 @@ export class PollarClient {
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
       if (!error && data?.success && data.content && 'hash' in data.content) {
-        const {
-          hash,
-          status: backendStatus,
-          resultCode,
-        } = data.content as {
-          hash: string;
-          status: 'SUCCESS' | 'FAILED' | 'PENDING';
-          resultCode?: string;
-        };
+        const { hash, status: backendStatus } = data.content;
+        const resultCode = 'resultCode' in data.content ? data.content.resultCode : undefined;
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash, ...(buildData && { buildData }) });
           return { status: 'success', hash, ...outcomeExtra };
@@ -3986,7 +3979,7 @@ export class PollarClient {
       });
 
       if (!error && data?.success && data.content && 'hash' in data.content) {
-        const { hash, status: backendStatus } = data.content as { hash: string; status: string };
+        const { hash, status: backendStatus } = data.content;
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash });
           return { status: 'success', hash };
@@ -4041,8 +4034,8 @@ export class PollarClient {
     }
     const idempotencyKey = randomUUID();
     const body = {
-      chain: 'SOLANA',
-      operation: 'payment',
+      chain: 'SOLANA' as const,
+      operation: 'payment' as const,
       params: { destination: params.destination, amount: params.amount, ...(params.mint ? { mint: params.mint } : {}) },
       idempotencyKey,
     };
@@ -4050,11 +4043,8 @@ export class PollarClient {
     this._setTransactionState({ step: 'building' });
     let unsignedTransaction: string;
     try {
-      // The published /tx/build body is v1's Stellar one: the route's second
-      // validator, not the Solana-or-Stellar union, is what reaches the schema.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above
-      const { data, error } = await this._api.POST('/tx/build', { body: body as any });
-      const content = !error && data?.success ? (data.content as unknown as { unsignedTransaction?: string }) : null;
+      const { data, error } = await this._api.POST('/tx/build', { body });
+      const content = !error && data?.success && data.content && 'unsignedTransaction' in data.content ? data.content : null;
       if (!content?.unsignedTransaction) {
         const { details, code, message } = this._resolveTxApiError(error, data);
         this._setTransactionState({
@@ -4091,7 +4081,7 @@ export class PollarClient {
         headers: { 'x-pollar-timeout-ms': String(this._submitTimeoutMs) },
       });
       if (!error && data?.success && data.content && 'hash' in data.content) {
-        const { hash, status: backendStatus } = data.content as { hash: string; status: string };
+        const { hash, status: backendStatus } = data.content;
         if (backendStatus === 'SUCCESS') {
           this._setTransactionState({ step: 'success', hash });
           return { status: 'success', hash };

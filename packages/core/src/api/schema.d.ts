@@ -2041,6 +2041,17 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @constant */
+                    chain: "SOLANA";
+                    /** @constant */
+                    operation: "payment";
+                    params: {
+                        destination: string;
+                        amount: string;
+                        mint?: string | null;
+                    };
+                    idempotencyKey: string;
+                } | ({
                     publicKey?: string;
                     address?: string;
                     options?: {
@@ -2237,7 +2248,7 @@ export interface operations {
                             type: "void";
                         })[];
                     };
-                });
+                }));
             };
         };
         responses: {
@@ -2772,6 +2783,12 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @constant */
+                    chain: "SOLANA";
+                    signedTransaction: string;
+                    idempotencyKey: string;
+                    waitForConfirmation?: boolean;
+                } | {
                     publicKey?: string;
                     address?: string;
                     signedXdr?: string;
