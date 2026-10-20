@@ -183,6 +183,8 @@ export interface PollarUserProfile {
 }
 
 export interface PollarClientConfig {
+  /** Custom provider instances. Use server proxies for providers that require private credentials. */
+  rampAdapters?: readonly import('./ramps/adapter').RampAdapter[];
   stellarNetwork?: StellarNetwork;
   baseUrl?: string;
   apiKey: string;
