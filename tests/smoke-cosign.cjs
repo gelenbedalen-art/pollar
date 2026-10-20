@@ -6,8 +6,9 @@
 // produces verifies as a DER ECDSA signature; the Stellar transaction hash is
 // recomputed from the envelope without a parser (unsigned and sponsor-signed);
 // under `cosignManual` a 202 SDK_COSIGN_PENDING becomes a cosign_pending
-// outcome and an awaiting_cosign tx state, approve verifies against Turnkey,
-// relays the vote and moves the tx state to the submit outcome; by default the
+// outcome and an awaiting_cosign tx state, approve verifies the payload,
+// proposes the Turnkey request built from it with the request id and moves the
+// tx state to the submit outcome; reject closes the request; by default the
 // client settles the vote itself and signing calls end as they do for a
 // custodial wallet, recognized setup is approved at login without a prompt and
 // a mismatching payload is rejected; `confirmation: 'prompt'` asks before any
@@ -78,8 +79,8 @@ function request(overrides = {}) {
     network: 'STELLAR',
     status: 'PENDING',
     subOrgId: 'sub-org-1',
-    activityId: 'act-1',
-    fingerprint: 'fp-1',
+    activityId: null,
+    fingerprint: null,
     signWith: SOURCE,
     unsignedPayload: UNSIGNED_XDR,
     payloadHash: HASH,
@@ -192,8 +193,15 @@ function request(overrides = {}) {
   let rejectCalls = 0;
   let pendingList = [request()];
   let relayStampPublicKey = null;
-  let turnkeyPayload = HASH;
-  // What Turnkey "holds" for the other kinds the device verifies.
+  // Every proposal the device relayed: the Turnkey path, the parsed body and the request id.
+  const proposals = [];
+  const PROPOSAL_PATHS = [
+    '/public/v1/submit/sign_raw_payload',
+    '/public/v1/submit/sign_transaction',
+    '/public/v1/submit/create_wallet_accounts',
+  ];
+  // What sdk-api answers a signing call with; a test swaps it for a tampered request.
+  let signingRequest = (overrides) => request(overrides);
   const SOLANA_FROM = 'HUwbU1P7nxJvACyYMYChUCUZ1tCQqCyjWeT27gPYYSaU';
   const SOLANA_TO = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
   // A v0 message moving 0.25 SOL (250000000 lamports) from SOLANA_FROM to SOLANA_TO,
@@ -201,7 +209,6 @@ function request(overrides = {}) {
   const SOLANA_UNSIGNED =
     '01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008001000103f4e3670e7fc3b4421922d9820007b1f3066b368eb34f6e710be324c3e663' +
     '9f617e8c088760bfde1dddcf32c17f209b8242ee52aaf131facd88d0ea2c6d0b06f20000000000000000000000000000000000000000000000000000000000000000070707070707070707070707070707070707070707070707070707070707070701020200010c0200000080b2e60e0000000000';
-  let turnkeySolanaTx = SOLANA_UNSIGNED;
   const ACCOUNT_PAYLOAD = {
     walletId: 'wallet-tk',
     accounts: [
@@ -214,7 +221,6 @@ function request(overrides = {}) {
       },
     ],
   };
-  let turnkeyAccounts = ACCOUNT_PAYLOAD;
   let refreshCalls = 0;
   let refreshedRequest = null;
   const quorumReports = [];
@@ -251,14 +257,14 @@ function request(overrides = {}) {
       return json(202, {
         success: true,
         code: 'SDK_COSIGN_PENDING',
-        content: { pendingSignature: { kind: 'cosign', request: request({ intent: 'sign' }) } },
+        content: { pendingSignature: { kind: 'cosign', request: signingRequest({ intent: 'sign' }) } },
       });
     }
     if (url.pathname === '/v2/tx/sign-and-send') {
       return json(202, {
         success: true,
         code: 'SDK_COSIGN_PENDING',
-        content: { pendingSignature: { kind: 'cosign', request: request() } },
+        content: { pendingSignature: { kind: 'cosign', request: signingRequest() } },
       });
     }
     if (url.pathname === '/v2/cosign/requests')
@@ -302,6 +308,23 @@ function request(overrides = {}) {
         content: { quorumState: quorumReports[quorumReports.length - 1].ok ? 'VERIFIED' : 'BROKEN' },
       });
     }
+    const cancel = url.pathname.match(/^\/v2\/cosign\/requests\/([^/]+)\/cancel$/);
+    if (cancel) {
+      rejectCalls++;
+      pendingList = pendingList.filter((r) => r.id !== cancel[1]);
+      return json(200, {
+        success: true,
+        code: 'SDK_COSIGN_REJECTED',
+        content: {
+          request: request({
+            id: cancel[1],
+            status: 'REJECTED',
+            failureReason: 'rejected by the user',
+            resolvedAt: new Date().toISOString(),
+          }),
+        },
+      });
+    }
     if (url.pathname === '/v2/cosign/requests/req-1/refresh') {
       refreshCalls++;
       return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { request: refreshedRequest ?? request() } });
@@ -311,25 +334,6 @@ function request(overrides = {}) {
       const stampJson = JSON.parse(Buffer.from(body.stamp, 'base64url').toString());
       relayStampPublicKey = stampJson.publicKey;
       const inner = JSON.parse(body.body);
-      if (body.path === '/public/v1/query/get_activity') {
-        const intent =
-          inner.activityId === 'act-sol'
-            ? {
-                signTransactionIntentV2: {
-                  signWith: SOLANA_FROM,
-                  unsignedTransaction: turnkeySolanaTx,
-                  type: 'TRANSACTION_TYPE_SOLANA',
-                },
-              }
-            : inner.activityId === 'act-acc'
-              ? { createWalletAccountsIntent: turnkeyAccounts }
-              : { signRawPayloadIntentV2: { signWith: SOURCE, payload: turnkeyPayload } };
-        return json(200, {
-          success: true,
-          code: 'SDK_COSIGN_REQUEST',
-          content: { status: 200, body: { activity: { id: inner.activityId, intent } } },
-        });
-      }
       if (body.path === '/public/v1/query/get_organization') {
         return json(200, {
           success: true,
@@ -356,35 +360,21 @@ function request(overrides = {}) {
           content: { status: 200, body: { activity: { status: 'ACTIVITY_STATUS_COMPLETED' } } },
         });
       }
-      if (body.path === '/public/v1/submit/reject_activity') {
-        rejectCalls++;
-        return json(200, {
-          success: true,
-          code: 'SDK_COSIGN_REJECTED',
-          content: {
-            status: 200,
-            body: {},
-            request: request({
-              status: 'REJECTED',
-              failureReason: 'rejected by the device',
-              resolvedAt: new Date().toISOString(),
-            }),
-          },
-        });
-      }
-      if (body.path === '/public/v1/submit/approve_activity') {
+      if (PROPOSAL_PATHS.includes(body.path)) {
         approveCalls++;
-        // The vote completes the activity, so the list no longer carries it;
-        // the answer names the request that was voted on.
-        const voted = pendingList.find((r) => r.fingerprint === inner.parameters.fingerprint);
-        pendingList = pendingList.filter((r) => r.fingerprint !== inner.parameters.fingerprint);
+        proposals.push({ path: body.path, body: inner, requestId: body.requestId });
+        // Pollar's approver votes second and the activity completes, so the
+        // list no longer carries the request; the answer names it.
+        const proposed = pendingList.find((r) => r.id === body.requestId);
+        pendingList = pendingList.filter((r) => r.id !== body.requestId);
         return json(200, {
           success: true,
           code: 'SDK_COSIGN_APPROVED',
           content: {
             status: 200,
             body: {},
-            request: voted ? { ...approvedRequest, id: voted.id, fingerprint: voted.fingerprint } : approvedRequest,
+            approvedByApprover: true,
+            request: { ...approvedRequest, id: proposed?.id ?? body.requestId ?? approvedRequest.id },
           },
         });
       }
@@ -414,28 +404,30 @@ function request(overrides = {}) {
   const sendOutcome = await client.signAndSubmitTx(UNSIGNED_XDR);
   check('signAndSubmitTx answers cosign_pending too', sendOutcome.status === 'cosign_pending');
 
+  const relaysBeforeVerify = calls.filter((c) => c === 'POST /v2/cosign/relay').length;
   const verification = await client.cosign.verify(request());
   check(
-    'verify: local hash equals Pollar hash and Turnkey payload',
+    'verify: the recomputed hash equals the Pollar hash',
     verification.ok === true && verification.localHash === HASH,
     verification,
   );
   check(
-    'verify read the activity through the relay',
-    calls.some((c) => c === 'POST /v2/cosign/relay'),
+    'verify builds the sign_raw_payload proposal from the recomputed hash',
+    verification.ok === true &&
+      verification.proposal.path === '/public/v1/submit/sign_raw_payload' &&
+      verification.proposal.body.type === 'ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2' &&
+      verification.proposal.body.organizationId === 'sub-org-1' &&
+      verification.proposal.body.parameters.payload === HASH &&
+      verification.proposal.body.parameters.signWith === SOURCE,
+    verification,
   );
-  const deviceKeyHex = await client.cosign.publicKeyHex();
-  check('relay stamped with the device key', relayStampPublicKey === deviceKeyHex);
+  check(
+    'verify reads nothing from the network',
+    calls.filter((c) => c === 'POST /v2/cosign/relay').length === relaysBeforeVerify,
+  );
 
   const tampered = await client.cosign.verify(request({ payloadHash: '00'.repeat(32) }));
   check('verify refuses a request whose hash does not match the transaction', tampered.ok === false);
-  turnkeyPayload = 'ff'.repeat(32);
-  const turnkeyDisagrees = await client.cosign.verify(request());
-  check(
-    'verify refuses when Turnkey holds a different payload',
-    turnkeyDisagrees.ok === false && /Turnkey/.test(turnkeyDisagrees.reason),
-  );
-  turnkeyPayload = HASH;
 
   let threw = null;
   try {
@@ -447,13 +439,23 @@ function request(overrides = {}) {
     'approve throws SDK_COSIGN_VERIFICATION_FAILED instead of voting on a mismatch',
     threw && threw.code === 'SDK_COSIGN_VERIFICATION_FAILED',
   );
-  check('no approve_activity was relayed for the mismatch', !calls.includes('approve'));
+  check('nothing was proposed for the mismatch', proposals.length === 0);
 
   const approved = await client.cosign.approve(request());
   check(
-    'approve relays the vote and returns the resolved request',
+    'approve proposes the activity and returns the resolved request',
     approved.status === 'APPROVED' && approved.submit?.hash === 'abc123',
   );
+  check(
+    'the proposal carries the request id and the verified payload',
+    proposals.length === 1 &&
+      proposals[0].requestId === 'req-1' &&
+      proposals[0].path === '/public/v1/submit/sign_raw_payload' &&
+      proposals[0].body.parameters.payload === HASH,
+    proposals,
+  );
+  const deviceKeyHex = await client.cosign.publicKeyHex();
+  check('the proposal was stamped with the device key', relayStampPublicKey === deviceKeyHex);
   check('tx state reached success from the approved submit', txStates[txStates.length - 1] === 'success');
   check(
     'cosign store dropped the resolved request',
@@ -463,19 +465,22 @@ function request(overrides = {}) {
   // Refresh: a request Pollar composed is rebuilt right before the vote; one the
   // client composed is not.
   check('approve did not refresh a request the client composed', refreshCalls === 0);
-  refreshedRequest = request({ refreshable: true, activityId: 'act-2', fingerprint: 'fp-2' });
+  refreshedRequest = request({ refreshable: true });
   await client.signAndSubmitTx(UNSIGNED_XDR);
   const approvedAfterRefresh = await client.cosign.approve(request({ refreshable: true }));
   check('approve refreshes a refreshable request first', refreshCalls === 1);
-  check('approve then verified and voted on the refreshed activity', approvedAfterRefresh.status === 'APPROVED');
+  check('approve then verified and proposed the refreshed payload', approvedAfterRefresh.status === 'APPROVED');
   refreshedRequest = null;
 
-  // Solana: the device compares the serialized unsigned transaction with the intent.
+  // A request already proposed is not proposed again; sdk-api reads it back.
+  const proposalsBeforeProposed = proposals.length;
+  await client.cosign.approve(request({ activityId: 'act-9', fingerprint: 'fp-9' })).catch(() => undefined);
+  check('approve on a request already proposed proposes nothing', proposals.length === proposalsBeforeProposed);
+
+  // Solana: the device decodes the unsigned transaction and proposes it byte for byte.
   const solanaRequest = request({
     id: 'req-sol',
     network: 'SOLANA',
-    activityId: 'act-sol',
-    fingerprint: 'fp-sol',
     signWith: SOLANA_FROM,
     unsignedPayload: SOLANA_UNSIGNED,
     payloadHash: crypto.createHash('sha256').update(SOLANA_UNSIGNED).digest('hex'),
@@ -485,39 +490,51 @@ function request(overrides = {}) {
   });
   const solanaOk = await client.cosign.verify(solanaRequest);
   check(
-    'verify accepts a Solana request whose unsigned transaction Turnkey holds byte for byte',
-    solanaOk.ok === true,
+    'verify proposes a Solana transfer as the unsigned transaction it decoded',
+    solanaOk.ok === true &&
+      solanaOk.proposal.path === '/public/v1/submit/sign_transaction' &&
+      solanaOk.proposal.body.parameters.unsignedTransaction === SOLANA_UNSIGNED &&
+      solanaOk.proposal.body.parameters.type === 'TRANSACTION_TYPE_SOLANA' &&
+      solanaOk.proposal.body.parameters.signWith === SOLANA_FROM,
     solanaOk,
   );
-  turnkeySolanaTx = SOLANA_UNSIGNED.replace('07'.repeat(32), '08'.repeat(32));
-  const solanaBad = await client.cosign.verify(solanaRequest);
-  check('verify refuses a Solana request when Turnkey holds another transaction', solanaBad.ok === false);
-  turnkeySolanaTx = SOLANA_UNSIGNED;
+  const solanaBad = await client.cosign.verify({
+    ...solanaRequest,
+    details: { ...solanaRequest.details, amount: '1' },
+  });
+  check('verify refuses a Solana transaction that moves another amount than the request says', solanaBad.ok === false);
   const solanaWrongSigner = await client.cosign.verify({
     ...solanaRequest,
     signWith: 'SomeoneElse111111111111111111111111111111111',
   });
-  check('verify refuses a Solana request Turnkey would sign with another account', solanaWrongSigner.ok === false);
+  check('verify refuses a Solana request signed by another account', solanaWrongSigner.ok === false);
 
-  // ACCOUNT: the device compares wallet id and derivation parameters.
+  // ACCOUNT: the device proposes the wallet id and the derivation parameters only.
   const accountRequest = request({
     id: 'req-acc',
     kind: 'ACCOUNT',
     network: 'SOLANA',
     intent: 'add_accounts',
-    activityId: 'act-acc',
-    fingerprint: 'fp-acc',
     signWith: 'wallet-tk',
     unsignedPayload: JSON.stringify(ACCOUNT_PAYLOAD),
     payloadHash: crypto.createHash('sha256').update(JSON.stringify(ACCOUNT_PAYLOAD)).digest('hex'),
     refreshable: true,
   });
   const accountOk = await client.cosign.verify(accountRequest);
-  check('verify accepts an account derivation whose parameters match the intent', accountOk.ok === true, accountOk);
-  turnkeyAccounts = { ...ACCOUNT_PAYLOAD, accounts: [{ ...ACCOUNT_PAYLOAD.accounts[0], path: "m/44'/501'/1'/0'" }] };
-  const accountBad = await client.cosign.verify(accountRequest);
-  check('verify refuses an account derivation with a different path', accountBad.ok === false);
-  turnkeyAccounts = ACCOUNT_PAYLOAD;
+  const { name: _label, ...derivation } = ACCOUNT_PAYLOAD.accounts[0];
+  check(
+    'verify proposes create_wallet_accounts with the derivation fields alone',
+    accountOk.ok === true &&
+      accountOk.proposal.path === '/public/v1/submit/create_wallet_accounts' &&
+      accountOk.proposal.body.parameters.walletId === 'wallet-tk' &&
+      JSON.stringify(accountOk.proposal.body.parameters.accounts) === JSON.stringify([derivation]),
+    accountOk,
+  );
+  const accountBad = await client.cosign.verify({
+    ...accountRequest,
+    unsignedPayload: JSON.stringify({ walletId: 'wallet-tk' }),
+  });
+  check('verify refuses an account derivation it cannot read', accountBad.ok === false);
 
   // Quorum: read from Turnkey with the device key and recorded server-side.
   mockDeviceKeyHex = await client.cosign.publicKeyHex();
@@ -556,8 +573,19 @@ function request(overrides = {}) {
   // A rejected vote ends the tx with an error state.
   approvedRequest = request({ status: 'REJECTED', failureReason: 'user said no', resolvedAt: new Date().toISOString() });
   await client.signAndSubmitTx(UNSIGNED_XDR);
-  await client.cosign.approve(request(), { verify: false });
+  await client.cosign.approve(request());
   check('a rejected request moves the tx state to error', txStates[txStates.length - 1] === 'error');
+
+  // reject closes the request through sdk-api; the device stamps nothing.
+  const relaysBeforeReject = calls.filter((c) => c === 'POST /v2/cosign/relay').length;
+  const rejected = await client.cosign.reject(request({ id: 'req-no' }));
+  check(
+    'reject closes the request through cancel without a relay',
+    rejected.status === 'REJECTED' &&
+      calls.includes('POST /v2/cosign/requests/req-no/cancel') &&
+      calls.filter((c) => c === 'POST /v2/cosign/relay').length === relaysBeforeReject,
+  );
+  rejectCalls = 0;
   client.destroy();
 
   // 5. Default policy: the device settles its own vote, so a co-signed wallet
@@ -580,7 +608,6 @@ function request(overrides = {}) {
     details: {},
   });
   pendingList = [setupRequest];
-  turnkeyPayload = CREATE_HASH;
   const approvesBeforeLogin = approveCalls;
   const auto = await makeClient({});
   const autoPending = [];
@@ -588,7 +615,6 @@ function request(overrides = {}) {
   const settledAtLogin = await waitFor(() => approveCalls > approvesBeforeLogin);
   check('login reads the pending requests and approves recognized setup without a prompt', settledAtLogin);
   check('the setup request never reached the pending list', Math.max(...autoPending) === 0, autoPending);
-  turnkeyPayload = HASH;
   pendingList = [request()];
   await auto.cosign.pending();
   check(
@@ -644,7 +670,6 @@ function request(overrides = {}) {
     details: {},
   });
   pendingList = [setupRequest2];
-  turnkeyPayload = CREATE_HASH;
   const approvesBeforeConcurrent = approveCalls;
   await Promise.all([auto.cosign.pending(), auto.cosign.pending(), auto.cosign.pending()]);
   check('three concurrent pending() reads vote once on the same setup request', approveCalls === approvesBeforeConcurrent + 1);
@@ -655,18 +680,18 @@ function request(overrides = {}) {
   await auto.cosign.pending();
   check('a stale pending copy of a settled request never reaches the store', auto.getCosignState().pending.length === 0);
   pendingList = [];
-  turnkeyPayload = HASH;
 
-  turnkeyPayload = 'ff'.repeat(32);
+  // sdk-api claims a hash the transaction does not have.
+  signingRequest = (overrides) => request({ payloadHash: 'ff'.repeat(32), ...overrides });
   const mismatch = await auto.signTx(UNSIGNED_XDR);
   check(
-    'a payload Turnkey disagrees with ends as an error, not a signature',
+    'a payload that does not hash to what Pollar claims ends as an error, not a signature',
     mismatch.status === 'error' && mismatch.code === 'SDK_COSIGN_VERIFICATION_FAILED',
     mismatch,
   );
   check('the mismatching request was rejected by the device', rejectCalls === 1);
   check('the tx state ended in error', autoStates[autoStates.length - 1] === 'error');
-  turnkeyPayload = HASH;
+  signingRequest = (overrides) => request(overrides);
   auto.destroy();
 
   // 6. `confirmation: 'prompt'`: the user is asked before any signature.

@@ -1501,7 +1501,7 @@ export interface paths {
         put?: never;
         /**
          * Rebuild a pending request right before approving it
-         * @description Rebuilds the payload with a fresh blockhash, sequence or sponsor signature and re-casts Pollar's vote on a new Turnkey activity; the superseded activity is rejected. The request keeps its id. A request the client composed itself is returned unchanged.
+         * @description Rebuilds the payload with a fresh blockhash, sequence or sponsor signature. Nothing exists in Turnkey until the device proposes the request, so the old payload leaves nothing to approve. The request keeps its id. A request the client composed itself, or one already proposed, is returned unchanged.
          */
         post: operations["postCosignRequestsByIdRefresh"];
         delete?: never;
@@ -1521,7 +1521,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a pending co-sign request
-         * @description Pollar rejects the activity in Turnkey. Final: a rejected activity can never be approved.
+         * @description Closes the request as REJECTED. Before the device proposed it nothing exists in Turnkey; after, Pollar votes against the activity. Final.
          */
         post: operations["postCosignRequestsByIdCancel"];
         delete?: never;
@@ -1541,7 +1541,7 @@ export interface paths {
         put?: never;
         /**
          * Forward a device-stamped Turnkey request
-         * @description The device signs the exact JSON body with its P-256 key (`X-Stamp`); Pollar checks the key is one of the user's enrolled devices and that the body targets their own sub-organization, then forwards it to Turnkey unchanged. Used to approve or reject a request, to read the sub-organization back for verification, and to enroll another device.
+         * @description The device signs the exact JSON body with its P-256 key (`X-Stamp`); Pollar checks the key is one of the user's enrolled devices and that the body targets their own sub-organization, then forwards it to Turnkey unchanged. Used to propose a pending request (`sign_raw_payload`, `sign_transaction` or `create_wallet_accounts` with its `requestId`: the body must be exactly what the request calls for, and Pollar's approver then votes on the activity it opens), to read the sub-organization back for verification, and to enroll another device.
          */
         post: operations["postCosignRelay"];
         delete?: never;
@@ -2418,8 +2418,8 @@ export interface operations {
                                     /** @enum {string} */
                                     status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
                                     subOrgId: string;
-                                    activityId: string;
-                                    fingerprint: string;
+                                    activityId: string | null;
+                                    fingerprint: string | null;
                                     signWith: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
@@ -2575,8 +2575,8 @@ export interface operations {
                                     /** @enum {string} */
                                     status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
                                     subOrgId: string;
-                                    activityId: string;
-                                    fingerprint: string;
+                                    activityId: string | null;
+                                    fingerprint: string | null;
                                     signWith: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
@@ -3225,8 +3225,8 @@ export interface operations {
                                     /** @enum {string} */
                                     status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
                                     subOrgId: string;
-                                    activityId: string;
-                                    fingerprint: string;
+                                    activityId: string | null;
+                                    fingerprint: string | null;
                                     signWith: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
@@ -12322,8 +12322,8 @@ export interface operations {
                                 /** @enum {string} */
                                 status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
                                 subOrgId: string;
-                                activityId: string;
-                                fingerprint: string;
+                                activityId: string | null;
+                                fingerprint: string | null;
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
@@ -12405,8 +12405,8 @@ export interface operations {
                                 /** @enum {string} */
                                 status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
                                 subOrgId: string;
-                                activityId: string;
-                                fingerprint: string;
+                                activityId: string | null;
+                                fingerprint: string | null;
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
@@ -12501,8 +12501,8 @@ export interface operations {
                                 /** @enum {string} */
                                 status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
                                 subOrgId: string;
-                                activityId: string;
-                                fingerprint: string;
+                                activityId: string | null;
+                                fingerprint: string | null;
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
@@ -12597,8 +12597,8 @@ export interface operations {
                                 /** @enum {string} */
                                 status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
                                 subOrgId: string;
-                                activityId: string;
-                                fingerprint: string;
+                                activityId: string | null;
+                                fingerprint: string | null;
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
@@ -12687,14 +12687,15 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    path: "/public/v1/submit/approve_activity" | "/public/v1/submit/reject_activity" | "/public/v1/submit/create_api_keys" | "/public/v1/submit/delete_api_keys" | "/public/v1/submit/create_authenticators" | "/public/v1/query/get_activity" | "/public/v1/query/get_organization" | "/public/v1/query/get_whoami" | "/public/v1/query/get_api_keys";
+                    path: "/public/v1/submit/sign_raw_payload" | "/public/v1/submit/sign_transaction" | "/public/v1/submit/create_wallet_accounts" | "/public/v1/submit/create_api_keys" | "/public/v1/submit/delete_api_keys" | "/public/v1/submit/create_authenticators" | "/public/v1/query/get_activity" | "/public/v1/query/get_organization" | "/public/v1/query/get_whoami" | "/public/v1/query/get_api_keys";
                     body: string;
                     stamp: string;
+                    requestId?: string;
                 };
             };
         };
         responses: {
-            /** @description Turnkey's answer, plus the updated request when the call was a vote */
+            /** @description Turnkey's answer, plus the updated request when the call was a proposal */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12717,8 +12718,8 @@ export interface operations {
                                 /** @enum {string} */
                                 status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
                                 subOrgId: string;
-                                activityId: string;
-                                fingerprint: string;
+                                activityId: string | null;
+                                fingerprint: string | null;
                                 signWith: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
@@ -12796,6 +12797,21 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

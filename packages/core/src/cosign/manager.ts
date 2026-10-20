@@ -23,11 +23,12 @@ import { isRecord, stringField } from '../api/error-fields';
  * credential; every vote is a Turnkey request this device stamps itself and
  * sdk-api forwards unchanged.
  *
- * Before voting, {@link verify} recomputes the Stellar transaction hash from
- * the unsigned XDR the request carries and compares it with what Turnkey says
- * it was asked to sign, read straight from Turnkey through the relay. A
- * compromised sdk-api can therefore not have the device approve a payload
- * other than the one it shows.
+ * The device proposes every co-signed activity and Pollar's approver votes
+ * second. {@link verify} reads the unsigned payload the request carries (the
+ * Stellar hash recomputed from the XDR, the Solana or EVM transaction decoded)
+ * and {@link approve} builds the Turnkey request from those checked values
+ * alone, so a compromised sdk-api cannot have the device sign a payload other
+ * than the one it shows.
  */
 
 export interface CosignManagerDeps {
@@ -57,39 +58,28 @@ function parseJson(value: string): unknown {
   }
 }
 
+const ACCOUNT_FIELDS = ['curve', 'pathFormat', 'path', 'addressFormat'] as const;
+
 /**
- * The `{ walletId, accounts }` of a create_wallet_accounts request in one
- * canonical string: the fields Turnkey derives from, in a fixed order, so the
- * payload sdk-api sent and the intent Turnkey holds compare as strings.
+ * The `{ walletId, accounts }` of a create_wallet_accounts request with only
+ * the fields Turnkey derives from, so the device proposes exactly the
+ * derivation it read and nothing sdk-api added beside it.
  */
-function canonicalAccounts(value: unknown): string | null {
+function accountsOf(value: unknown): { walletId: string; accounts: Array<Record<string, string>> } | null {
   const walletId = stringField(value, 'walletId');
   const list = isRecord(value) ? value.accounts : undefined;
-  if (walletId === undefined || !Array.isArray(list)) return null;
-  const accounts = list.map((acc: unknown) =>
-    (['curve', 'pathFormat', 'path', 'addressFormat'] as const).map((key) => stringField(acc, key) ?? '').join('|'),
-  );
-  return `${walletId}:${accounts.join(';')}`;
-}
-
-type Intent = Record<string, unknown> | null;
-
-/** The payload Turnkey holds for the activity, in the form {@link CosignManager.verify} compares. */
-function turnkeyPayloadOf(request: CosignRequest, intent: Intent): string | null {
-  if (!intent) return null;
-  if (request.kind === 'ACCOUNT') return canonicalAccounts(intent.createWalletAccountsIntent);
-  if (request.network === 'STELLAR') {
-    const payload = stringField(intent.signRawPayloadIntentV2, 'payload');
-    return payload !== undefined ? payload.toLowerCase() : null;
+  if (walletId === undefined || !Array.isArray(list) || list.length === 0) return null;
+  const accounts: Array<Record<string, string>> = [];
+  for (const acc of list) {
+    const entry: Record<string, string> = {};
+    for (const key of ACCOUNT_FIELDS) {
+      const field = stringField(acc, key);
+      if (field === undefined) return null;
+      entry[key] = field;
+    }
+    accounts.push(entry);
   }
-  const tx = stringField(intent.signTransactionIntentV2, 'unsignedTransaction');
-  return tx !== undefined ? tx.replace(/^0x/i, '').toLowerCase() : null;
-}
-
-/** The account Turnkey would sign with, as the intent names it. */
-function signWithOf(request: CosignRequest, intent: Intent): string | null {
-  const source = request.network === 'STELLAR' ? intent?.signRawPayloadIntentV2 : intent?.signTransactionIntentV2;
-  return stringField(source, 'signWith') ?? null;
+  return { walletId, accounts };
 }
 
 function apiError(error: unknown, fallback: string): PollarApiError {
@@ -200,7 +190,7 @@ export class CosignManager {
     return request;
   }
 
-  /** Withdraw Pollar's vote: the activity is rejected in Turnkey. Final. */
+  /** Close the request as rejected; once proposed, Pollar votes against the activity. Final. */
   async cancel(id: string): Promise<CosignRequest> {
     const { request } = content(
       await this.deps.api.POST('/cosign/requests/{id}/cancel', { params: { path: { id } } }),
@@ -219,40 +209,30 @@ export class CosignManager {
    * forward. The body is serialized once here; the stamp covers those exact
    * bytes, so nothing between the device and Turnkey can change them.
    */
-  async relay(path: CosignRelayPath, body: Record<string, unknown>): Promise<CosignRelayContent> {
+  async relay(
+    path: CosignRelayPath,
+    body: Record<string, unknown>,
+    options?: { requestId?: string },
+  ): Promise<CosignRelayContent> {
     const json = JSON.stringify(body);
     const stamp = await this.stamp(json);
     const result = content(
-      await this.deps.api.POST('/cosign/relay', { body: { path, body: json, stamp } }),
+      await this.deps.api.POST('/cosign/relay', {
+        body: { path, body: json, stamp, ...(options?.requestId ? { requestId: options.requestId } : {}) },
+      }),
       'SDK_COSIGN_UPSTREAM_ERROR',
     );
     if (result.request) this.deps.onRequest(result.request);
     return result;
   }
 
-  /** The activity's intent as Turnkey holds it, read with the device's own key. */
-  async readActivityIntent(request: CosignRequest): Promise<Record<string, unknown> | null> {
-    const res = await this.relay('/public/v1/query/get_activity', {
-      organizationId: request.subOrgId,
-      activityId: request.activityId,
-    });
-    const activity = isRecord(res.body) ? res.body.activity : undefined;
-    const intent = isRecord(activity) ? activity.intent : undefined;
-    return isRecord(intent) ? intent : null;
-  }
-
-  /** What Turnkey says the activity will sign, read with the device's own key. */
-  async readActivityPayload(request: CosignRequest): Promise<string | null> {
-    return turnkeyPayloadOf(request, await this.readActivityIntent(request));
-  }
-
   /**
    * Ask sdk-api to rebuild the request right before the vote. A transaction
    * embeds state that ages while the user decides: a Solana blockhash lasts
    * about a minute, a Stellar sequence or sponsor signature a few minutes. The
-   * rebuilt payload comes back under the same request id with a new Turnkey
-   * activity, and it is that payload the device then verifies and approves. A
-   * request the client composed itself (`refreshable: false`) is returned as is.
+   * rebuilt payload comes back under the same request id, and it is that payload
+   * the device then verifies and proposes. A request the client composed itself
+   * (`refreshable: false`) is returned as is.
    */
   async refresh(target: CosignRequest | string): Promise<CosignRequest> {
     const id = typeof target === 'string' ? target : target.id;
@@ -263,31 +243,60 @@ export class CosignManager {
   }
 
   /**
-   * Check a request before voting on it: the hash of the unsigned transaction
-   * it carries must equal both the hash sdk-api claims and the payload Turnkey
-   * holds for the activity. Anything else is a reason not to approve.
+   * Check a request before proposing it: the unsigned payload it carries is
+   * read here, never its summary, and must be what the request says it is.
+   * The report carries the Turnkey request built from the checked values, the
+   * one {@link approve} submits. Anything else is a reason not to approve.
    */
   async verify(request: CosignRequest): Promise<CosignVerification> {
-    // What the device expects Turnkey to hold, computed from the payload sdk-api
-    // sent, never from its summary. Stellar: the transaction hash, recomputed
-    // from the XDR. Solana: the serialized unsigned transaction itself, which
-    // sign_transaction records byte for byte. ACCOUNT: the wallet id and the
-    // account parameters of the derivation, in canonical JSON.
-    let localHash: string;
+    const signed = (type: string, parameters: Record<string, unknown>) => ({
+      type,
+      timestampMs: String(Date.now()),
+      organizationId: request.subOrgId,
+      parameters,
+    });
+
     if (request.kind === 'ACCOUNT') {
-      const expected = canonicalAccounts(parseJson(request.unsignedPayload));
-      if (!expected) return { ok: false, reason: 'the account derivation payload is not readable' };
-      localHash = expected;
-    } else if (request.network === 'STELLAR') {
+      const derivation = accountsOf(parseJson(request.unsignedPayload));
+      if (!derivation) return { ok: false, reason: 'the account derivation payload is not readable' };
+      const localHash = `${derivation.walletId}:${derivation.accounts.map((a) => ACCOUNT_FIELDS.map((k) => a[k]).join('|')).join(';')}`;
+      return {
+        ok: true,
+        localHash,
+        proposal: {
+          path: '/public/v1/submit/create_wallet_accounts',
+          body: signed('ACTIVITY_TYPE_CREATE_WALLET_ACCOUNTS', derivation),
+        },
+      };
+    }
+
+    if (request.network === 'STELLAR') {
+      let localHash: string;
       try {
         localHash = await stellarTransactionHashHex(request.unsignedPayload, this.deps.networkPassphrase());
       } catch (err) {
         return { ok: false, reason: `could not hash the transaction: ${err instanceof Error ? err.message : String(err)}` };
       }
       if (localHash !== request.payloadHash.toLowerCase()) {
-        return { ok: false, reason: 'the transaction does not hash to what Pollar asked Turnkey to sign', localHash };
+        return { ok: false, reason: 'the transaction does not hash to what Pollar asks to sign', localHash };
       }
-    } else if (request.network === 'SOLANA') {
+      return {
+        ok: true,
+        localHash,
+        proposal: {
+          path: '/public/v1/submit/sign_raw_payload',
+          body: signed('ACTIVITY_TYPE_SIGN_RAW_PAYLOAD_V2', {
+            signWith: request.signWith,
+            payload: localHash,
+            encoding: 'PAYLOAD_ENCODING_HEXADECIMAL',
+            // ed25519 signs the bytes as given.
+            hashFunction: 'HASH_FUNCTION_NOT_APPLICABLE',
+          }),
+        },
+      };
+    }
+
+    if (request.network === 'SOLANA') {
       // The payload is read, not only compared: a CCTP burn or a transfer, and
       // the one the request says it is.
       const check = checkSolanaRequest(request.unsignedPayload, {
@@ -296,85 +305,73 @@ export class CosignManager {
         signWith: request.signWith,
       });
       if (!check.ok) return { ok: false, reason: check.reason };
-      localHash = request.unsignedPayload.toLowerCase();
-    } else if (request.network === 'POLYGON') {
+      const localHash = request.unsignedPayload.toLowerCase();
+      return {
+        ok: true,
+        localHash,
+        proposal: {
+          path: '/public/v1/submit/sign_transaction',
+          body: signed('ACTIVITY_TYPE_SIGN_TRANSACTION_V2', {
+            signWith: request.signWith,
+            unsignedTransaction: localHash,
+            type: 'TRANSACTION_TYPE_SOLANA',
+          }),
+        },
+      };
+    }
+
+    if (request.network === 'POLYGON') {
       // The payload is read here, not only compared: the call it makes must be
       // one the platform asks for, and the one the request says it is.
       const check = checkEvmRequest(request.unsignedPayload, request.details, polygonChainIdFor(this.deps.networkPassphrase()));
       if (!check.ok) return { ok: false, reason: check.reason };
-      localHash = request.unsignedPayload.replace(/^0x/i, '').toLowerCase();
-    } else {
-      return { ok: false, reason: `verification for ${request.network} is not implemented yet` };
+      const localHash = request.unsignedPayload.replace(/^0x/i, '').toLowerCase();
+      return {
+        ok: true,
+        localHash,
+        proposal: {
+          path: '/public/v1/submit/sign_transaction',
+          body: signed('ACTIVITY_TYPE_SIGN_TRANSACTION_V2', {
+            signWith: request.signWith,
+            unsignedTransaction: localHash,
+            type: 'TRANSACTION_TYPE_ETHEREUM',
+          }),
+        },
+      };
     }
 
-    let intent: Record<string, unknown> | null;
-    try {
-      intent = await this.readActivityIntent(request);
-    } catch (err) {
-      return {
-        ok: false,
-        reason: `could not read the activity from Turnkey: ${err instanceof Error ? err.message : String(err)}`,
-        localHash,
-      };
-    }
-    const turnkeyPayload = turnkeyPayloadOf(request, intent);
-    if (turnkeyPayload !== localHash) {
-      return { ok: false, reason: 'Turnkey holds a different payload for this activity', localHash, turnkeyPayload };
-    }
-    // An EVM address compares without its checksum casing.
-    const sameSigner =
-      request.network === 'POLYGON'
-        ? signWithOf(request, intent)?.toLowerCase() === request.signWith.toLowerCase()
-        : signWithOf(request, intent) === request.signWith;
-    if (request.kind !== 'ACCOUNT' && !sameSigner) {
-      return {
-        ok: false,
-        reason: 'Turnkey would sign with a different account than the request names',
-        localHash,
-        turnkeyPayload,
-      };
-    }
-    return { ok: true, localHash, turnkeyPayload };
+    return { ok: false, reason: `verification for ${request.network} is not implemented yet` };
   }
 
   /**
-   * Vote yes. Verifies first unless told not to; a failed verification throws
-   * `SDK_COSIGN_VERIFICATION_FAILED` with the report, and nothing is sent.
-   * Resolves with the request as it stands after the vote: approved with the
-   * signature applied (and submitted, for intents that submit), or still
-   * pending if Turnkey has not completed the activity yet.
+   * Vote yes by proposing the activity: the device submits the Turnkey request
+   * {@link verify} built and Pollar's approver votes second. A failed
+   * verification throws `SDK_COSIGN_VERIFICATION_FAILED` with the report, and
+   * nothing is sent. Resolves with the request as it stands after both votes:
+   * approved with the signature applied (and submitted, for intents that
+   * submit), or still pending if Turnkey has not completed the activity yet.
    */
-  async approve(target: CosignRequest | string, options?: { verify?: boolean }): Promise<CosignRequest> {
+  async approve(target: CosignRequest | string): Promise<CosignRequest> {
     let request = typeof target === 'string' ? await this.get(target) : target;
     if (request.status !== 'PENDING') throw new PollarApiError('SDK_COSIGN_REQUEST_NOT_PENDING', { status: request.status });
-    // Rebuild first, so the payload this device verifies and votes on is seconds
-    // old; see {@link refresh} for what goes stale while the user decides.
+    // Rebuild first, so the payload this device verifies and proposes is
+    // seconds old; see {@link refresh} for what goes stale while the user decides.
     if (request.refreshable) request = await this.refresh(request);
     if (request.status !== 'PENDING') return request;
-    if (options?.verify !== false) {
-      const verification = await this.verify(request);
-      if (!verification.ok) throw new PollarApiError('SDK_COSIGN_VERIFICATION_FAILED', { verification });
-    }
-    const res = await this.relay('/public/v1/submit/approve_activity', {
-      type: 'ACTIVITY_TYPE_APPROVE_ACTIVITY',
-      timestampMs: String(Date.now()),
-      organizationId: request.subOrgId,
-      parameters: { fingerprint: request.fingerprint },
-    });
+    // Already proposed (by this device or another of the user's): only the
+    // approver's vote is outstanding, and sdk-api reads it back from Turnkey.
+    if (request.activityId) return this.get(request.id, { sync: true });
+    const verification = await this.verify(request);
+    if (!verification.ok) throw new PollarApiError('SDK_COSIGN_VERIFICATION_FAILED', { verification });
+    const res = await this.relay(verification.proposal.path, verification.proposal.body, { requestId: request.id });
     return res.request ?? (await this.get(request.id, { sync: true }));
   }
 
-  /** Vote no. Final: a rejected activity can never be approved. */
+  /** Vote no. Final: a rejected request can never be approved. */
   async reject(target: CosignRequest | string): Promise<CosignRequest> {
     const request = typeof target === 'string' ? await this.get(target) : target;
     if (request.status !== 'PENDING') throw new PollarApiError('SDK_COSIGN_REQUEST_NOT_PENDING', { status: request.status });
-    const res = await this.relay('/public/v1/submit/reject_activity', {
-      type: 'ACTIVITY_TYPE_REJECT_ACTIVITY',
-      timestampMs: String(Date.now()),
-      organizationId: request.subOrgId,
-      parameters: { fingerprint: request.fingerprint },
-    });
-    return res.request ?? (await this.get(request.id, { sync: true }));
+    return this.cancel(request.id);
   }
 
   /**

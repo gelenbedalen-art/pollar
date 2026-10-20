@@ -401,9 +401,18 @@ export interface CosignState {
   lastResolved?: CosignRequest;
 }
 
+/** The Turnkey request a device submits to propose a co-signed request, built from what it verified. */
+export interface CosignProposal {
+  path: Extract<
+    CosignRelayPath,
+    '/public/v1/submit/sign_raw_payload' | '/public/v1/submit/sign_transaction' | '/public/v1/submit/create_wallet_accounts'
+  >;
+  body: { type: string; timestampMs: string; organizationId: string; parameters: Record<string, unknown> };
+}
+
 export type CosignVerification =
-  | { ok: true; localHash: string; turnkeyPayload: string | null }
-  | { ok: false; reason: string; localHash?: string; turnkeyPayload?: string | null };
+  | { ok: true; localHash: string; proposal: CosignProposal }
+  | { ok: false; reason: string; localHash?: string };
 
 export type CosignQuorumReport =
   | { ok: true; threshold: number; rootUsers: number; deviceRegistered: boolean }
