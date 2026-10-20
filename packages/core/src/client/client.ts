@@ -62,6 +62,7 @@ import { hashApiKey } from '../lib/api-key-hash';
 import { createLogger, type PollarLogger } from '../lib/logger';
 import { redactBody, redactDeep } from '../lib/logging';
 import { randomUUID } from '../lib/random-uuid';
+import { apiErrorFields, isRecord, stringField } from '../api/error-fields';
 import { bytesToHex, hexToBytes } from '../cosign/encoding';
 import { StellarNetwork } from '../stellar/StellarClient';
 import { defaultStorage } from '../storage/autodetect';
@@ -165,6 +166,8 @@ import {
   WalletAssetsContent,
   WalletBalanceContent,
   WalletBalanceRecord,
+  WalletBalanceAnswer,
+  WalletAssetsAnswer,
   WalletBalanceState,
   WalletChain,
   PollarApiError,
@@ -1201,9 +1204,9 @@ export class PollarClient {
    */
   private async _dpopRejectionReason(response: Response): Promise<string | null> {
     try {
-      const body = (await response.clone().json()) as { code?: unknown; reason?: unknown };
-      if (body?.code !== 'SDK_AUTH_DPOP_INVALID' || typeof body?.reason !== 'string') return null;
-      return body.reason;
+      const body: unknown = await response.clone().json();
+      if (stringField(body, 'code') !== 'SDK_AUTH_DPOP_INVALID') return null;
+      return stringField(body, 'reason') ?? null;
     } catch {
       return null;
     }
@@ -1355,12 +1358,11 @@ export class PollarClient {
       throw new Error('No refresh token available');
     }
 
-    let data: unknown;
-    let error: unknown;
+    const refreshCall = () => this._api.POST('/auth/refresh', { body: { refreshToken } });
+    let data: Awaited<ReturnType<typeof refreshCall>>['data'];
+    let error: Awaited<ReturnType<typeof refreshCall>>['error'];
     try {
-      const response = await this._api.POST('/auth/refresh', { body: { refreshToken } });
-      data = response.data;
-      error = response.error;
+      ({ data, error } = await refreshCall());
     } catch (err) {
       // A transient transport failure (timeout / dropped connection) must NOT
       // tear down the session: the refresh token is almost certainly still
@@ -1383,7 +1385,7 @@ export class PollarClient {
       await this._clearIfCurrent(gen);
       throw new Error('Refresh failed');
     }
-    const successData = data as { success?: boolean; content?: { token?: PollarPersistedSession['token'] } };
+    const successData = data;
     if (!successData.success || !successData.content?.token) {
       // Don't log `successData` - its `content.token` would write access/refresh
       // tokens to the console. Log only the non-sensitive shape.
@@ -2264,7 +2266,7 @@ export class PollarClient {
       if (!error && data?.success && data.content) {
         this._setTxHistoryState({ step: 'loaded', params, data: data.content });
       } else {
-        const message = (error as { message?: string } | undefined)?.message ?? 'Failed to load history';
+        const message = apiErrorFields(error).message ?? 'Failed to load history';
         this._setTxHistoryState({ step: 'error', params, message });
       }
     } catch {
@@ -2329,37 +2331,33 @@ export class PollarClient {
    * per-asset network tag. A chain that failed to resolve carries `error` instead
    * of `balances` and contributes nothing.
    */
-  private _flattenBalances(content: unknown, ownAddress: string): WalletBalanceContent {
-    const chains = (content as { chains?: unknown[] })?.chains ?? [];
+  private _flattenBalances(content: WalletBalanceAnswer, ownAddress: string): WalletBalanceContent {
     const flat: WalletBalanceRecord[] = [];
     let exists = false;
     let network = this.getNetwork() as string;
 
-    for (const entry of chains as Array<Record<string, unknown>>) {
-      const chain = entry.chain as WalletChain | undefined;
-      if (!chain || entry.error) continue;
+    for (const entry of content.chains) {
+      if ('error' in entry) continue;
       if (entry.exists) exists = true;
       // Only Stellar's entry carries the session's network; the other chains ride
       // the same testnet/mainnet choice and don't restate it.
-      if (chain === 'STELLAR' && typeof entry.network === 'string') network = entry.network;
+      if (entry.chain === 'STELLAR' && entry.network) network = entry.network;
 
-      for (const b of (entry.balances as Array<Record<string, unknown>>) ?? []) {
+      for (const b of entry.balances) {
         // null balance = the chain could not be read. Preserved, never coerced to
         // '0', so the UI can tell "unavailable" from "empty".
-        const balance = typeof b.balance === 'string' ? b.balance : null;
-        const available = typeof b.available === 'string' ? b.available : balance;
         flat.push({
-          chain,
-          ...(typeof b.type === 'string' ? { type: b.type as NonNullable<WalletBalanceRecord['type']> } : {}),
-          code: String(b.code ?? ''),
-          ...(typeof b.issuer === 'string' ? { issuer: b.issuer } : {}),
-          ...(typeof b.decimals === 'number' ? { decimals: b.decimals } : {}),
-          balance,
-          available,
-          ...(typeof b.limit === 'string' ? { limit: b.limit } : {}),
-          ...(typeof b.enabledInApp === 'boolean' ? { enabledInApp: b.enabledInApp } : {}),
-          ...(typeof b.trustlineRemoved === 'boolean' ? { trustlineRemoved: b.trustlineRemoved } : {}),
-          ...(typeof b.sponsored === 'boolean' ? { sponsored: b.sponsored } : {}),
+          chain: entry.chain,
+          type: b.type,
+          code: b.code,
+          ...(b.issuer !== undefined ? { issuer: b.issuer } : {}),
+          ...(b.decimals !== undefined ? { decimals: b.decimals } : {}),
+          balance: b.balance,
+          available: b.available ?? b.balance,
+          ...(b.limit !== undefined ? { limit: b.limit } : {}),
+          enabledInApp: b.enabledInApp,
+          ...(b.trustlineRemoved !== undefined ? { trustlineRemoved: b.trustlineRemoved } : {}),
+          ...(b.sponsored !== undefined ? { sponsored: b.sponsored } : {}),
         });
       }
     }
@@ -2368,7 +2366,7 @@ export class PollarClient {
       publicKey: ownAddress,
       network,
       exists,
-      multichain: chains.length > 1,
+      multichain: content.chains.length > 1,
       balances: flat,
     };
   }
@@ -2376,38 +2374,34 @@ export class PollarClient {
   /**
    * The {@link _flattenBalances} twin for `/wallet/assets`: collapses the v2
    * per-chain answer into one chain-tagged catalog. Same envelope (`chains`),
-   * same rules - a chain carrying `error` contributes nothing, and only Stellar
-   * restates the network.
+   * same rule: a chain carrying `error` contributes nothing.
    */
-  private _flattenAssets(content: unknown, ownAddress: string): WalletAssetsContent {
-    const chains = (content as { chains?: unknown[] })?.chains ?? [];
+  private _flattenAssets(content: WalletAssetsAnswer, ownAddress: string): WalletAssetsContent {
     const flat: EnabledAssetRecord[] = [];
     let exists = false;
-    let network = this.getNetwork() as string;
+    const network = this.getNetwork() as string;
 
-    for (const entry of chains as Array<Record<string, unknown>>) {
-      const chain = entry.chain as WalletChain | undefined;
-      if (!chain || entry.error) continue;
+    for (const entry of content.chains) {
+      if ('error' in entry) continue;
       if (entry.exists) exists = true;
-      if (chain === 'STELLAR' && typeof entry.network === 'string') network = entry.network;
 
-      for (const a of (entry.assets as Array<Record<string, unknown>>) ?? []) {
+      for (const a of entry.assets) {
         flat.push({
-          chain,
-          ...(typeof a.type === 'string' ? { type: a.type as NonNullable<EnabledAssetRecord['type']> } : {}),
-          code: String(a.code ?? ''),
-          ...(typeof a.issuer === 'string' ? { issuer: a.issuer } : {}),
-          ...(typeof a.decimals === 'number' ? { decimals: a.decimals } : {}),
-          ...(typeof a.name === 'string' ? { name: a.name } : {}),
-          ...(typeof a.trustlineEstablished === 'boolean' ? { trustlineEstablished: a.trustlineEstablished } : {}),
-          ...(typeof a.limit === 'string' ? { limit: a.limit } : {}),
-          ...(typeof a.enabledInApp === 'boolean' ? { enabledInApp: a.enabledInApp } : {}),
-          ...(typeof a.sponsored === 'boolean' ? { sponsored: a.sponsored } : {}),
+          chain: entry.chain,
+          type: a.type,
+          code: a.code,
+          ...(a.issuer !== undefined ? { issuer: a.issuer } : {}),
+          ...(a.decimals !== undefined ? { decimals: a.decimals } : {}),
+          ...(a.name !== undefined ? { name: a.name } : {}),
+          ...(a.trustlineEstablished !== undefined ? { trustlineEstablished: a.trustlineEstablished } : {}),
+          ...(a.limit !== undefined ? { limit: a.limit } : {}),
+          enabledInApp: a.enabledInApp,
+          ...(a.sponsored !== undefined ? { sponsored: a.sponsored } : {}),
         });
       }
     }
 
-    return { publicKey: ownAddress, network, exists, multichain: chains.length > 1, assets: flat };
+    return { publicKey: ownAddress, network, exists, multichain: content.chains.length > 1, assets: flat };
   }
 
   /**
@@ -2555,8 +2549,7 @@ export class PollarClient {
           }
           return { status: 'success' };
         }
-        const details =
-          (error as { details?: string; code?: string } | undefined)?.details ?? (error as { code?: string } | undefined)?.code;
+        const details = apiErrorFields(error).details ?? apiErrorFields(error).code;
         return { status: 'error', ...(details && { details }) };
       } catch (err) {
         const details = err instanceof Error ? err.message : undefined;
@@ -2575,8 +2568,7 @@ export class PollarClient {
       // Sponsor-signed when the app covers it, plain self-pay otherwise; sign + submit either.
       const xdr = data?.content?.sponsorSignedXdr ?? data?.content?.unsignedXdr;
       if (error || !data?.success || !xdr) {
-        const details =
-          (error as { details?: string; code?: string } | undefined)?.details ?? (error as { code?: string } | undefined)?.code;
+        const details = apiErrorFields(error).details ?? apiErrorFields(error).code;
         return { status: 'error', ...(details && { details }) };
       }
       const signed = await this._signTx(xdr, undefined, false);
@@ -2618,8 +2610,7 @@ export class PollarClient {
     try {
       const { data, error } = await this._api.POST('/wallet/account/create/build', {});
       if (error || !data?.success || !data.content?.sponsorSignedXdr) {
-        const details =
-          (error as { details?: string; code?: string } | undefined)?.details ?? (error as { code?: string } | undefined)?.code;
+        const details = apiErrorFields(error).details ?? apiErrorFields(error).code;
         return { status: 'error', ...(details && { details }) };
       }
       const signed = await this._signTx(data.content.sponsorSignedXdr, undefined, false);
@@ -2791,8 +2782,8 @@ export class PollarClient {
     });
     const content = data?.content;
     if (error || !content) {
-      const body = (typeof error === 'object' && error !== null ? error : {}) as Record<string, unknown>;
-      throw new PollarApiError(typeof body.code === 'string' ? body.code : 'SDK_WALLET_PROVISIONING_FAILED', body);
+      const body = isRecord(error) ? error : {};
+      throw new PollarApiError(stringField(body, 'code') ?? 'SDK_WALLET_PROVISIONING_FAILED', body);
     }
     if (this._destroyed || this._sessionGeneration !== gen || !this._session) {
       throw new PollarApiError('SDK_AUTH_INVALID_TOKEN');
@@ -3063,7 +3054,7 @@ export class PollarClient {
       if (!error && data?.success && data.content?.signedAuthEntry) {
         return { status: 'signed', signedAuthEntry: data.content.signedAuthEntry };
       }
-      const details = (error as { details?: string } | undefined)?.details;
+      const details = apiErrorFields(error).details;
       return { status: 'error', ...(details && { details }) };
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
@@ -3120,7 +3111,7 @@ export class PollarClient {
           scheme: 'sep53',
         };
       }
-      const details = (error as { details?: string } | undefined)?.details;
+      const details = apiErrorFields(error).details;
       return { status: 'error', ...(details && { details }) };
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
@@ -3179,7 +3170,7 @@ export class PollarClient {
       if (!error && data?.success && data.content?.signedXdr) {
         return { status: 'signed', signedXdr: data.content.signedXdr, signerAddress: data.content.signerAddress };
       }
-      const details = (error as { details?: string } | undefined)?.details;
+      const details = apiErrorFields(error).details;
       return { status: 'error', ...(details && { details }) };
     } catch (err) {
       const details = err instanceof Error ? err.message : undefined;
@@ -3350,8 +3341,7 @@ export class PollarClient {
       const code = err instanceof PollarApiError ? err.code : undefined;
       let details = err instanceof Error ? err.message : undefined;
       if (err instanceof PollarApiError && code === 'SDK_COSIGN_VERIFICATION_FAILED') {
-        const verification = err.body.verification as { reason?: string } | undefined;
-        details = verification?.reason ?? details;
+        details = stringField(err.body.verification, 'reason') ?? details;
       }
       // This call reports the send as failed, so the request must not stay
       // approvable: the prompt would later offer a send the user was told failed.
@@ -3469,9 +3459,9 @@ export class PollarClient {
     // On a non-2xx the failure envelope is in `error`; on a 2xx with
     // `success:false` it rides in `data` - fall back to it so the backend's
     // code/message contract isn't dropped on the 2xx-failure path.
-    const e = (error ?? data) as { details?: string; code?: string; message?: string } | undefined;
-    const details = e?.details ?? e?.message;
-    const code = e?.code;
+    const e = apiErrorFields(error ?? data);
+    const details = e.details ?? e.message;
+    const code = e.code;
     if (!code) return details ? { details } : {};
     const { message } = resolveAuthError(code, details ?? code);
     return { code, message, ...(details && { details }) };
@@ -4160,7 +4150,7 @@ export class PollarClient {
       const { data, error } = await this._api.POST('/tx/build', { body });
       const built = !error && data?.success ? stellarBuildOf(data.content) : null;
       if (!built?.smart) {
-        const details = (error as { details?: string } | undefined)?.details ?? 'Failed to build transaction';
+        const details = apiErrorFields(error).details ?? 'Failed to build transaction';
         this._setTransactionState({ step: 'error', phase: 'building', details });
         return { status: 'error', details };
       }
@@ -5185,7 +5175,7 @@ export class PollarClient {
         return;
       }
 
-      const content = (data as { content?: PollarUserProfile }).content;
+      const content = data.content;
       if (!content) return;
       this._profile = { ...content };
       this._resetResumeBackoff();

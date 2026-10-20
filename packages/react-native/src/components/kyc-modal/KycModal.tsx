@@ -314,7 +314,13 @@ export function KycModal({
         return;
       }
       openedInBrowser.current = false;
-      setSession(result as KycStartResponse);
+      const { sessionId } = result;
+      if (sessionId === undefined) throw new Error('The KYC provider answered without a session.');
+      setSession({
+        sessionId,
+        ...(result.kycUrl !== undefined ? { kycUrl: result.kycUrl } : {}),
+        ...(result.fields !== undefined ? { fields: result.fields } : {}),
+      });
       setStep('verifying');
     } catch (e) {
       if (!mounted.current) return;

@@ -9,6 +9,10 @@ import type {
   RampsOfframpBody,
   RampsOnrampBody,
   RampsTransactionResponse,
+  RampsOnrampResponse,
+  RampsOfframpResponse,
+  RampsSignatureResponse,
+  RampsCompleteResponse,
   RampTxStatus,
   StellarNetwork,
 } from '@pollar/core';
@@ -34,8 +38,16 @@ interface RampWidgetProps {
 const TERMINAL: RampTxStatus[] = ['completed', 'failed'];
 
 /** Fields the quote declares the client must collect (empty for SEP-24). */
+type RampBankType = NonNullable<RampsOfframpBody['bankDetails']>['type'];
+const BANK_TYPES: readonly RampBankType[] = ['CLABE', 'PIX', 'PSE', 'ACH', 'BREB'];
+
+/** A field's `bankType` the offramp body accepts. */
+function isBankType(value: string): value is RampBankType {
+  return BANK_TYPES.some((type) => type === value);
+}
+
 function requiredFieldsOf(quote: RampQuote): RampFieldSpec[] {
-  return (quote as { requiredFields?: RampFieldSpec[] }).requiredFields ?? [];
+  return 'requiredFields' in quote ? quote.requiredFields : [];
 }
 
 /**
@@ -67,7 +79,8 @@ const STEP_LABEL: Partial<Record<RampStep, string>> = {
  *  limits on the quote (`minAmount` / `maxAmount`); the ones that don't simply
  *  never trip this, and the backend stays the last word either way. */
 function brokenLimitOf(amount: number, quote: RampQuote): { limit: 'min' | 'max'; value: number } | null {
-  const { minAmount, maxAmount } = quote as { minAmount?: number; maxAmount?: number };
+  const minAmount = 'minAmount' in quote ? quote.minAmount : undefined;
+  const maxAmount = 'maxAmount' in quote ? quote.maxAmount : undefined;
   if (!Number.isFinite(amount)) return null;
   if (minAmount != null && amount < minAmount) return { limit: 'min', value: minAmount };
   if (maxAmount != null && amount > maxAmount) return { limit: 'max', value: maxAmount };
@@ -105,45 +118,25 @@ const RAMP_ERROR_MESSAGES: Record<string, string> = {
  * show. Every provider that reports the range gets this for free.
  */
 function rampErrorMessage(e: unknown, fallback: string): string {
-  const body = (e as { body?: Record<string, unknown> } | undefined)?.body;
-  const code = (e as { code?: unknown } | undefined)?.code;
+  const code = typeof e === 'object' && e !== null && 'code' in e ? e.code : undefined;
   if (typeof code !== 'string') return e instanceof Error ? e.message : fallback;
 
-  const limit = body?.limit;
-  const value = body?.limitAmount;
-  const currency = body?.limitCurrency;
+  const raw = typeof e === 'object' && e !== null && 'body' in e ? e.body : undefined;
+  const body = typeof raw === 'object' && raw !== null ? raw : {};
+  const limit = 'limit' in body ? body.limit : undefined;
+  const value = 'limitAmount' in body ? body.limitAmount : undefined;
+  const currency = 'limitCurrency' in body ? body.limitCurrency : undefined;
   if ((limit === 'min' || limit === 'max') && typeof value === 'number' && typeof currency === 'string') {
     return limitMessage(limit, value, currency);
   }
   return RAMP_ERROR_MESSAGES[code] ?? (e instanceof Error ? e.message : fallback);
 }
 
-// Common shape of the on/off-ramp, complete and signature responses.
-interface RampResult {
-  txId: string;
-  provider: string;
-  status: RampTxStatus;
-  kycUrl?: string;
-  // Bridge splits onboarding into two hosted steps: KYC (identity) and ToS
-  // acceptance. Both must be completed before the customer activates.
-  tosUrl?: string;
-  // The provider gated the flow on identity verification and offers no hosted
-  // URL (Abroad, and Bridge while it provisions). Nothing was built or signed.
-  kycRequired?: boolean;
-  // Which part of onboarding is outstanding. `awaiting_provider` means the user
-  // has nothing left to do and the provider is working through its own steps -
-  // there is no page to open and no status of theirs to poll.
-  onboardingStatus?: 'kyc' | 'endorsement' | 'awaiting_provider';
-  stellarTxHash?: string;
-  /**
-   * `cctp_approve` / `cctp_burn`: a Stereum off-ramp from a wallet the user
-   * brought on Stellar signs the bridge itself, the approve and then the burn.
-   */
-  pendingSignature?: { unsignedXdr: string; action: 'sep10' | 'withdraw_payment' | 'cctp_approve' | 'cctp_burn' };
-  // REST providers (Bridge) return deposit instructions as data (e.g. a Pix
-  // `br_code` / bank details for on-ramp) instead of an interactive URL.
-  depositInstructions?: RampDepositInstructions;
-}
+/** Every answer that leaves the widget on a ramp transaction: start, signature and completion. */
+type RampResult = RampsOnrampResponse | RampsOfframpResponse | RampsSignatureResponse | RampsCompleteResponse;
+
+/** The signature a ramp transaction waits on, as the server asks for it. */
+type PendingRampSignature = NonNullable<RampsOnrampResponse['pendingSignature']>;
 
 function readRampStorage(key: string): string | null {
   try {
@@ -240,8 +233,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const workflowRef = useRef<RampSnapshot | null>(null);
   const storageKey = `pollar:ramp:${client.apiKey}:${walletAddress}`;
   const [savedRamps, setSavedRamps] = useState<SavedRamp[]>([]);
-  const [legacySignature, setLegacySignature] = useState<RampResult['pendingSignature']>(undefined);
-  function acceptWorkflow(incoming: RampSnapshot) {
+  const [legacySignature, setLegacySignature] = useState<PendingRampSignature | undefined>(undefined);
+  function acceptWorkflow<T extends RampSnapshot>(incoming: T) {
     const next = mergeRampSnapshot(workflowRef.current, incoming);
     workflowRef.current = next;
     setWorkflow(next);
@@ -250,7 +243,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       if (!['completed', 'failed', 'refunded'].includes(incoming.lifecycleState ?? incoming.status))
         pending.push({
           txId: incoming.txId,
-          provider: (incoming as RampSnapshot & { provider?: string }).provider ?? (provider || 'Ramp'),
+          provider: 'provider' in incoming && typeof incoming.provider === 'string' ? incoming.provider : provider || 'Ramp',
         });
       writeRampStorage(`${storageKey}:saved`, JSON.stringify(pending));
       writeRampStorage(storageKey, incoming.txId);
@@ -368,7 +361,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         // The order waits on the user's own wallet (a reload, or the burn the
         // server asks for once the approve landed). Polling never signs: the
         // signature waits for the user's explicit Authorize.
-        const pending = (tx as { pendingSignature?: RampResult['pendingSignature'] }).pendingSignature;
+        const pending = 'pendingSignature' in tx ? tx.pendingSignature : undefined;
         if (pending) setLegacySignature(pending);
         if (tx.kycUrl) setKycUrl(tx.kycUrl);
         // depositInstructions is returned by REST providers (Bridge) - e.g. a Pix
@@ -521,7 +514,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
    * user must sign locally, then we resume the flow. `sep10` yields the anchor
    * session (kycUrl); `withdraw_payment` broadcasts the on-chain withdrawal.
    */
-  async function resumeWithSignature(id: string, ps: NonNullable<RampResult['pendingSignature']>) {
+  async function resumeWithSignature(id: string, ps: PendingRampSignature) {
     const outcome = await client.signTx(ps.unsignedXdr, { skipSponsorship: ps.action === 'sep10' });
     if (outcome.status === 'cosign_pending') {
       // A co-signed wallet answers with the request the user's device must
@@ -535,16 +528,15 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       setStep('error');
       return;
     }
-    const result = (await client.submitRampSignature(id, {
+    const result = await client.submitRampSignature(id, {
       signedXdr: outcome.signedXdr,
       action: ps.action,
-    })) as RampResult;
+    });
     await applyResult(result);
   }
 
   async function applyResult(result: RampResult) {
-    const generic = result as RampResult & RampSnapshot;
-    if (generic.transactionVersion !== undefined && !acceptWorkflow(generic)) return;
+    if ('transactionVersion' in result && result.transactionVersion !== undefined && !acceptWorkflow(result)) return;
     setTxId(result.txId);
     setProvider(result.provider);
     setLegacySignature(result.pendingSignature);
@@ -638,39 +630,47 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const base: Record<string, unknown> = {
+      // The offramp body is the superset; an onramp sends the fields it takes.
+      const body: RampsOfframpBody = {
         quoteId: quote.quoteId,
         amount: quote.fiatAmount ?? Number(amount),
         ...(quote.terms ? { amountExact: quote.terms.fiatAmount } : {}),
         currency,
         country,
+        ...(walletAddress ? { walletAddress } : {}),
       };
-      if (walletAddress) base.walletAddress = walletAddress;
       // Map each declared field to the request body: a field with `bankType`
       // becomes `bankDetails`; the standard body fields map by name; any other
       // provider-specific field (e.g. Stereum's bankCode / account holder) goes
       // into `fields`, which the backend reads per provider.
-      const STANDARD_BODY_KEYS = new Set(['email', 'fullName', 'taxId', 'qrCode']);
       const extraFields: Record<string, string> = {};
       for (const f of requiredFieldsOf(quote)) {
         const val = (fieldValues[f.key] ?? '').trim();
         if (!val) continue;
-        if (f.bankType) base.bankDetails = { type: f.bankType, value: val };
-        else if (STANDARD_BODY_KEYS.has(f.key)) base[f.key] = val;
+        if (f.bankType) {
+          if (isBankType(f.bankType)) body.bankDetails = { type: f.bankType, value: val };
+        } else if (f.key === 'email' || f.key === 'fullName' || f.key === 'taxId' || f.key === 'qrCode') body[f.key] = val;
         else extraFields[f.key] = val;
       }
       if (quote.route)
-        base.fields = Object.fromEntries(
+        body.fields = Object.fromEntries(
           requiredFieldsOf(quote)
             .map((field) => [field.key, (fieldValues[field.key] ?? '').trim()])
             .filter(([, value]) => value),
         );
-      else if (Object.keys(extraFields).length > 0) base.fields = extraFields;
-      const result = (
-        direction === 'onramp'
-          ? await client.createOnRamp(base as RampsOnrampBody)
-          : await client.createOffRamp(base as RampsOfframpBody)
-      ) as RampResult;
+      else if (Object.keys(extraFields).length > 0) body.fields = extraFields;
+      const onrampBody: RampsOnrampBody = {
+        quoteId: body.quoteId,
+        amount: body.amount,
+        currency: body.currency,
+        country: body.country,
+        ...(body.amountExact !== undefined ? { amountExact: body.amountExact } : {}),
+        ...(body.walletAddress !== undefined ? { walletAddress: body.walletAddress } : {}),
+        ...(body.email !== undefined ? { email: body.email } : {}),
+        ...(body.fullName !== undefined ? { fullName: body.fullName } : {}),
+        ...(body.fields !== undefined ? { fields: body.fields } : {}),
+      };
+      const result = direction === 'onramp' ? await client.createOnRamp(onrampBody) : await client.createOffRamp(body);
       await applyResult(result);
     } catch (e) {
       const requirement = requiredRampKyc(e);
@@ -758,7 +758,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     setCompleting(true);
     setErrorMsg(null);
     try {
-      const result = (await client.completeWithdraw(txId)) as RampResult;
+      const result = await client.completeWithdraw(txId);
       if (result.pendingSignature) {
         await resumeWithSignature(txId, result.pendingSignature);
         return;

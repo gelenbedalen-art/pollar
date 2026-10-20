@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Linking, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { describeRampAction, type PollarClient, type RampSnapshot } from '@pollar/core';
+import { describeRampAction, type PollarClient, type RampSnapshot, type RampsTransactionResponse } from '@pollar/core';
 import { ActionButton, Choice, Field, Label } from '../native-ui';
 export function RampWorkflow({
   client,
@@ -11,7 +11,7 @@ export function RampWorkflow({
 }: {
   client: PollarClient;
   snapshot: RampSnapshot;
-  onChange: (next: RampSnapshot) => void;
+  onChange: (next: RampsTransactionResponse) => void;
   copyText: (text: string) => unknown;
 }) {
   const model = describeRampAction(snapshot);

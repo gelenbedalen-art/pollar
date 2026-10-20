@@ -6,7 +6,10 @@ import type {
   PollarAdapters,
   PollarClientConfig,
   InteractiveAuthAdapter,
+  RampsCompleteResponse,
+  RampsOfframpResponse,
   RampsOnrampResponse,
+  RampsSignatureResponse,
   RampsTransactionResponse,
 } from '@pollar/core';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -80,7 +83,15 @@ const methods = [
   'fetchTxHistory',
 ] as const;
 type Methods = Pick<PollarClient, (typeof methods)[number]>;
-export type NativeRampState = { direction: 'onramp' | 'offramp'; transaction: RampsOnrampResponse | RampsTransactionResponse };
+export type NativeRampState = {
+  direction: 'onramp' | 'offramp';
+  transaction:
+    | RampsOnrampResponse
+    | RampsOfframpResponse
+    | RampsSignatureResponse
+    | RampsCompleteResponse
+    | RampsTransactionResponse;
+};
 type ModalMethods =
   | 'openLoginModal'
   | 'openTxModal'

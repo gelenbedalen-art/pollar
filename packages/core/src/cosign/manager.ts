@@ -14,6 +14,7 @@ import { bytesToHex, compressedPublicKeyHex, encodeStamp, rawSignatureToDer } fr
 import { checkEvmRequest, polygonChainIdFor } from './evm';
 import { checkSolanaRequest } from './solana';
 import { stellarTransactionHashHex } from './stellar-hash';
+import { isRecord, stringField } from '../api/error-fields';
 
 /**
  * The user's half of a Turnkey co-signed wallet, headless: no UI, only
@@ -62,13 +63,13 @@ function parseJson(value: string): unknown {
  * payload sdk-api sent and the intent Turnkey holds compare as strings.
  */
 function canonicalAccounts(value: unknown): string | null {
-  const v = value as { walletId?: unknown; accounts?: unknown } | null;
-  if (!v || typeof v.walletId !== 'string' || !Array.isArray(v.accounts)) return null;
-  const accounts = v.accounts.map((a) => {
-    const acc = (a ?? {}) as Record<string, unknown>;
-    return [acc.curve, acc.pathFormat, acc.path, acc.addressFormat].map((x) => (typeof x === 'string' ? x : '')).join('|');
-  });
-  return `${v.walletId}:${accounts.join(';')}`;
+  const walletId = stringField(value, 'walletId');
+  const list = isRecord(value) ? value.accounts : undefined;
+  if (walletId === undefined || !Array.isArray(list)) return null;
+  const accounts = list.map((acc: unknown) =>
+    (['curve', 'pathFormat', 'path', 'addressFormat'] as const).map((key) => stringField(acc, key) ?? '').join('|'),
+  );
+  return `${walletId}:${accounts.join(';')}`;
 }
 
 type Intent = Record<string, unknown> | null;
@@ -78,23 +79,22 @@ function turnkeyPayloadOf(request: CosignRequest, intent: Intent): string | null
   if (!intent) return null;
   if (request.kind === 'ACCOUNT') return canonicalAccounts(intent.createWalletAccountsIntent);
   if (request.network === 'STELLAR') {
-    const payload = (intent.signRawPayloadIntentV2 as { payload?: unknown } | undefined)?.payload;
-    return typeof payload === 'string' ? payload.toLowerCase() : null;
+    const payload = stringField(intent.signRawPayloadIntentV2, 'payload');
+    return payload !== undefined ? payload.toLowerCase() : null;
   }
-  const tx = (intent.signTransactionIntentV2 as { unsignedTransaction?: unknown } | undefined)?.unsignedTransaction;
-  return typeof tx === 'string' ? tx.replace(/^0x/i, '').toLowerCase() : null;
+  const tx = stringField(intent.signTransactionIntentV2, 'unsignedTransaction');
+  return tx !== undefined ? tx.replace(/^0x/i, '').toLowerCase() : null;
 }
 
 /** The account Turnkey would sign with, as the intent names it. */
 function signWithOf(request: CosignRequest, intent: Intent): string | null {
   const source = request.network === 'STELLAR' ? intent?.signRawPayloadIntentV2 : intent?.signTransactionIntentV2;
-  const signWith = (source as { signWith?: unknown } | undefined)?.signWith;
-  return typeof signWith === 'string' ? signWith : null;
+  return stringField(source, 'signWith') ?? null;
 }
 
 function apiError(error: unknown, fallback: string): PollarApiError {
-  const body = (typeof error === 'object' && error !== null ? error : {}) as Record<string, unknown>;
-  return new PollarApiError(typeof body.code === 'string' ? body.code : fallback, body);
+  const body = isRecord(error) ? error : {};
+  return new PollarApiError(stringField(body, 'code') ?? fallback, body);
 }
 
 function content<T>(res: { data?: { content?: T }; error?: unknown }, fallback: string): T {
@@ -236,8 +236,9 @@ export class CosignManager {
       organizationId: request.subOrgId,
       activityId: request.activityId,
     });
-    const activity = (res.body as { activity?: { intent?: Record<string, unknown> } } | null)?.activity;
-    return activity?.intent ?? null;
+    const activity = isRecord(res.body) ? res.body.activity : undefined;
+    const intent = isRecord(activity) ? activity.intent : undefined;
+    return isRecord(intent) ? intent : null;
   }
 
   /** What Turnkey says the activity will sign, read with the device's own key. */
@@ -291,7 +292,7 @@ export class CosignManager {
       // request must not hide one.
       const check = checkSolanaRequest(request.unsignedPayload, {
         ...(request.operation ? { operation: request.operation } : {}),
-        details: request.details as Record<string, unknown> | undefined,
+        details: request.details,
         signWith: request.signWith,
       });
       if (!check.ok) return { ok: false, reason: check.reason };
@@ -299,11 +300,7 @@ export class CosignManager {
     } else if (request.network === 'POLYGON') {
       // The payload is read here, not only compared: the call it makes must be
       // one the platform asks for, and the one the request says it is.
-      const check = checkEvmRequest(
-        request.unsignedPayload,
-        request.details as Record<string, unknown> | undefined,
-        polygonChainIdFor(this.deps.networkPassphrase()),
-      );
+      const check = checkEvmRequest(request.unsignedPayload, request.details, polygonChainIdFor(this.deps.networkPassphrase()));
       if (!check.ok) return { ok: false, reason: check.reason };
       localHash = request.unsignedPayload.replace(/^0x/i, '').toLowerCase();
     } else {
@@ -440,21 +437,19 @@ export class CosignManager {
     const { subOrgId } = await this.devices();
     if (!subOrgId) return { ok: false, reason: 'this user has no co-signed wallet' };
     const res = await this.relay('/public/v1/query/get_organization', { organizationId: subOrgId });
-    const data = (
-      res.body as {
-        organizationData?: {
-          rootQuorum?: { threshold?: number; userIds?: string[] };
-          users?: Array<{ userId: string; apiKeys?: Array<{ credential?: { publicKey?: string } }> }>;
-        };
-      } | null
-    )?.organizationData;
-    if (!data) return { ok: false, reason: `Turnkey answered ${res.status} without organization data` };
-    const threshold = data.rootQuorum?.threshold ?? 0;
-    const rootUsers = data.rootQuorum?.userIds?.length ?? 0;
-    const devicePublicKey = await this.publicKeyHex();
-    const deviceRegistered = (data.users ?? []).some((u) =>
-      (u.apiKeys ?? []).some((k) => (k.credential?.publicKey ?? '').toLowerCase() === devicePublicKey.toLowerCase()),
-    );
+    const data = isRecord(res.body) ? res.body.organizationData : undefined;
+    if (!isRecord(data)) return { ok: false, reason: `Turnkey answered ${res.status} without organization data` };
+    const quorum = isRecord(data.rootQuorum) ? data.rootQuorum : {};
+    const threshold = typeof quorum.threshold === 'number' ? quorum.threshold : 0;
+    const rootUsers = Array.isArray(quorum.userIds) ? quorum.userIds.length : 0;
+    const devicePublicKey = (await this.publicKeyHex()).toLowerCase();
+    const users: unknown[] = Array.isArray(data.users) ? data.users : [];
+    const deviceRegistered = users.some((user) => {
+      const keys: unknown[] = isRecord(user) && Array.isArray(user.apiKeys) ? user.apiKeys : [];
+      return keys.some(
+        (key) => (stringField(isRecord(key) ? key.credential : undefined, 'publicKey') ?? '').toLowerCase() === devicePublicKey,
+      );
+    });
     const ok = threshold === 2 && rootUsers === 2 && deviceRegistered;
     return ok
       ? { ok: true, threshold, rootUsers, deviceRegistered }

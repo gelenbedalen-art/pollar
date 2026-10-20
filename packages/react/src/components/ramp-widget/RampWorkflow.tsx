@@ -1,5 +1,5 @@
 'use client';
-import { describeRampAction, type PollarClient, type RampSnapshot } from '@pollar/core';
+import { describeRampAction, type PollarClient, type RampSnapshot, type RampsTransactionResponse } from '@pollar/core';
 import { QRCode } from '../../lib/qr-code';
 import { useState, useRef, useEffect } from 'react';
 export function RampWorkflow({
@@ -10,7 +10,7 @@ export function RampWorkflow({
 }: {
   client: PollarClient;
   snapshot: RampSnapshot;
-  onChange: (next: RampSnapshot) => void;
+  onChange: (next: RampsTransactionResponse) => void;
   onBusyChange?: (busy: boolean) => void;
 }) {
   const model = describeRampAction(snapshot);

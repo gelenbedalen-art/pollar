@@ -21,6 +21,7 @@ import type {
   RampTxStatus,
 } from '../../types';
 import { PollarApiError } from '../../types';
+import { isRecord, stringField } from '../error-fields';
 
 /**
  * Wrap an error body into a {@link PollarApiError}, keeping every field the API
@@ -31,8 +32,8 @@ import { PollarApiError } from '../../types';
  * `message` stays the code, so anything rendering `err.message` is unaffected.
  */
 function rampApiError(error: unknown, fallback: string): PollarApiError {
-  const body = (typeof error === 'object' && error !== null ? error : {}) as Record<string, unknown>;
-  const code = typeof body.code === 'string' ? body.code : typeof body.error === 'string' ? body.error : fallback;
+  const body = isRecord(error) ? error : {};
+  const code = stringField(body, 'code') ?? stringField(body, 'error') ?? fallback;
   return new PollarApiError(code, body);
 }
 

@@ -17,7 +17,7 @@ import type {
 } from '@pollar/core';
 import { mergeRampSnapshot } from '@pollar/core';
 import { RampWorkflow } from './ramp-widget/RampWorkflow';
-import { usePollar } from '../context';
+import { usePollar, type NativeRampState } from '../context';
 import { ActionButton, ActionState, Card, Choice, Field, Label, ResultView, useAction } from './native-ui';
 
 export type FeatureName =
@@ -783,7 +783,10 @@ export function RampPanel() {
   const terminal = ['completed', 'failed', 'refunded'].includes(transaction?.lifecycleState ?? transaction?.status ?? '');
   const transactionRef = useRef(transaction);
   transactionRef.current = transaction;
-  const setTransaction = (next: RampsOnrampResponse | RampsTransactionResponse | undefined) => {
+  // Only some answers carry these: a saved transaction read back has neither.
+  const tosUrl = transaction && 'tosUrl' in transaction ? transaction.tosUrl : undefined;
+  const pendingSignature = transaction && 'pendingSignature' in transaction ? transaction.pendingSignature : undefined;
+  const setTransaction = (next: NativeRampState['transaction'] | undefined) => {
     const accepted = next ? mergeRampSnapshot(transactionRef.current, next) : undefined;
     transactionRef.current = accepted;
     p.setRamp(accepted ? { direction, transaction: accepted } : null);
@@ -984,7 +987,7 @@ export function RampPanel() {
             <RampWorkflow
               client={p.getClient()}
               snapshot={transaction}
-              onChange={(next) => setTransaction(next as RampsTransactionResponse)}
+              onChange={(next) => setTransaction(next)}
               copyText={p.copyText}
             />
           ) : (
@@ -997,11 +1000,8 @@ export function RampPanel() {
                   onPress={() => void action.run(() => Linking.openURL(transaction.kycUrl!))}
                 />
               )}
-              {'tosUrl' in transaction && transaction.tosUrl && (
-                <ActionButton
-                  title="Open provider terms"
-                  onPress={() => void action.run(() => Linking.openURL((transaction as RampsOnrampResponse).tosUrl!))}
-                />
+              {tosUrl && (
+                <ActionButton title="Open provider terms" onPress={() => void action.run(() => Linking.openURL(tosUrl))} />
               )}
               {transaction.depositInstructions?.scannable?.payload && (
                 <ActionButton
@@ -1014,13 +1014,13 @@ export function RampPanel() {
                   }
                 />
               )}
-              {'pendingSignature' in transaction && transaction.pendingSignature && (
+              {pendingSignature && (
                 <ActionButton
                   title="Sign provider request"
                   disabled={action.busy}
                   onPress={() =>
                     void action.run(async () => {
-                      const pending = (transaction as RampsOnrampResponse).pendingSignature!;
+                      const pending = pendingSignature;
                       const signed = await p.signTx(pending.unsignedXdr, { skipSponsorship: pending.action === 'sep10' });
                       if (signed.status !== 'signed') return signed;
                       const next = await p.submitRampSignature(transaction.txId, {

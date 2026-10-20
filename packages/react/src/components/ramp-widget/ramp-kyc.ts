@@ -22,9 +22,14 @@ const nonEmpty = (value: unknown): value is string => typeof value === 'string' 
  */
 export function requiredRampKyc(error: unknown): PendingRequirement | null {
   if (!error || typeof error !== 'object') return null;
-  const { code, body } = error as { code?: unknown; body?: unknown };
-  if (code !== 'SDK_RAMPS_KYC_REQUIRED' || !body || typeof body !== 'object') return null;
-  const { rampProviderId, corridorId, requirementType, optionId, kycProviderId } = body as Record<string, unknown>;
+  if (!('code' in error) || error.code !== 'SDK_RAMPS_KYC_REQUIRED') return null;
+  const body = 'body' in error ? error.body : undefined;
+  if (typeof body !== 'object' || body === null) return null;
+  const rampProviderId = 'rampProviderId' in body ? body.rampProviderId : undefined;
+  const corridorId = 'corridorId' in body ? body.corridorId : undefined;
+  const requirementType = 'requirementType' in body ? body.requirementType : undefined;
+  const optionId = 'optionId' in body ? body.optionId : undefined;
+  const kycProviderId = 'kycProviderId' in body ? body.kycProviderId : undefined;
   if (!nonEmpty(rampProviderId) || !nonEmpty(corridorId)) return null;
   if (
     (requirementType === 'FORM' || requirementType === 'REGISTRY_CHECK' || requirementType === 'PROVIDER_REGISTRATION') &&

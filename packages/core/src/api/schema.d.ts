@@ -219,10 +219,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get my wallet balances
-         * @description Returns XLM and the application's enabled-asset balances for the authenticated user's wallet using Soroban RPC (no Horizon). The wallet and network are derived from the session — no parameters required. "available" reflects the spendable amount after minimum reserve (XLM) and selling liabilities.
-         */
+        /** Get my wallet balances (all chains, or one via ?chain=) */
         get: operations["getWalletBalance"];
         put?: never;
         post?: never;
@@ -239,10 +236,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get my trustlines
-         * @description Returns every trustline the authenticated wallet holds on-chain — the application's configured assets AND any the user added on their own — plus the app-enabled assets the wallet has not established a trustline for yet. Each asset carries enabledInApp (tag which belong to the app), trustlineEstablished, limit, and sponsored (app assets only). No balances. Native XLM is always included first. Trustlines are enumerated via Horizon. The wallet and network are derived from the session — no parameters required.
-         */
+        /** My enabled assets (all chains, or one via ?chain=) */
         get: operations["getWalletAssets"];
         put?: never;
         post?: never;
@@ -3548,7 +3542,9 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": unknown;
+                "application/json": {
+                    devicePublicKey?: string;
+                };
             };
         };
         responses: {
@@ -3716,7 +3712,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Account balances */
+            /** @description Balances per chain; a chain that could not be read carries `error` instead */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3728,21 +3724,32 @@ export interface operations {
                         /** @constant */
                         success: true;
                         content: {
-                            publicKey: string;
-                            /** @enum {string} */
-                            network: "testnet" | "mainnet";
-                            exists: boolean;
-                            balances: {
+                            chains: ({
                                 /** @enum {string} */
-                                type: "native" | "credit_alphanum4" | "credit_alphanum12";
-                                code: string;
-                                issuer?: string;
-                                balance: string;
-                                available: string;
-                                limit?: string;
-                                enabledInApp: boolean;
-                                trustlineRemoved: boolean;
-                            }[];
+                                chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                address: string;
+                                /** @enum {string} */
+                                network?: "testnet" | "mainnet";
+                                exists: boolean;
+                                balances: {
+                                    /** @enum {string} */
+                                    type: "native" | "credit_alphanum4" | "credit_alphanum12" | "token";
+                                    code: string;
+                                    issuer?: string;
+                                    decimals?: number;
+                                    balance: string | null;
+                                    available: string | null;
+                                    limit?: string;
+                                    enabledInApp: boolean;
+                                    trustlineRemoved?: boolean;
+                                    sponsored?: boolean;
+                                }[];
+                            } | {
+                                /** @enum {string} */
+                                chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                /** @enum {string} */
+                                error: "no_wallet" | "chain_unavailable" | "unreadable";
+                            })[];
                         };
                     };
                 };
@@ -3790,7 +3797,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Enabled assets with trustline state */
+            /** @description Enabled assets per chain; a chain that could not be read carries `error` instead */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3802,21 +3809,29 @@ export interface operations {
                         /** @constant */
                         success: true;
                         content: {
-                            publicKey: string;
-                            /** @enum {string} */
-                            network: "testnet" | "mainnet";
-                            exists: boolean;
-                            assets: {
+                            chains: ({
                                 /** @enum {string} */
-                                type: "native" | "credit_alphanum4" | "credit_alphanum12";
-                                code: string;
-                                issuer?: string;
-                                name?: string;
-                                trustlineEstablished: boolean;
-                                limit?: string;
-                                enabledInApp: boolean;
-                                sponsored?: boolean;
-                            }[];
+                                chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                address: string;
+                                exists: boolean;
+                                assets: {
+                                    /** @enum {string} */
+                                    type: "native" | "credit_alphanum4" | "credit_alphanum12" | "token";
+                                    code: string;
+                                    issuer?: string;
+                                    decimals?: number;
+                                    name?: string;
+                                    trustlineEstablished?: boolean;
+                                    limit?: string;
+                                    enabledInApp: boolean;
+                                    sponsored?: boolean;
+                                }[];
+                            } | {
+                                /** @enum {string} */
+                                chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                /** @enum {string} */
+                                error: "no_wallet" | "chain_unavailable" | "unreadable";
+                            })[];
                         };
                     };
                 };
@@ -3888,7 +3903,22 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_TX_SUBMIT";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            /** @constant */
+                            chain: "SOLANA";
+                            hash: string;
+                            /** @enum {string} */
+                            status: "SUBMITTED" | "SUCCESS" | "FAILED";
+                            sponsored: boolean;
+                        };
+                    };
+                };
             };
             /** @description Validation error */
             400: {
@@ -13932,7 +13962,15 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: string;
+                    amountExpected: string;
+                    reason?: string;
+                };
+            };
+        };
         responses: {
             /** @description Charge created */
             201: {

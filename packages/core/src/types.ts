@@ -5,6 +5,7 @@ import type { LogLevel, PollarLogger } from './lib/logger';
 import type { OnStorageDegrade, Storage } from './storage/types';
 import type { VisibilityProvider } from './visibility/types';
 import { WalletAdapter, WalletId } from './wallets';
+import { stringField } from './api/error-fields';
 
 export type PollarApplicationConfigResponse =
   pollarPaths['/auth/login']['post']['responses'][200]['content']['application/json'];
@@ -933,8 +934,7 @@ export const WALLET_NOT_READY_CODE = 'SDK_WALLET_NOT_READY';
  * when the account lands - not to retry immediately.
  */
 export function isWalletNotReady(errorOrOutcome: unknown): boolean {
-  if (typeof errorOrOutcome !== 'object' || errorOrOutcome === null) return false;
-  return (errorOrOutcome as { code?: unknown }).code === WALLET_NOT_READY_CODE;
+  return stringField(errorOrOutcome, 'code') === WALLET_NOT_READY_CODE;
 }
 
 /**
@@ -949,8 +949,7 @@ export const WALLET_REQUIRED_CODE = 'SDK_WALLET_REQUIRED';
  * The fix is {@link PollarClient.createWallet}, not a retry.
  */
 export function isWalletRequired(errorOrOutcome: unknown): boolean {
-  if (typeof errorOrOutcome !== 'object' || errorOrOutcome === null) return false;
-  return (errorOrOutcome as { code?: unknown }).code === WALLET_REQUIRED_CODE;
+  return stringField(errorOrOutcome, 'code') === WALLET_REQUIRED_CODE;
 }
 
 /** Type guard for {@link PollarNetworkError} (instanceof is unreliable across
@@ -1034,6 +1033,14 @@ export interface WalletBalanceContent {
   balances: WalletBalanceRecord[];
 }
 
+/** `GET /wallet/balance` as v2 answers it: one entry per chain, or an `error` for a chain it could not read. */
+export type WalletBalanceAnswer =
+  pollarPaths['/wallet/balance']['get']['responses'][200]['content']['application/json']['content'];
+
+/** `GET /wallet/assets` as v2 answers it, per chain like {@link WalletBalanceAnswer}. */
+export type WalletAssetsAnswer =
+  pollarPaths['/wallet/assets']['get']['responses'][200]['content']['application/json']['content'];
+
 export type WalletBalanceState =
   | { step: 'idle' }
   | { step: 'loading' }
@@ -1045,10 +1052,8 @@ export type WalletBalanceState =
 /**
  * One asset the app offers, tagged with the chain it lives on.
  *
- * Hand-written rather than derived from `pollarPaths['/wallet/assets']`: that
- * generated type describes v1's Stellar-only shape, while v2 answers for every
- * chain the app is provisioned on. Mirrors {@link WalletBalanceRecord}, which is
- * hand-written for the same reason.
+ * The flat, chain-tagged view of {@link WalletAssetsAnswer}: v2 answers per
+ * chain, and the UI reads one list. Mirrors {@link WalletBalanceRecord}.
  *
  * `trustlineEstablished`, `limit` and `sponsored` are Stellar-only - a trustline
  * is a Stellar concept, so an ERC-20 or SPL token needs no per-user opt-in to be

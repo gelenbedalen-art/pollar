@@ -110,7 +110,13 @@ export function KycModal({
         finish('approved');
         return;
       }
-      setSession(result as KycStartResponse);
+      const { sessionId } = result;
+      if (sessionId === undefined) throw new Error('The KYC provider answered without a session.');
+      setSession({
+        sessionId,
+        ...(result.kycUrl !== undefined ? { kycUrl: result.kycUrl } : {}),
+        ...(result.fields !== undefined ? { fields: result.fields } : {}),
+      });
       setStep('verifying');
     } catch (e) {
       const code = isPollarApiError(e) ? e.code : undefined;

@@ -1,4 +1,5 @@
 import { AUTH_ERROR_CODES, type AuthErrorCode } from '../../types';
+import { stringField } from '../../api/error-fields';
 
 /**
  * Maps a backend error `code` (the `ErrorCode` enum returned by sdk-api /
@@ -107,5 +108,5 @@ export function resolveAuthError(code: string | undefined, fallbackMessage: stri
  * 200 `data` body with `success: false`.
  */
 export function extractErrorCode(error: unknown, data: unknown): string | undefined {
-  return (error as { code?: string } | undefined)?.code ?? (data as { code?: string } | undefined)?.code ?? undefined;
+  return stringField(error, 'code') ?? stringField(data, 'code');
 }
