@@ -4368,6 +4368,11 @@ export class PollarClient {
   continueRamp(txId: string, body: RampContinuationBody): Promise<RampsTransactionResponse> {
     return continueRamp(this._api, txId, body);
   }
+
+  /** Compatibility alias for consumers of the Anclap workflow client. */
+  continueRampTransaction(txId: string, body: RampContinuationBody): Promise<RampsTransactionResponse> {
+    return continueRamp(this._api, txId, body);
+  }
   /** Register a signer for a chain and payload encoding; returns its cleanup function. */
   registerRampSigningHandler(chain: RampChain, encoding: string, handler: RampSigningHandler): () => void {
     return this._rampSigners.register(chain, encoding, handler);

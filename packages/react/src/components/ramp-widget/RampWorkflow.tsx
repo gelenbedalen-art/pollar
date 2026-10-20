@@ -6,10 +6,12 @@ export function RampWorkflow({
   client,
   snapshot,
   onChange,
+  onBusyChange,
 }: {
   client: PollarClient;
   snapshot: RampSnapshot;
   onChange: (next: RampSnapshot) => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const model = describeRampAction(snapshot);
   const locked = useRef(false);
@@ -23,6 +25,7 @@ export function RampWorkflow({
     if (!model.action || locked.current) return;
     locked.current = true;
     setBusy(true);
+    onBusyChange?.(true);
     setError(null);
     try {
       onChange(
@@ -39,6 +42,7 @@ export function RampWorkflow({
     } finally {
       locked.current = false;
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
   return (

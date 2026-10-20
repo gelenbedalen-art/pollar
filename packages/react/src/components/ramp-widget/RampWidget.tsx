@@ -145,6 +145,35 @@ interface RampResult {
   depositInstructions?: RampDepositInstructions;
 }
 
+function readRampStorage(key: string): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeRampStorage(key: string, value: string | null) {
+  try {
+    if (typeof window === 'undefined') return;
+    if (value === null) window.sessionStorage.removeItem(key);
+    else window.sessionStorage.setItem(key, value);
+  } catch {
+    /* Storage is optional; the API remains the source of truth. */
+  }
+}
+
+type SavedRamp = { txId: string; provider: string };
+function savedRampsOf(key: string): SavedRamp[] {
+  try {
+    const value: unknown = JSON.parse(readRampStorage(`${key}:saved`) ?? '[]');
+    return Array.isArray(value)
+      ? value.filter((item): item is SavedRamp => typeof item?.txId === 'string' && typeof item?.provider === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 type RampChain = NonNullable<RampsTransactionResponse['chain']>;
 
 /** The explorer transaction URL of a ramp's settlement, by its chain; testnet is Solana devnet and Polygon Amoy. */
@@ -209,11 +238,25 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [depositInstructions, setDepositInstructions] = useState<RampDepositInstructions | null>(null);
   const [workflow, setWorkflow] = useState<RampSnapshot | null>(null);
   const workflowRef = useRef<RampSnapshot | null>(null);
+  const storageKey = `pollar:ramp:${client.apiKey}:${walletAddress}`;
+  const [savedRamps, setSavedRamps] = useState<SavedRamp[]>([]);
   const [legacySignature, setLegacySignature] = useState<RampResult['pendingSignature']>(undefined);
   function acceptWorkflow(incoming: RampSnapshot) {
     const next = mergeRampSnapshot(workflowRef.current, incoming);
     workflowRef.current = next;
     setWorkflow(next);
+    if (next === incoming) {
+      const pending = savedRampsOf(storageKey).filter((item) => item.txId !== incoming.txId);
+      if (!['completed', 'failed', 'refunded'].includes(incoming.lifecycleState ?? incoming.status))
+        pending.push({
+          txId: incoming.txId,
+          provider: (incoming as RampSnapshot & { provider?: string }).provider ?? (provider || 'Ramp'),
+        });
+      writeRampStorage(`${storageKey}:saved`, JSON.stringify(pending));
+      writeRampStorage(storageKey, incoming.txId);
+      writeRampStorage(`${storageKey}:selection`, null);
+      setSavedRamps(pending);
+    }
     return next === incoming;
   }
   const [routes, setRoutes] = useState<RampRoute[]>([]);
@@ -241,6 +284,46 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [completing, setCompleting] = useState(false);
   const completionLocked = useRef(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Restore references only; the API enforces ownership and no action is dispatched.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !walletAddress) return;
+    setSavedRamps(savedRampsOf(storageKey));
+    if (readRampStorage(`${storageKey}:selection`) === '1') return;
+    const savedId = new URLSearchParams(window.location.search).get('rampTxId') || readRampStorage(storageKey);
+    if (!savedId) return;
+    let active = true;
+    void client
+      .getRampTransaction(savedId)
+      .then(async (result) => {
+        if (!active || result.transactionVersion === undefined) return;
+        setDirection(result.direction);
+        await applyResult(result);
+      })
+      .catch(() => {
+        if (active)
+          setErrorMsg('Could not restore the saved ramp. Retry opening the modal; do not create a replacement order.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, storageKey, walletAddress]);
+
+  async function resumeSavedRamp(id: string) {
+    if (completionLocked.current) return;
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      const result = await client.getRampTransaction(id);
+      if (result.transactionVersion === undefined) throw new Error('This saved ramp cannot be restored.');
+      setDirection(result.direction);
+      await applyResult(result);
+    } catch (error) {
+      setErrorMsg(rampErrorMessage(error, 'Could not resume the saved ramp.'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   const directionRef = useRef(direction);
   directionRef.current = direction;
@@ -310,7 +393,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   // would ask the wrong question every ten seconds and never get an answer. The
   // transaction poll above is what surfaces movement there.
   useEffect(() => {
-    if (workflow || step !== 'status' || !kycPending || kycApproved) return;
+    if (workflow || step !== 'status' || !kycPending || kycApproved || provider.toLowerCase() !== 'abroad') return;
     if (onboardingStatus === 'awaiting_provider') return;
     let active = true;
     const check = async () => {
@@ -327,7 +410,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       active = false;
       clearInterval(id);
     };
-  }, [step, kycPending, kycApproved, onboardingStatus, workflow, client]);
+  }, [step, kycPending, kycApproved, onboardingStatus, workflow, client, provider]);
 
   /**
    * Fetch the ramp countries supported on the app's network. When `resetSelection`
@@ -403,6 +486,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
    *  user steps back because the amount missed a route's minimum, dropping the
    *  figure would leave them correcting it blind. A plain retry clears it. */
   function resetToInput({ keepMessage = false }: { keepMessage?: boolean } = {}) {
+    writeRampStorage(storageKey, null);
+    writeRampStorage(`${storageKey}:selection`, '1');
     setStep('input');
     setQuotes([]);
     setRequirementsRequired([]);
@@ -807,6 +892,10 @@ export function RampWidget({ onClose }: RampWidgetProps) {
             <RampWorkflow
               client={client}
               snapshot={workflow}
+              onBusyChange={(busy) => {
+                completionLocked.current = busy;
+                setCompleting(busy);
+              }}
               onChange={(next) => {
                 if (acceptWorkflow(next)) setTxStatus(next.status);
               }}
@@ -853,6 +942,15 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         depositInstructions={depositInstructions}
         canComplete={canComplete}
         completing={completing}
+        savedRamps={savedRamps}
+        onResumeRamp={resumeSavedRamp}
+        onExploreRoutes={
+          workflow
+            ? () => {
+                if (!completionLocked.current) resetToInput();
+              }
+            : undefined
+        }
         errorMsg={errorMsg}
         noticeMsg={noticeMsg}
         onDirectionChange={(next) => {

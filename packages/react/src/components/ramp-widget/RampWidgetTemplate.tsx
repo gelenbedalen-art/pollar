@@ -152,6 +152,9 @@ interface RampWidgetTemplateProps {
   depositInstructions: RampDepositInstructions | null;
   canComplete: boolean;
   completing: boolean;
+  savedRamps?: Array<{ txId: string; provider: string }>;
+  onResumeRamp?: (id: string) => void;
+  onExploreRoutes?: (() => void) | undefined;
   errorMsg: string | null;
   /** Neutral guidance on the route list, e.g. after identity verification sent the user back to it. */
   noticeMsg?: string | null;
@@ -245,6 +248,9 @@ export function RampWidgetTemplate({
   depositInstructions,
   canComplete,
   completing,
+  savedRamps = [],
+  onResumeRamp,
+  onExploreRoutes,
   errorMsg,
   noticeMsg,
   onDirectionChange,
@@ -346,6 +352,34 @@ export function RampWidgetTemplate({
         </div>
       )}
 
+      {step === 'input' && savedRamps.length > 0 && (
+        <section className="pollar-ramp-payment" aria-label="Pending operations">
+          <p className="pollar-ramp-payment-note">
+            Your pending operations are saved. Starting another route does not cancel them.
+          </p>
+          {savedRamps.map((ramp) => (
+            <button
+              key={ramp.txId}
+              type="button"
+              className="pollar-btn-secondary"
+              disabled={isLoading}
+              onClick={() => onResumeRamp?.(ramp.txId)}
+            >
+              Resume {ramp.provider} · {ramp.txId.slice(-8)}
+            </button>
+          ))}
+        </section>
+      )}
+      {step === 'status' && onExploreRoutes && (
+        <>
+          <button type="button" className="pollar-btn-secondary" disabled={completing} onClick={onExploreRoutes}>
+            Try another route
+          </button>
+          <p className="pollar-ramp-payment-note">
+            This keeps the current operation pending; it does not cancel a payment or refund funds.
+          </p>
+        </>
+      )}
       {step === 'input' && (
         <>
           <div className="pollar-tabs">
