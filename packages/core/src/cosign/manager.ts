@@ -288,8 +288,8 @@ export class CosignManager {
         return { ok: false, reason: 'the transaction does not hash to what Pollar asked Turnkey to sign', localHash };
       }
     } else if (request.network === 'SOLANA') {
-      // A CCTP burn is read and checked against the request, and any other
-      // request must not hide one.
+      // The payload is read, not only compared: a CCTP burn or a transfer, and
+      // the one the request says it is.
       const check = checkSolanaRequest(request.unsignedPayload, {
         ...(request.operation ? { operation: request.operation } : {}),
         details: request.details,
