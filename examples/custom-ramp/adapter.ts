@@ -1,5 +1,6 @@
 import {
   defineRampAdapter,
+  isRampAdapterError,
   RampAdapterError,
   type RampAdapter,
   type RampAdapterAttemptRecorder,
@@ -91,7 +92,9 @@ async function recorded<T>(
     await recorder?.record({ step, request, response, sensitive, latencyMs: Date.now() - started });
     return response;
   } catch (error) {
-    await recorder?.record({ step, request, sensitive, latencyMs: Date.now() - started, errorCode: 'PROVIDER_ERROR' });
+    const code = isRampAdapterError(error) ? error.code : 'PROVIDER_ERROR';
+    await recorder?.record({ step, request, sensitive, latencyMs: Date.now() - started, errorCode: code });
+    if (isRampAdapterError(error)) throw error;
     throw new RampAdapterError('PROVIDER_UNAVAILABLE', 'retry_read', undefined, {
       providerCode: error instanceof Error ? error.name : 'UNKNOWN',
       detail: step,
