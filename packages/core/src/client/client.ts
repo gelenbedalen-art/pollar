@@ -386,6 +386,8 @@ export class PollarClient {
   private _profile: PollarUserProfile | null = null;
   /** Last `DPoP-Nonce` we saw from a server response. Carried into the next proof. */
   private _dpopNonce: string | null = null;
+  /** The API-retirement warning is for the developer, once; not a log line per request. */
+  private _deprecationWarned = false;
   /**
    * Clock skew compensation, in seconds (`serverTime - localTime`), learned from
    * the `Date` header of every server response and added to the DPoP proof
@@ -576,11 +578,10 @@ export class PollarClient {
     Object.defineProperty(this, POLLAR_CLIENT_BRAND, { value: true, enumerable: false });
     this.apiKey = config.apiKey;
     this.id = randomUUID();
-    // v2 is the multichain SDK surface. It is a superset of v1 - every v1 route is
-    // re-exposed unchanged, with a `chain` discriminator added where a feature went
-    // multichain (today: wallet balance/tokens/transfer). So the whole client rides
-    // /v2 and only the shapes that actually changed are handled specially.
-    this.basePath = `${config.baseUrl || 'https://sdk.api.pollar.xyz'}/v2`;
+    // v3 is the only sdk-api surface that receives features: v1 and v2 are frozen
+    // and v1 retires on 2026-11-30. The whole client rides /v3; the server mounts
+    // the same handlers v2 had for every module Pollar v3 did not redefine.
+    this.basePath = `${config.baseUrl || 'https://sdk.api.pollar.xyz'}/v3`;
     this._log = createLogger(config.logLevel ?? 'info', config.logger);
 
     this._storage =
@@ -1016,6 +1017,19 @@ export class PollarClient {
               void self._persistDpopClockOffset(offset);
             }
           }
+        }
+
+        // The server announces the retirement of the API version this client
+        // calls with `Deprecation` and `Sunset` (sdk-api exposes both to a
+        // browser). Nothing else changes: the request was served.
+        if (!self._deprecationWarned && response.headers.get('Deprecation')) {
+          self._deprecationWarned = true;
+          const sunset = response.headers.get('Sunset');
+          const guide = /<([^>]+)>/.exec(response.headers.get('Link') ?? '')?.[1];
+          self._log.warn(
+            `[PollarClient] The Pollar API version this SDK calls is deprecated${sunset ? ` and retires on ${sunset}` : ''}. ` +
+              `Upgrade @pollar/core to the current release${guide ? `: ${guide}` : '.'}`,
+          );
         }
 
         if (response.status !== 401) return self._logHttp(request, response);

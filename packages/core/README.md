@@ -41,7 +41,7 @@ Pollar runs on Solana end to end for wallets and payments:
 >   and replays the current value on subscribe, the same contract as `onAuthStateChange`;
 >   `refreshWalletState()` for a host that knows better than a timer; and `isWalletNotReady()` +
 >   `WALLET_NOT_READY_CODE`, which name the `SDK_WALLET_NOT_READY` (409) the server returns for an
->   on-chain operation attempted before the account lands. The client polls `GET /v2/wallet/state`
+>   on-chain operation attempted before the account lands. The client polls `GET /v3/wallet/state`
 >   while a wallet is `CREATING` and stops on `READY`/`FAILED`, on logout and on `destroy()`.
 >   Also: **a DPoP proof the server rejects over clock skew is re-signed instead of clearing the
 >   session** - an `iat-skew` 401 on `/auth/refresh` was logging the user out even though the same
@@ -83,8 +83,8 @@ Pollar runs on Solana end to end for wallets and payments:
 > could not be read, and must render as unavailable rather than as `0`. Every chain reports its
 > native coin plus each token the app enabled (0.11.0 reported only the native token off
 > Stellar), and balances gained `decimals`, `limit` and `sponsored`. `signTx` accepts
-> `skipSponsorship`. **0.11.0** went multichain (Solana joins Stellar) and moved every request to the
-> **`/v2`** API. **0.10.0** unified external wallets into `walletAdapters: WalletAdapter[]` and
+> `skipSponsorship`. **0.12.0** moved every request to the **`/v3`** API. **0.11.0** went multichain
+> (Solana joins Stellar) and moved every request to the `/v2` API. **0.10.0** unified external wallets into `walletAdapters: WalletAdapter[]` and
 > removed the singular `walletAdapter` resolver and `client.loginWallet()`.
 >
 > See [UPGRADE.md](../../UPGRADE.md) for migration steps and the
@@ -461,7 +461,7 @@ Aborts any in-flight login flow and resets `authState` to `idle`. Safe to call f
 
 #### `client.logout(options?): Promise<void>`
 
-Server-side revokes the refresh-token family via `POST /v2/auth/logout`, then clears local storage and resets the
+Server-side revokes the refresh-token family via `POST /v3/auth/logout`, then clears local storage and resets the
 keypair. Server revocation is best-effort: a failed POST still clears local state.
 
 ```ts
@@ -501,7 +501,7 @@ environments that re-instantiate `PollarClient`.
 
 #### `client.refresh(): Promise<void>`
 
-Forces an access-token refresh. Race-safe: concurrent calls coalesce into a single `/v2/auth/refresh` request.
+Forces an access-token refresh. Race-safe: concurrent calls coalesce into a single `/v3/auth/refresh` request.
 Request middleware calls this automatically on a **token-expiry 401**, then retries idempotent GET/HEAD requests. A
 **DPoP-Nonce challenge** or a **replayed-proof 401** does not refresh — it is retried with a freshly re-signed proof
 carrying the new nonce, so a polling loop can't burn the refresh rate limit on nonce rotation.
@@ -564,7 +564,7 @@ const off = client.onWalletStateChange((provisioning) => {
 });
 ```
 
-While a wallet is `CREATING` the client polls `GET /v2/wallet/state` - 1s, 2s, 3s ... to a 10s
+While a wallet is `CREATING` the client polls `GET /v3/wallet/state` - 1s, 2s, 3s ... to a 10s
 ceiling, at most 12 checks - and stops on `READY` or `FAILED`, on `logout()` and on `destroy()`.
 Giving up is safe: the next login or session resume re-enqueues a creation that never landed.
 
@@ -878,7 +878,7 @@ client.submitProviderRegistration(corridorId: string): Promise<ProviderRegistrat
 
 For a `KYC` step, open the option the step names (`optionId`) with the step's `corridorId`. The v2 quote also lists, in
 `unavailable`, the providers that serve the route but failed to quote it just now (`{ provider, code }`), so an empty
-`quotes` is not always "no provider serves this country". These need an sdk-api that serves `/v2/requirements`.
+`quotes` is not always "no provider serves this country". These need an sdk-api that serves `/v3/requirements`.
 
 ---
 

@@ -564,7 +564,7 @@ export interface AuthProviderContext {
   readonly signal: AbortSignal;
   /** Typed `openapi-fetch` client, already wired with DPoP + refresh middleware. */
   readonly api: PollarApiClient;
-  /** API origin + version prefix (e.g. `https://sdk.api.pollar.xyz/v2`). */
+  /** API origin + version prefix (e.g. `https://sdk.api.pollar.xyz/v3`). */
   readonly basePath: string;
   readonly apiKey: string;
   readonly logger: PollarLogger;
@@ -998,8 +998,8 @@ export type WalletChain = 'STELLAR' | 'POLYGON' | 'SOLANA';
 
 /**
  * One asset the wallet holds, tagged with the chain it lives on. `chain` is
- * populated on the multichain own-wallet balance (`GET /v2/wallet/balance`); the
- * single-wallet lookup (`GET /v2/wallet/{publicKey}/balance`, Stellar-only) omits
+ * populated on the multichain own-wallet balance (`GET /v3/wallet/balance`); the
+ * single-wallet lookup (`GET /v3/wallet/{publicKey}/balance`, Stellar-only) omits
  * it.
  *
  * Every chain reports its native coin plus each token the app enabled. `type` is

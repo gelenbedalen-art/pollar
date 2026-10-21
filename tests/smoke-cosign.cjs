@@ -243,7 +243,7 @@ function request(overrides = {}) {
     calls.push(`${method} ${url.pathname}`);
     const json = (status, body) =>
       new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-    if (url.pathname === '/v2/auth/session/resume')
+    if (url.pathname === '/v3/auth/session/resume')
       return json(200, {
         success: true,
         code: 'SDK_SESSION_RESUMED',
@@ -255,23 +255,23 @@ function request(overrides = {}) {
           providers: { email: { address: 'u@x.test' }, google: null, github: null, wallet: null },
         },
       });
-    if (url.pathname === '/v2/tx/sign') {
+    if (url.pathname === '/v3/tx/sign') {
       return json(202, {
         success: true,
         code: 'SDK_COSIGN_PENDING',
         content: { pendingSignature: { kind: 'cosign', request: signingRequest({ intent: 'sign' }) } },
       });
     }
-    if (url.pathname === '/v2/tx/sign-and-send') {
+    if (url.pathname === '/v3/tx/sign-and-send') {
       return json(202, {
         success: true,
         code: 'SDK_COSIGN_PENDING',
         content: { pendingSignature: { kind: 'cosign', request: signingRequest() } },
       });
     }
-    if (url.pathname === '/v2/cosign/requests')
+    if (url.pathname === '/v3/cosign/requests')
       return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { requests: pendingList } });
-    if (url.pathname === '/v2/cosign/devices') {
+    if (url.pathname === '/v3/cosign/devices') {
       return json(200, {
         success: true,
         code: 'SDK_COSIGN_DEVICES',
@@ -302,7 +302,7 @@ function request(overrides = {}) {
         },
       });
     }
-    if (url.pathname === '/v2/wallet/state') {
+    if (url.pathname === '/v3/wallet/state') {
       return json(200, {
         success: true,
         code: 'SDK_WALLET_STATE',
@@ -315,7 +315,7 @@ function request(overrides = {}) {
         },
       });
     }
-    if (url.pathname === '/v2/cosign/quorum/verify') {
+    if (url.pathname === '/v3/cosign/quorum/verify') {
       quorumReports.push(JSON.parse(await req.text()));
       return json(200, {
         success: true,
@@ -323,7 +323,7 @@ function request(overrides = {}) {
         content: { quorumState: quorumReports[quorumReports.length - 1].ok ? 'VERIFIED' : 'BROKEN' },
       });
     }
-    const cancel = url.pathname.match(/^\/v2\/cosign\/requests\/([^/]+)\/cancel$/);
+    const cancel = url.pathname.match(/^\/v3\/cosign\/requests\/([^/]+)\/cancel$/);
     if (cancel) {
       rejectCalls++;
       pendingList = pendingList.filter((r) => r.id !== cancel[1]);
@@ -340,11 +340,11 @@ function request(overrides = {}) {
         },
       });
     }
-    if (url.pathname === '/v2/cosign/requests/req-1/refresh') {
+    if (url.pathname === '/v3/cosign/requests/req-1/refresh') {
       refreshCalls++;
       return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { request: refreshedRequest ?? request() } });
     }
-    if (url.pathname === '/v2/cosign/relay') {
+    if (url.pathname === '/v3/cosign/relay') {
       const body = JSON.parse(await req.text());
       const stampJson = JSON.parse(Buffer.from(body.stamp, 'base64url').toString());
       relayStampPublicKey = stampJson.publicKey;
@@ -401,7 +401,7 @@ function request(overrides = {}) {
   // `cosignManual`: the raw flow, where the app votes through `client.cosign`.
   const client = await makeClient({ cosignManual: true });
   check('session restored with a wallet', client.getWallet()?.address === SOURCE);
-  check('a manual client does not read the pending requests at login', !calls.includes('GET /v2/cosign/requests'));
+  check('a manual client does not read the pending requests at login', !calls.includes('GET /v3/cosign/requests'));
 
   const txStates = [];
   client.onTransactionStateChange((s) => txStates.push(s.step));
@@ -419,7 +419,7 @@ function request(overrides = {}) {
   const sendOutcome = await client.signAndSubmitTx(UNSIGNED_XDR);
   check('signAndSubmitTx answers cosign_pending too', sendOutcome.status === 'cosign_pending');
 
-  const relaysBeforeVerify = calls.filter((c) => c === 'POST /v2/cosign/relay').length;
+  const relaysBeforeVerify = calls.filter((c) => c === 'POST /v3/cosign/relay').length;
   const verification = await client.cosign.verify(request());
   check(
     'verify: the recomputed hash equals the Pollar hash',
@@ -438,7 +438,7 @@ function request(overrides = {}) {
   );
   check(
     'verify reads nothing from the network',
-    calls.filter((c) => c === 'POST /v2/cosign/relay').length === relaysBeforeVerify,
+    calls.filter((c) => c === 'POST /v3/cosign/relay').length === relaysBeforeVerify,
   );
 
   const tampered = await client.cosign.verify(request({ payloadHash: '00'.repeat(32) }));
@@ -612,13 +612,13 @@ function request(overrides = {}) {
   check('a rejected request moves the tx state to error', txStates[txStates.length - 1] === 'error');
 
   // reject closes the request through sdk-api; the device stamps nothing.
-  const relaysBeforeReject = calls.filter((c) => c === 'POST /v2/cosign/relay').length;
+  const relaysBeforeReject = calls.filter((c) => c === 'POST /v3/cosign/relay').length;
   const rejected = await client.cosign.reject(request({ id: 'req-no' }));
   check(
     'reject closes the request through cancel without a relay',
     rejected.status === 'REJECTED' &&
-      calls.includes('POST /v2/cosign/requests/req-no/cancel') &&
-      calls.filter((c) => c === 'POST /v2/cosign/relay').length === relaysBeforeReject,
+      calls.includes('POST /v3/cosign/requests/req-no/cancel') &&
+      calls.filter((c) => c === 'POST /v3/cosign/relay').length === relaysBeforeReject,
   );
   rejectCalls = 0;
   client.destroy();

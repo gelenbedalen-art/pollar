@@ -88,8 +88,8 @@ Pollar runs on Solana end to end for wallets and payments:
 > (`<ChainSelect>`) that scopes the wallet-balance, enabled-assets, send and receive modals to
 > one chain instead of tagging every row.
 >
-> Earlier breaks worth knowing before you jump versions: **0.11.0** moved every request to the
-> **`/v2`** API and went multichain (Solana joins Stellar). **0.10.0** replaced the singular
+> Earlier breaks worth knowing before you jump versions: **0.12.0** moved every request to the
+> **`/v3`** API. **0.11.0** moved every request to the `/v2` API and went multichain (Solana joins Stellar). **0.10.0** replaced the singular
 > `walletAdapter` resolver and `loginWallet(id)` with a `walletAdapters: WalletAdapter[]` array
 > (`login({ provider: id })`), and forced every user to re-authenticate once.
 >
