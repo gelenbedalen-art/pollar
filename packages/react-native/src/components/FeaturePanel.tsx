@@ -218,7 +218,16 @@ export function ReceivePanel() {
   return (
     <Card title="Receive">
       <ChainSelect value={chain} onChange={setChain} />
-      {address ? (
+      {p.recoveryLocked ? (
+        // A locked wallet signs nothing, so funds sent to it now could not leave.
+        <>
+          <Label>
+            Your wallet is locked until you add a way to recover it. Without one, losing this device means losing the funds.
+            Set up recovery before receiving funds.
+          </Label>
+          <ActionButton title="Set up recovery" onPress={p.openRecoveryModal} />
+        </>
+      ) : address ? (
         <>
           <View style={{ padding: 16, backgroundColor: '#fff', alignSelf: 'center', borderRadius: 16 }}>
             <QRCode value={address} size={200} />

@@ -54,7 +54,8 @@ function fakeClient() {
   client.getWalletType = () => null;
   client.getNetwork = () => 'testnet';
   client.getWalletBalanceState = () => client.balance;
-  client.cosign = { pending: [] };
+  client.recoveryState = { required: false, configured: true };
+  client.cosign = { pending: [], recovery: { status: jest.fn(async () => client.recoveryState) } };
   client.getCosignState = () => client.cosign;
   const confirmationListeners = new Set();
   client.getPendingConfirmations = () => [];
@@ -458,6 +459,42 @@ test('web-equivalent ReceiveModal uses native QR/address and supports Android Ba
       .props.onRequestClose(),
   );
   expect(close).toHaveBeenCalledTimes(1);
+});
+test('a wallet without recovery hides its address in Receive and opens the recovery modal', async () => {
+  const client = fakeClient();
+  client.auth = { step: 'authenticated', verified: true, session: { clientSessionId: 's1' } };
+  const locked = {
+    required: true,
+    configured: false,
+    subOrgId: 'o1',
+    endUserId: 'u1',
+    walletId: 'w1',
+    authProxyConfigId: 'c1',
+    email: { address: null, verified: false },
+    passkeys: [],
+    devices: [{ id: 'k1', publicKey: 'ab'.repeat(33), session: false }],
+  };
+  client.recoveryState = locked;
+  Object.assign(client.cosign.recovery, { passkeyAvailable: false });
+  client.cosign.devices = jest.fn(async () => ({
+    devices: [{ id: 'k1', publicKey: 'ab'.repeat(33), label: null }],
+    enrollments: [],
+  }));
+  client.cosign.publicKeyHex = jest.fn(async () => 'ab'.repeat(33));
+  PollarClient.mockImplementation(() => client);
+  const view = await renderAsync(
+    <PollarProvider config={{ apiKey: 'test' }} appConfig={config}>
+      <ReceiveModal onClose={() => undefined} />
+    </PollarProvider>,
+  );
+  await waitFor(() => expect(view.getByText('Set up recovery')).toBeTruthy());
+  expect(view.queryByText('GTEST')).toBeNull();
+  await act(async () => fireEvent.press(view.getByText('Set up recovery')));
+  await waitFor(() => expect(view.getByText('Wallet recovery')).toBeTruthy());
+  expect(view.getByText(/nobody can get them back, not the app and not Pollar/)).toBeTruthy();
+  expect(view.getByText("Passkeys aren't available in this app.")).toBeTruthy();
+  expect(view.getByText('This device')).toBeTruthy();
+  await view.unmountAsync();
 });
 test('Strict Mode creates one owned client and destroys it on unmount', async () => {
   const client = fakeClient();
@@ -980,6 +1017,7 @@ test('cosign prompt verifies a request once and enables Approve while the pendin
     }),
     inspectQuorum: jest.fn(async () => ({ ok: true })),
     verify: jest.fn(() => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 40))),
+    recovery: client.cosign.recovery,
   };
   PollarClient.mockImplementation(() => client);
   const view = await renderAsync(

@@ -15,6 +15,9 @@ export interface WalletButtonTemplateProps {
   onCopy: () => void;
   onWalletBalance: () => void;
   onTxHistory: () => void;
+  /** Present when the wallet has recovery methods to manage. */
+  onRecovery?: () => void;
+  recoveryLocked?: boolean;
   onLogout: () => void;
   onLogin: () => void;
 }
@@ -32,6 +35,8 @@ export function WalletButtonTemplate({
   onCopy,
   onWalletBalance,
   onTxHistory,
+  onRecovery,
+  recoveryLocked,
   onLogout,
   onLogin,
 }: WalletButtonTemplateProps) {
@@ -83,6 +88,24 @@ export function WalletButtonTemplate({
                 </View>
 
                 <View style={styles.dropdownBody}>
+                  {recoveryLocked && (
+                    <Text style={styles.lockNotice}>
+                      Your wallet is locked until you add a way to recover it. Without one, losing this device means losing the
+                      funds.
+                    </Text>
+                  )}
+                  {onRecovery && (
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={recoveryLocked ? 'Set up wallet recovery' : 'Wallet recovery'}
+                      style={styles.menuItem}
+                      onPress={onRecovery}
+                    >
+                      <Text style={[styles.menuItemText, { color: recoveryLocked ? '#b45309' : itemColor }]}>
+                        {recoveryLocked ? 'Set up wallet recovery' : 'Wallet recovery'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel="Wallet balance"
@@ -121,6 +144,7 @@ export function WalletButtonTemplate({
 }
 
 const styles = StyleSheet.create({
+  lockNotice: { color: '#b45309', fontSize: 12, paddingHorizontal: 12, paddingVertical: 8 },
   container: {
     position: 'relative',
     alignItems: 'center',

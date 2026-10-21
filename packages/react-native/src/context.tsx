@@ -6,6 +6,7 @@ import type {
   PollarAdapters,
   PollarClientConfig,
   InteractiveAuthAdapter,
+  RecoveryState,
   RampsCompleteResponse,
   RampsOfframpResponse,
   RampsOnrampResponse,
@@ -23,6 +24,7 @@ import { CardModal } from './components/card-modal/CardModal';
 import { ConfirmModal } from './components/confirm-modal/ConfirmModal';
 import { CosignModal } from './components/cosign-modal/CosignModal';
 import { LoginModal } from './components/login-modal/LoginModal';
+import { RecoveryModal } from './components/recovery-modal/RecoveryModal';
 import { RampWidget } from './components/ramp-widget/RampWidget';
 import { TransactionModal } from './components/transaction-modal/TransactionModal';
 import { TxHistoryModal } from './components/tx-history-modal/TxHistoryModal';
@@ -150,6 +152,17 @@ export type PollarContextValue = Methods &
     cosign: CosignState;
     /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
     openCosignModal: () => void;
+    /**
+     * The recovery state of the user's Turnkey wallet: null until read, or for a
+     * session without one. `recoveryLocked` is true while the wallet has no way
+     * to be recovered without this device: it signs nothing but its own setup.
+     */
+    recovery: RecoveryState | null;
+    recoveryLocked: boolean;
+    /** Read the recovery state again (after a method changed elsewhere). */
+    refreshRecovery: () => void;
+    /** Open the recovery methods modal: passkeys, email, devices, export. */
+    openRecoveryModal: () => void;
     /** Signing calls waiting for the user under `confirmation: 'prompt'`; the provider shows the first one. */
     confirmations: PendingConfirmation[];
   };
@@ -236,6 +249,7 @@ function ClientProvider({
   }>({});
   const [ramp, setRamp] = useState<NativeRampState | null>(null);
   const [cosignModalOpen, setCosignModalOpen] = useState(false);
+  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   const [remote, setRemote] = useState<PollarConfig>(appConfig ?? emptyConfig);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(appConfig ? 'ready' : 'loading');
   const [retry, setRetry] = useState(0);
@@ -290,6 +304,7 @@ function ClientProvider({
       setRamp(null);
       setModal(null);
       setCosignModalOpen(false);
+      setRecoveryModalOpen(false);
     }
     previousAuthStep.current = auth.step;
   }, [auth.step]);
@@ -301,6 +316,33 @@ function ClientProvider({
     if (cosign.pending.length > cosignPendingCount.current) setCosignModalOpen(true);
     cosignPendingCount.current = cosign.pending.length;
   }, [cosign.pending.length]);
+  // The recovery state of a Turnkey wallet, read once signed in and again when
+  // the wallet changes, so a locked wallet says so before the user tries to
+  // send. A user without a Turnkey wallet reads `required: false`.
+  const [recovery, setRecovery] = useState<RecoveryState | null>(null);
+  const [recoveryTick, setRecoveryTick] = useState(0);
+  const refreshRecovery = useCallback(() => setRecoveryTick((t) => t + 1), []);
+  const signedIn = auth.step === 'authenticated';
+  const recoveryWallet = client.getWallet()?.address ?? '';
+  useEffect(() => {
+    if (!signedIn) {
+      setRecovery(null);
+      return;
+    }
+    let cancelled = false;
+    client.cosign.recovery
+      .status()
+      .then((next) => {
+        if (!cancelled) setRecovery(next);
+      })
+      .catch(() => {
+        if (!cancelled) setRecovery(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, signedIn, recoveryWallet, recoveryTick]);
+  const recoveryLocked = !!recovery && recovery.required && !recovery.configured;
   const confirmations = client.getPendingConfirmations();
   const firstConfirmation = confirmations[0] ?? null;
   const wallet = client.getWallet();
@@ -403,6 +445,10 @@ function ClientProvider({
     openDistributionRulesModal: () => open('distribution'),
     cosign,
     openCosignModal: () => setCosignModalOpen(true),
+    recovery,
+    recoveryLocked,
+    refreshRecovery,
+    openRecoveryModal: () => setRecoveryModalOpen(true),
     confirmations,
   };
   return (
@@ -433,6 +479,11 @@ function ClientProvider({
         {cosignModalOpen && (
           <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
             <CosignModal onClose={() => setCosignModalOpen(false)} />
+          </ModalErrorBoundary>
+        )}
+        {recoveryModalOpen && (
+          <ModalErrorBoundary onClose={() => setRecoveryModalOpen(false)}>
+            <RecoveryModal onClose={() => setRecoveryModalOpen(false)} />
           </ModalErrorBoundary>
         )}
         {firstConfirmation && (

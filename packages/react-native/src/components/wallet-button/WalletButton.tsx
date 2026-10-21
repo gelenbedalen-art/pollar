@@ -4,7 +4,18 @@ import { usePollar } from '../../context';
 import { WalletButtonTemplate } from './WalletButtonUI'; // Bypassing cache
 
 export function WalletButton() {
-  const { logout, copyText, walletAddress, styles, openLoginModal, openTxHistoryModal, openWalletBalanceModal } = usePollar();
+  const {
+    logout,
+    copyText,
+    walletAddress,
+    styles,
+    openLoginModal,
+    openTxHistoryModal,
+    openWalletBalanceModal,
+    recovery,
+    recoveryLocked,
+    openRecoveryModal,
+  } = usePollar();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -56,6 +67,11 @@ export function WalletButton() {
     openTxHistoryModal();
   }
 
+  function handleRecovery() {
+    setOpen(false);
+    openRecoveryModal();
+  }
+
   return (
     <WalletButtonTemplate
       walletAddress={walletAddress ?? null}
@@ -70,6 +86,8 @@ export function WalletButton() {
       onCopy={handleCopy}
       onWalletBalance={handleWalletBalance}
       onTxHistory={handleTxHistory}
+      {...(recovery?.required ? { onRecovery: handleRecovery } : {})}
+      recoveryLocked={recoveryLocked}
       onLogout={handleLogout}
       onLogin={openLoginModal}
     />
