@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   release:
@@ -22,8 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
 
       - name: Check the version
@@ -54,8 +54,6 @@ jobs:
         run: npm run test:smoke
 
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for pkg in $PACKAGES; do
             (cd "packages/$pkg" && npm publish --access public --tag next) || exit 1
