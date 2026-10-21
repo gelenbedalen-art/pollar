@@ -17,18 +17,19 @@ import { stellarTransactionHashHex } from './stellar-hash';
 import { isRecord, stringField } from '../api/error-fields';
 
 /**
- * The user's half of a Turnkey co-signed wallet, headless: no UI, only
- * promises and the requests it resolves. The device key is a P-256 key of its
- * own (namespace `cosign`), registered in Turnkey as the user's root
- * credential; every vote is a Turnkey request this device stamps itself and
- * sdk-api forwards unchanged.
+ * The user's half of a Turnkey wallet, headless: no UI, only promises and the
+ * requests it resolves. The device key is a P-256 key of its own (namespace
+ * `cosign`), registered in Turnkey as the user's root credential; every vote
+ * is a Turnkey request this device stamps itself and sdk-api forwards
+ * unchanged.
  *
- * The device proposes every co-signed activity and Pollar's approver votes
- * second. {@link verify} reads the unsigned payload the request carries (the
- * Stellar hash recomputed from the XDR, the Solana or EVM transaction decoded)
- * and {@link approve} builds the Turnkey request from those checked values
- * alone, so a compromised sdk-api cannot have the device sign a payload other
- * than the one it shows.
+ * The device proposes every activity. On a co-signed wallet Pollar's approver
+ * votes second; on a self-custody wallet (a 1-of-1 sub-org) the proposal
+ * completes by itself, through the same calls. {@link verify} reads the
+ * unsigned payload the request carries (the Stellar hash recomputed from the
+ * XDR, the Solana or EVM transaction decoded) and {@link approve} builds the
+ * Turnkey request from those checked values alone, so a compromised sdk-api
+ * cannot have the device sign a payload other than the one it shows.
  */
 
 export interface CosignManagerDeps {
@@ -376,7 +377,8 @@ export class CosignManager {
 
   /**
    * Read the sub-organization back with the device key and report whether it
-   * is the quorum the design promises: two root users, threshold 2, and this
+   * is the quorum the wallet's custody promises: two root users at threshold 2
+   * (co-signed) or the user alone at threshold 1 (self-custody), with this
    * device among the user's credentials. Run once after the wallet is created,
    * before the first deposit.
    */
@@ -431,8 +433,11 @@ export class CosignManager {
   }
 
   private async readQuorum(): Promise<CosignQuorumReport> {
-    const { subOrgId } = await this.devices();
-    if (!subOrgId) return { ok: false, reason: 'this user has no co-signed wallet' };
+    const { subOrgId, custody } = await this.devices();
+    if (!subOrgId || !custody) return { ok: false, reason: 'this user has no Turnkey wallet' };
+    // What the sub-org must look like for this custody: the root users and the
+    // threshold are what make the wallet the user's.
+    const expected = custody === 'SELF_CUSTODY' ? { threshold: 1, rootUsers: 1 } : { threshold: 2, rootUsers: 2 };
     const res = await this.relay('/public/v1/query/get_organization', { organizationId: subOrgId });
     const data = isRecord(res.body) ? res.body.organizationData : undefined;
     if (!isRecord(data)) return { ok: false, reason: `Turnkey answered ${res.status} without organization data` };
@@ -447,9 +452,16 @@ export class CosignManager {
         (key) => (stringField(isRecord(key) ? key.credential : undefined, 'publicKey') ?? '').toLowerCase() === devicePublicKey,
       );
     });
-    const ok = threshold === 2 && rootUsers === 2 && deviceRegistered;
+    const ok = threshold === expected.threshold && rootUsers === expected.rootUsers && deviceRegistered;
     return ok
-      ? { ok: true, threshold, rootUsers, deviceRegistered }
-      : { ok: false, reason: 'the sub-organization is not the expected 2-of-2 quorum', threshold, rootUsers, deviceRegistered };
+      ? { ok: true, custody, threshold, rootUsers, deviceRegistered }
+      : {
+          ok: false,
+          reason: `the sub-organization is not the expected ${expected.threshold}-of-${expected.rootUsers} quorum`,
+          custody,
+          threshold,
+          rootUsers,
+          deviceRegistered,
+        };
   }
 }

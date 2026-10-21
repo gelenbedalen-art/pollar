@@ -227,6 +227,10 @@ function request(overrides = {}) {
   let refreshedRequest = null;
   const quorumReports = [];
   let quorumThreshold = 2;
+  // The custody /cosign/devices reports and the root users Turnkey lists: 2-of-2
+  // for a co-signed wallet, the user alone for a self-custody one.
+  let mockCustody = 'COSIGNED';
+  let mockRootUserIds = ['tk-user', 'tk-approver'];
   const deletedApiKeys = [];
   let mockDeviceKeyHex = null;
   const deviceKeyHexForMock = () => mockDeviceKeyHex ?? '02' + 'ff'.repeat(32);
@@ -278,7 +282,8 @@ function request(overrides = {}) {
         content: {
           subOrgId: 'sub-org-1',
           endUserId: 'tk-user',
-          quorumState: 'ACTIVE_2_OF_2',
+          custody: mockCustody,
+          quorumState: mockCustody === 'SELF_CUSTODY' ? 'ACTIVE_1_OF_1' : 'ACTIVE_2_OF_2',
           devices: [
             {
               id: 'dev-1',
@@ -357,11 +362,11 @@ function request(overrides = {}) {
             status: 200,
             body: {
               organizationData: {
-                rootQuorum: { threshold: quorumThreshold, userIds: ['tk-user', 'tk-approver'] },
+                rootQuorum: { threshold: quorumThreshold, userIds: mockRootUserIds },
                 users: [
                   { userId: 'tk-user', apiKeys: [{ credential: { publicKey: relayStampPublicKey } }] },
                   { userId: 'tk-approver', apiKeys: [{ credential: { publicKey: '02' + 'aa'.repeat(32) } }] },
-                ],
+                ].filter((u) => mockRootUserIds.includes(u.userId)),
               },
             },
           },
@@ -584,6 +589,28 @@ function request(overrides = {}) {
   const brokenQuorum = await client.cosign.inspectQuorum();
   check('inspectQuorum reports a threshold other than 2 as broken', brokenQuorum.ok === false && brokenQuorum.threshold === 1);
   check('the broken reading was recorded too', quorumReports.length === 2 && quorumReports[1].ok === false);
+  quorumThreshold = 2;
+  check('a co-signed report names its custody', quorum.custody === 'COSIGNED', quorum);
+
+  // Self-custody: the same device key, a sub-org with the user as its only root user.
+  mockCustody = 'SELF_CUSTODY';
+  mockRootUserIds = ['tk-user'];
+  quorumThreshold = 1;
+  const selfQuorum = await client.cosign.inspectQuorum();
+  check(
+    'inspectQuorum accepts the 1-of-1 of a self-custody wallet with this device registered',
+    selfQuorum.ok === true && selfQuorum.custody === 'SELF_CUSTODY' && selfQuorum.threshold === 1 && selfQuorum.rootUsers === 1,
+    selfQuorum,
+  );
+  check('the self-custody reading was recorded as VERIFIED', quorumReports.length === 3 && quorumReports[2].ok === true);
+  mockRootUserIds = ['tk-user', 'tk-approver'];
+  const selfWithApprover = await client.cosign.inspectQuorum();
+  check(
+    'a self-custody wallet with a second root user is broken',
+    selfWithApprover.ok === false && /1-of-1/.test(selfWithApprover.reason),
+    selfWithApprover,
+  );
+  mockCustody = 'COSIGNED';
   quorumThreshold = 2;
 
   // Devices: another device is revoked through this device's own vote; this one needs force.

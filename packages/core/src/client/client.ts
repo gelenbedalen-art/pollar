@@ -54,7 +54,14 @@ import {
 } from '../api/endpoints/ramps';
 import { buildProof } from '../dpop';
 import { CosignManager } from '../cosign/manager';
-import type { ConfirmationRequest, CosignRequest, CosignState, PendingConfirmation, TxErrorPhase } from '../types';
+import type {
+  ConfirmationRequest,
+  CosignCustody,
+  CosignRequest,
+  CosignState,
+  PendingConfirmation,
+  TxErrorPhase,
+} from '../types';
 import { autoApprovesCosignRequest } from '../cosign/recognize';
 import { defaultKeyManager } from '../keys/factory';
 import type { KeyManager } from '../keys/types';
@@ -2797,20 +2804,26 @@ export class PollarClient {
 
   /**
    * Create the signed-in user's wallet, for an app whose wallet creation is set
-   * to "on demand" in the dashboard. Idempotent: a user who already has one gets
-   * it back. Updates the session and notifies subscribers the way a login does.
+   * to "on demand" in the dashboard, or whose custody is left to the user
+   * (`walletCustodyMode: 'USER_CHOICE'` in the app config): such an app creates
+   * no wallet at login, and `custody` names what the user chose. Idempotent: a
+   * user who already has one gets it back. Updates the session and notifies
+   * subscribers the way a login does.
    *
    * Throws {@link PollarApiError}: `SDK_WALLET_PROVISIONING_DISABLED` when the
    * app creates no wallets, `SDK_WALLET_PROVISIONING_UNSUPPORTED` for a user who
    * signed in with their own wallet or a passkey.
    */
-  async createWallet(): Promise<WalletInfo> {
+  async createWallet(options?: { custody?: CosignCustody }): Promise<WalletInfo> {
     if (!this._session) throw new PollarApiError('SDK_AUTH_INVALID_TOKEN');
     const gen = this._sessionGeneration;
-    // Only a co-signed (Turnkey) wallet needs the device key; a custodial app ignores it.
+    // Only a Turnkey wallet needs the device key; a custodial app ignores it.
     const devicePublicKey = await this.cosign.publicKeyHex().catch(() => undefined);
     const { data, error } = await this._api.POST('/wallet/provision', {
-      body: devicePublicKey ? { devicePublicKey } : {},
+      body: {
+        ...(devicePublicKey ? { devicePublicKey } : {}),
+        ...(options?.custody ? { custody: options.custody } : {}),
+      },
     });
     const content = data?.content;
     if (error || !content) {
