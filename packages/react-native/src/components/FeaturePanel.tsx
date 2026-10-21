@@ -222,8 +222,8 @@ export function ReceivePanel() {
         // A locked wallet signs nothing, so funds sent to it now could not leave.
         <>
           <Label>
-            Your wallet is locked until you add a way to recover it. Without one, losing this device means losing the funds.
-            Set up recovery before receiving funds.
+            Your wallet is locked until you add a way to recover it. Without one, losing this device means losing the funds. Set
+            up recovery before receiving funds.
           </Label>
           <ActionButton title="Set up recovery" onPress={p.openRecoveryModal} />
         </>

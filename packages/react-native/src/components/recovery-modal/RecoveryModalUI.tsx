@@ -362,7 +362,13 @@ export function RecoveryModalTemplate(p: RecoveryModalTemplateProps) {
                 {e.label ?? 'A device'} wants to join ({shortKey(e.publicKey)})
               </Text>
               <View style={styles.row}>
-                <Button {...btn} id={`approve:${e.id}`} label="Approve" kind="primary" onPress={() => p.onApproveDevice(e.id)} />
+                <Button
+                  {...btn}
+                  id={`approve:${e.id}`}
+                  label="Approve"
+                  kind="primary"
+                  onPress={() => p.onApproveDevice(e.id)}
+                />
                 <Button {...btn} id={`reject:${e.id}`} label="Reject" onPress={() => p.onRejectDevice(e.id)} />
               </View>
             </View>
