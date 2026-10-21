@@ -20,6 +20,7 @@ import { AppShell } from '../src/components/AppShell';
 import { FeatureCatalog } from '../src/components/FeatureCatalog';
 import { BalanceLookup, PaymentForm, SignTransactionForm } from '../src/components/FeatureExample';
 import { ReceiveModal } from '../src/components/FeatureModal';
+import { WalletButton } from '../src/components/wallet-button/WalletButton';
 
 jest.mock('react-native-qrcode-svg', () => 'QRCode');
 jest.mock('react-native-safe-area-context', () => {
@@ -494,6 +495,32 @@ test('a wallet without recovery hides its address in Receive and opens the recov
   expect(view.getByText(/nobody can get them back, not the app and not Pollar/)).toBeTruthy();
   expect(view.getByText("Passkeys aren't available in this app.")).toBeTruthy();
   expect(view.getByText('This device')).toBeTruthy();
+  await view.unmountAsync();
+});
+test('a signed-in user without a wallet picks the custody and accepts the self-custody risks', async () => {
+  const client = fakeClient();
+  client.auth = { step: 'authenticated', verified: true, session: { clientSessionId: 's1' } };
+  client.getWallet = () => null;
+  client.getWallets = () => [];
+  client.hasWallet = () => false;
+  client.createWallet = jest.fn(async () => ({ custody: 'internal', address: 'GNEW', provider: 'email' }));
+  PollarClient.mockImplementation(() => client);
+  const view = await renderAsync(
+    <PollarProvider
+      config={{ apiKey: 'test' }}
+      appConfig={{ ...config, application: { ...config.application, walletCustodyMode: 'USER_CHOICE' } }}
+    >
+      <WalletButton />
+    </PollarProvider>,
+  );
+  await act(async () => fireEvent.press(view.getByText('No wallet')));
+  expect(view.getByText('Create co-signed wallet')).toBeTruthy();
+  await act(async () => fireEvent.press(view.getByText('Create self-custody wallet')));
+  expect(view.getByText(/nobody can recover the wallet or its funds/)).toBeTruthy();
+  expect(view.getByLabelText('Create self-custody wallet').props.accessibilityState).toMatchObject({ disabled: true });
+  await act(async () => fireEvent.press(view.getByText('I understand and accept these risks')));
+  await act(async () => fireEvent.press(view.getByText('Create self-custody wallet')));
+  expect(client.createWallet).toHaveBeenCalledWith({ custody: 'SELF_CUSTODY' });
   await view.unmountAsync();
 });
 test('Strict Mode creates one owned client and destroys it on unmount', async () => {

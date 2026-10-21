@@ -1,3 +1,4 @@
+import { type CosignCustody, isPollarApiError } from '@pollar/core';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { usePollar } from '../../context';
@@ -15,9 +16,14 @@ export function WalletButton() {
     recovery,
     recoveryLocked,
     openRecoveryModal,
+    isAuthenticated,
+    appConfig,
+    createWallet,
   } = usePollar();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [creatingWallet, setCreatingWallet] = useState(false);
+  const [createWalletError, setCreateWalletError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mounted = useRef(true);
   useEffect(() => {
@@ -67,6 +73,25 @@ export function WalletButton() {
     openTxHistoryModal();
   }
 
+  async function handleCreateWallet(custody?: CosignCustody) {
+    if (creatingWallet) return;
+    setCreatingWallet(true);
+    setCreateWalletError(null);
+    try {
+      await createWallet(custody ? { custody } : undefined);
+      if (mounted.current) setOpen(false);
+    } catch (err) {
+      if (mounted.current)
+        setCreateWalletError(
+          isPollarApiError(err) && err.code === 'SDK_WALLET_PROVISIONING_DISABLED'
+            ? 'This app does not create wallets.'
+            : 'Could not create the wallet. Try again.',
+        );
+    } finally {
+      if (mounted.current) setCreatingWallet(false);
+    }
+  }
+
   function handleRecovery() {
     setOpen(false);
     openRecoveryModal();
@@ -90,6 +115,11 @@ export function WalletButton() {
       recoveryLocked={recoveryLocked}
       onLogout={handleLogout}
       onLogin={openLoginModal}
+      signedIn={isAuthenticated}
+      creatingWallet={creatingWallet}
+      createWalletError={createWalletError}
+      custodyChoice={appConfig.application?.walletCustodyMode === 'USER_CHOICE'}
+      {...(appConfig.application?.walletProvisioning === 'NONE' ? {} : { onCreateWallet: handleCreateWallet })}
     />
   );
 }
