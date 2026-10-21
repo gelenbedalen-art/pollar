@@ -88,6 +88,9 @@ export { RampWidget } from './components/ramp-widget/RampWidget';
 export { CardModal } from './components/card-modal/CardModal';
 export { CosignModal } from './components/cosign-modal/CosignModal';
 export { RecoveryModal } from './components/recovery-modal/RecoveryModal';
+export { CustodyMigrationModal } from './components/custody-migration-modal/CustodyMigrationModal';
+export { CustodyMigrationModalTemplate } from './components/custody-migration-modal/CustodyMigrationModalUI';
+export type { CustodyMigrationModalTemplateProps } from './components/custody-migration-modal/CustodyMigrationModalUI';
 export { RouteDisplay } from './components/ramp-widget/RouteDisplay';
 export { WalletBalanceModal } from './components/wallet-balance-modal/WalletBalanceModal';
 

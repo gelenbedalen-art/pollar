@@ -56,7 +56,12 @@ function fakeClient() {
   client.getNetwork = () => 'testnet';
   client.getWalletBalanceState = () => client.balance;
   client.recoveryState = { required: false, configured: true };
-  client.cosign = { pending: [], recovery: { status: jest.fn(async () => client.recoveryState) } };
+  client.migrationState = { required: false, status: 'NONE', chain: 'STELLAR', address: null, toCustody: null, choice: false, error: null };
+  client.cosign = {
+    pending: [],
+    recovery: { status: jest.fn(async () => client.recoveryState) },
+    custodyMigration: jest.fn(async () => client.migrationState),
+  };
   client.getCosignState = () => client.cosign;
   const confirmationListeners = new Set();
   client.getPendingConfirmations = () => [];
@@ -521,6 +526,49 @@ test('a signed-in user without a wallet picks the custody and accepts the self-c
   await act(async () => fireEvent.press(view.getByText('I understand and accept these risks')));
   await act(async () => fireEvent.press(view.getByText('Create self-custody wallet')));
   expect(client.createWallet).toHaveBeenCalledWith({ custody: 'SELF_CUSTODY' });
+  await view.unmountAsync();
+});
+test('a custodial wallet in a co-signed app is moved before anything else, then asked for recovery', async () => {
+  const client = fakeClient();
+  client.auth = { step: 'authenticated', verified: true, session: { clientSessionId: 's1' } };
+  client.migrationState = {
+    required: true,
+    status: 'NONE',
+    chain: 'STELLAR',
+    address: 'GTEST',
+    toCustody: 'COSIGNED',
+    choice: false,
+    error: null,
+  };
+  client.cosign.migrateWallet = jest.fn(async () => {
+    client.migrationState = { ...client.migrationState, required: false, status: 'DONE' };
+    return client.migrationState;
+  });
+  client.recoveryState = {
+    required: true,
+    configured: false,
+    subOrgId: 'o1',
+    endUserId: 'u1',
+    walletId: 'w1',
+    authProxyConfigId: 'c1',
+    email: { address: null, verified: false },
+    passkeys: [],
+    devices: [],
+  };
+  Object.assign(client.cosign.recovery, { passkeyAvailable: false });
+  client.cosign.devices = jest.fn(async () => ({ devices: [{ id: 'k1', publicKey: 'ab'.repeat(33), label: null }], enrollments: [] }));
+  client.cosign.publicKeyHex = jest.fn(async () => 'ab'.repeat(33));
+  PollarClient.mockImplementation(() => client);
+  const view = await renderAsync(
+    <PollarProvider config={{ apiKey: 'test' }} appConfig={config}>
+      <Text>child</Text>
+    </PollarProvider>,
+  );
+  await waitFor(() => expect(view.getByText('Move your wallet to this device')).toBeTruthy());
+  await act(async () => fireEvent.press(view.getByText('Move my wallet')));
+  expect(client.cosign.migrateWallet).toHaveBeenCalledWith(undefined);
+  await waitFor(() => expect(view.queryByText('Move your wallet to this device')).toBeNull());
+  await waitFor(() => expect(view.getByText('Wallet recovery')).toBeTruthy());
   await view.unmountAsync();
 });
 test('Strict Mode creates one owned client and destroys it on unmount', async () => {
@@ -1045,6 +1093,7 @@ test('cosign prompt verifies a request once and enables Approve while the pendin
     inspectQuorum: jest.fn(async () => ({ ok: true })),
     verify: jest.fn(() => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 40))),
     recovery: client.cosign.recovery,
+    custodyMigration: client.cosign.custodyMigration,
   };
   PollarClient.mockImplementation(() => client);
   const view = await renderAsync(

@@ -49,9 +49,10 @@ import { EarnModal } from './components/earn-modal/EarnModal';
 import { CardModal } from './components/card-modal/CardModal';
 import { SessionsModal } from './components/sessions-modal/SessionsModal';
 import { CosignModal } from './components/cosign-modal/CosignModal';
+import { CustodyMigrationModal } from './components/custody-migration-modal/CustodyMigrationModal';
 import { RecoveryModal } from './components/recovery-modal/RecoveryModal';
 import { ConfirmModal } from './components/confirm-modal/ConfirmModal';
-import type { CosignState, PendingConfirmation, RecoveryState } from '@pollar/core';
+import type { CosignState, CustodyMigrationState, PendingConfirmation, RecoveryState } from '@pollar/core';
 import { TransactionModal } from './components/transaction-modal/TransactionModal';
 import { TxHistoryModal } from './components/tx-history-modal/TxHistoryModal';
 import { WalletBalanceModal } from './components/wallet-balance-modal/WalletBalanceModal';
@@ -149,6 +150,13 @@ interface PollarContextValue {
   refreshRecovery: () => void;
   /** Open the recovery methods modal: passkeys, email, devices, export. */
   openRecoveryModal: () => void;
+  /**
+   * Whether the user's wallet, one Pollar custodies, has to move to this
+   * device because the app keeps its wallets in Turnkey. While `required`, the
+   * provider shows the move and nothing else; null until read.
+   */
+  custodyMigration: CustodyMigrationState | null;
+  refreshCustodyMigration: () => void;
   /** Signing calls waiting for the user under `confirmation: 'prompt'`; the provider shows the first one. */
   confirmations: PendingConfirmation[];
   appConfig: PollarConfig;
@@ -731,6 +739,28 @@ export function PollarProvider({
     };
   }, [pollarClient, hasSession, walletAddress, recoveryTick]);
   const recoveryLocked = !!recovery && recovery.required && !recovery.configured;
+
+  const [custodyMigration, setCustodyMigration] = useState<CustodyMigrationState | null>(null);
+  const [custodyMigrationTick, setCustodyMigrationTick] = useState(0);
+  const refreshCustodyMigration = useCallback(() => setCustodyMigrationTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!hasSession) {
+      setCustodyMigration(null);
+      return;
+    }
+    let cancelled = false;
+    pollarClient.cosign
+      .custodyMigration()
+      .then((next) => {
+        if (!cancelled) setCustodyMigration(next);
+      })
+      .catch(() => {
+        if (!cancelled) setCustodyMigration(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pollarClient, hasSession, walletAddress, custodyMigrationTick]);
   // refreshBalance resolves the own wallet server-side from the session;
   // walletAddress stays in deps so the callback re-binds when the wallet changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- walletAddress is an intentional re-bind trigger, not read in the body
@@ -821,6 +851,8 @@ export function PollarProvider({
       recoveryLocked,
       refreshRecovery,
       openRecoveryModal: () => setRecoveryModalOpen(true),
+      custodyMigration,
+      refreshCustodyMigration,
       confirmations,
       // distribution
       openDistributionRulesModal: () => setDistributionRulesModalOpen(true),
@@ -848,6 +880,8 @@ export function PollarProvider({
     recovery,
     recoveryLocked,
     refreshRecovery,
+    custodyMigration,
+    refreshCustodyMigration,
     hasSession,
     verified,
     pollarClient,
@@ -957,6 +991,18 @@ export function PollarProvider({
       {cosignModalOpen && (
         <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
           <CosignModal onClose={() => setCosignModalOpen(false)} />
+        </ModalErrorBoundary>
+      )}
+      {custodyMigration?.required && (
+        <ModalErrorBoundary onClose={refreshCustodyMigration}>
+          <CustodyMigrationModal
+            state={custodyMigration}
+            onMoved={() => {
+              refreshCustodyMigration();
+              refreshRecovery();
+              setRecoveryModalOpen(true);
+            }}
+          />
         </ModalErrorBoundary>
       )}
       {recoveryModalOpen && (

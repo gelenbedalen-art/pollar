@@ -654,6 +654,37 @@ async function unmount(handle) {
     container.remove();
   }
 
+  console.log('\n-- 10. A custodial wallet moves to the device only on purpose --');
+  {
+    const { CustodyMigrationModalTemplate } = require(path.resolve(__dirname, '../packages/react/dist/index.js'));
+    const moved = [];
+    const base = {
+      theme: 'light',
+      accentColor: '#000',
+      state: { required: true, status: 'NONE', chain: 'STELLAR', address: 'GA', toCustody: null, choice: true, error: null },
+      busy: false,
+      error: null,
+      onMove: (custody) => moved.push(custody ?? 'app'),
+      onLogout: () => {},
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const buttonNamed = (name) => [...container.querySelectorAll('button')].find((b) => b.textContent.trim() === name);
+    await act(async () => root.render(React.createElement(CustodyMigrationModalTemplate, base)));
+    check('with the choice left to the user, nothing moves before a pick', buttonNamed('Move my wallet').disabled === true);
+    await act(async () => container.querySelectorAll('input[type=radio]')[1].click());
+    check(
+      'self-custody waits for the risks to be accepted',
+      buttonNamed('Move my wallet').disabled === true && /only your device can sign/.test(container.textContent),
+    );
+    await act(async () => container.querySelector('input[type=checkbox]').click());
+    await act(async () => buttonNamed('Move my wallet').click());
+    check('the pick is what moves', moved[0] === 'SELF_CUSTODY');
+    await act(async () => root.unmount());
+    container.remove();
+  }
+
   console.log(`\n${pass} pass, ${fail} fail`);
   process.exit(fail ? 1 : 0);
 })().catch((err) => {

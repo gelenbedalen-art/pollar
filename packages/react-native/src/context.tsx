@@ -2,6 +2,7 @@ import { PollarClient } from '@pollar/core';
 import type {
   AuthState,
   CosignState,
+  CustodyMigrationState,
   PendingConfirmation,
   PollarAdapters,
   PollarClientConfig,
@@ -23,6 +24,7 @@ import { AppKycFlow } from './components/kyc-modal/AppKycFlow';
 import { CardModal } from './components/card-modal/CardModal';
 import { ConfirmModal } from './components/confirm-modal/ConfirmModal';
 import { CosignModal } from './components/cosign-modal/CosignModal';
+import { CustodyMigrationModal } from './components/custody-migration-modal/CustodyMigrationModal';
 import { LoginModal } from './components/login-modal/LoginModal';
 import { RecoveryModal } from './components/recovery-modal/RecoveryModal';
 import { RampWidget } from './components/ramp-widget/RampWidget';
@@ -163,6 +165,13 @@ export type PollarContextValue = Methods &
     refreshRecovery: () => void;
     /** Open the recovery methods modal: passkeys, email, devices, export. */
     openRecoveryModal: () => void;
+    /**
+     * Whether the user's wallet, one Pollar custodies, has to move to this
+     * device because the app keeps its wallets in Turnkey. While `required`, the
+     * provider shows the move and nothing else; null until read.
+     */
+    custodyMigration: CustodyMigrationState | null;
+    refreshCustodyMigration: () => void;
     /** Signing calls waiting for the user under `confirmation: 'prompt'`; the provider shows the first one. */
     confirmations: PendingConfirmation[];
   };
@@ -343,6 +352,27 @@ function ClientProvider({
     };
   }, [client, signedIn, recoveryWallet, recoveryTick]);
   const recoveryLocked = !!recovery && recovery.required && !recovery.configured;
+  const [custodyMigration, setCustodyMigration] = useState<CustodyMigrationState | null>(null);
+  const [custodyMigrationTick, setCustodyMigrationTick] = useState(0);
+  const refreshCustodyMigration = useCallback(() => setCustodyMigrationTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!signedIn) {
+      setCustodyMigration(null);
+      return;
+    }
+    let cancelled = false;
+    client.cosign
+      .custodyMigration()
+      .then((next) => {
+        if (!cancelled) setCustodyMigration(next);
+      })
+      .catch(() => {
+        if (!cancelled) setCustodyMigration(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, signedIn, recoveryWallet, custodyMigrationTick]);
   const confirmations = client.getPendingConfirmations();
   const firstConfirmation = confirmations[0] ?? null;
   const wallet = client.getWallet();
@@ -449,6 +479,8 @@ function ClientProvider({
     recoveryLocked,
     refreshRecovery,
     openRecoveryModal: () => setRecoveryModalOpen(true),
+    custodyMigration,
+    refreshCustodyMigration,
     confirmations,
   };
   return (
@@ -479,6 +511,18 @@ function ClientProvider({
         {cosignModalOpen && (
           <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
             <CosignModal onClose={() => setCosignModalOpen(false)} />
+          </ModalErrorBoundary>
+        )}
+        {custodyMigration?.required && (
+          <ModalErrorBoundary onClose={refreshCustodyMigration}>
+            <CustodyMigrationModal
+              state={custodyMigration}
+              onMoved={() => {
+                refreshCustodyMigration();
+                refreshRecovery();
+                setRecoveryModalOpen(true);
+              }}
+            />
           </ModalErrorBoundary>
         )}
         {recoveryModalOpen && (

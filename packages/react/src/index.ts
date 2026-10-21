@@ -84,6 +84,9 @@ export type { ReceiveModalTemplateProps } from './components/receive-modal/Recei
 export { SessionsModalTemplate } from './components/sessions-modal/SessionsModalTemplate';
 export { CosignModalTemplate } from './components/cosign-modal/CosignModalTemplate';
 export type { CosignModalTemplateProps } from './components/cosign-modal/CosignModalTemplate';
+export { CustodyMigrationModal } from './components/custody-migration-modal/CustodyMigrationModal';
+export { CustodyMigrationModalTemplate } from './components/custody-migration-modal/CustodyMigrationModalTemplate';
+export type { CustodyMigrationModalTemplateProps } from './components/custody-migration-modal/CustodyMigrationModalTemplate';
 export { RecoveryModalTemplate } from './components/recovery-modal/RecoveryModalTemplate';
 export type { RecoveryModalTemplateProps, RecoveryView } from './components/recovery-modal/RecoveryModalTemplate';
 export { browserRecoveryPasskey } from './lib/passkey-ceremony';
