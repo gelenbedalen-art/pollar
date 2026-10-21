@@ -139,7 +139,7 @@ Context provider that initialises the Pollar client and makes it available to ch
 <PollarProvider
   client={{
     apiKey: 'your-api-key',
-    baseUrl: 'https://sdk.api.pollar.xyz', // optional, origin only — the SDK appends /v2
+    baseUrl: 'https://sdk.api.pollar.xyz', // optional, origin only — the SDK appends /v3
     stellarNetwork: 'testnet', // optional, default: 'testnet'
     storage, // optional, RN apps inject this
     keyManager, // optional, autodetects on web

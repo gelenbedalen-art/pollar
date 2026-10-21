@@ -6,6 +6,10 @@
 > `@pollar/react-native` and the four client adapter packages. This minor
 > release includes the 0.11.5 changes below.
 
+- `@pollar/core` calls sdk-api `/v3`: `baseUrl` stays an origin and the SDK
+  appends the version; its types are generated from `/openapi.v3.json`
+  (`core:update-openapi`). A `Deprecation` header on any answer logs one
+  warning with the `Sunset` date. See [UPGRADE.md](./UPGRADE.md#api-v3).
 - Ramps discover registered assets and payment routes within the closed
   `RampChain` catalog (`STELLAR`, `POLYGON`, `SOLANA`); preserve exact
   quote amounts; and resume saved, versioned workflows without signing on restore.

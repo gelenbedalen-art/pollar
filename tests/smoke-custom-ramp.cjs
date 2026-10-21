@@ -89,10 +89,10 @@ const portable = require('@pollar/core/ramps');
     assert.equal(tx.txId, 'backend-issued-tx');
     await client.getRampTransaction(tx.txId);
     assert.deepEqual(requests, [
-      { method: 'GET', path: '/v2/ramps/routes' },
-      { method: 'GET', path: '/v2/ramps/quote' },
-      { method: 'POST', path: '/v2/ramps/onramp' },
-      { method: 'GET', path: '/v2/ramps/transaction/backend-issued-tx' },
+      { method: 'GET', path: '/v3/ramps/routes' },
+      { method: 'GET', path: '/v3/ramps/quote' },
+      { method: 'POST', path: '/v3/ramps/onramp' },
+      { method: 'GET', path: '/v3/ramps/transaction/backend-issued-tx' },
     ]);
   } finally {
     globalThis.fetch = originalFetch;

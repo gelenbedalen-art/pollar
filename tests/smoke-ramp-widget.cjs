@@ -20,7 +20,7 @@ const base = {
   reconciliationRequired: false,
 };
 async function scenario(action, reconcile = false) {
-  const client = new PollarClient({ apiKey: 'pub_mainnet_fixture', baseUrl: 'https://api.test/v2' });
+  const client = new PollarClient({ apiKey: 'pub_mainnet_fixture', baseUrl: 'https://api.test' });
   const wallet = { address: 'G-wallet', network: 'STELLAR' };
   client.getNetworkState = () => ({ step: 'connected', network: 'mainnet' });
   client.onNetworkStateChange = (cb) => {

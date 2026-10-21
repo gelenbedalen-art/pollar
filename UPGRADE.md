@@ -8,6 +8,21 @@ client adapter packages to their matching 0.12 candidates when using this core
 version. Their peer ranges accept both 0.11.x and 0.12; older adapter releases
 with a core peer range of only `^0.11.2` cannot be used with core 0.12.
 
+### API v3
+
+Every request goes to `/v3` of sdk-api. `baseUrl` stays an origin
+(`https://sdk.api.pollar.xyz`); the SDK appends the version, so a `baseUrl`
+that carried `/v2` must drop it. `/v3` serves the endpoints 0.11.x used on
+`/v2` with the same handlers, ramps excepted: Pollar v3 redefines the ramps
+API, and the ramps entries of this release describe what changed there. A
+custom `fetch`, a proxy allow-list or a test mock that matched `/v2/...` paths
+must match `/v3/...`.
+
+`@pollar/core` 0.11.x keeps calling `/v1` and `/v2`. sdk-api v1 retires on
+2026-11-30 (planned brownouts before that date answer `410`); v2 stays frozen.
+A client that receives the `Deprecation` header logs one warning naming the
+`Sunset` date and the migration guide, whatever the version it is on.
+
 ### Ramp adapter contract version 2
 
 A server adapter built with `@pollar/core/ramps` keeps working as is: every
