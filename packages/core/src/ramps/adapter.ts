@@ -382,7 +382,19 @@ export type RampAdapterAttemptRecorder = {
   }): Promise<void>;
 };
 export type RampAdapterDependencies<Client = unknown> = {
+  /**
+   * The account the provider is configured under: which application or
+   * provider owns the credentials, which anchor. Saved with every transaction
+   * and compared on each later call, so it must not change when credentials
+   * rotate or a corridor list is synced.
+   */
   configurationId: string;
+  /**
+   * Version 2. What rotates under the same `configurationId` (a credential
+   * hash, a corridor snapshot). Informative: Pollar logs it next to the
+   * identity and never rejects a transaction over it.
+   */
+  configurationRevision?: string;
   client: Client;
   timeoutMs: number;
   clock: () => Date;
