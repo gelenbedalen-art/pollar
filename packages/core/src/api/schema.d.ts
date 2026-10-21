@@ -1561,7 +1561,7 @@ export interface paths {
         put?: never;
         /**
          * Record what the device found when it read its sub-organization
-         * @description The device reads its sub-organization from Turnkey with its own key (two root users, threshold 2, this device registered) and reports the result; the quorum is recorded as VERIFIED or BROKEN. Run once after the wallet is created, before the first deposit.
+         * @description The device reads its sub-organization from Turnkey with its own key and reports whether it is what the wallet custody calls for (COSIGNED: two root users at threshold 2; SELF_CUSTODY: the user alone at threshold 1; this device registered either way); the quorum is recorded as VERIFIED or BROKEN. Run once after the wallet is created, before the first deposit.
          */
         post: operations["postCosignQuorumVerify"];
         delete?: never;
@@ -3562,6 +3562,8 @@ export interface operations {
             content: {
                 "application/json": {
                     devicePublicKey?: string;
+                    /** @enum {string} */
+                    custody?: "COSIGNED" | "SELF_CUSTODY";
                 };
             };
         };
@@ -4536,6 +4538,8 @@ export interface operations {
                     };
                     deviceLabel?: string;
                     devicePublicKey?: string;
+                    /** @enum {string} */
+                    custody?: "COSIGNED" | "SELF_CUSTODY";
                 };
             };
         };
@@ -9604,6 +9608,8 @@ export interface operations {
                                 chains: ("STELLAR" | "POLYGON" | "SOLANA")[];
                                 /** @enum {string} */
                                 walletProvisioning?: "AT_LOGIN" | "ON_DEMAND" | "NONE";
+                                /** @enum {string} */
+                                walletCustodyMode?: "INTERNAL" | "COSIGNED" | "SELF_CUSTODY" | "USER_CHOICE";
                             };
                             styles: {
                                 theme?: string;
@@ -12877,7 +12883,7 @@ export interface operations {
                         success: true;
                         content: {
                             /** @enum {string} */
-                            quorumState: "SETUP_1_OF_2" | "ACTIVE_2_OF_2" | "VERIFIED" | "BROKEN";
+                            quorumState: "SETUP_1_OF_2" | "ACTIVE_2_OF_2" | "ACTIVE_1_OF_1" | "VERIFIED" | "BROKEN";
                         };
                     };
                 };
@@ -12952,7 +12958,8 @@ export interface operations {
                         content: {
                             subOrgId: string | null;
                             endUserId: string | null;
-                            quorumState: ("SETUP_1_OF_2" | "ACTIVE_2_OF_2" | "VERIFIED" | "BROKEN") | null;
+                            custody: ("COSIGNED" | "SELF_CUSTODY") | null;
+                            quorumState: ("SETUP_1_OF_2" | "ACTIVE_2_OF_2" | "ACTIVE_1_OF_1" | "VERIFIED" | "BROKEN") | null;
                             devices: {
                                 id: string;
                                 publicKey: string;

@@ -414,9 +414,19 @@ export type CosignVerification =
   | { ok: true; localHash: string; proposal: CosignProposal }
   | { ok: false; reason: string; localHash?: string };
 
+/** The custody of the user's Turnkey wallet: co-signed (2-of-2 with Pollar's approver) or self-custody (1-of-1). */
+export type CosignCustody = NonNullable<CosignDevicesContent['custody']>;
+
 export type CosignQuorumReport =
-  | { ok: true; threshold: number; rootUsers: number; deviceRegistered: boolean }
-  | { ok: false; reason: string; threshold?: number; rootUsers?: number; deviceRegistered?: boolean };
+  | { ok: true; custody: CosignCustody; threshold: number; rootUsers: number; deviceRegistered: boolean }
+  | {
+      ok: false;
+      reason: string;
+      custody?: CosignCustody;
+      threshold?: number;
+      rootUsers?: number;
+      deviceRegistered?: boolean;
+    };
 
 /**
  * Runs the device WebAuthn ceremony for a server-issued challenge and returns
