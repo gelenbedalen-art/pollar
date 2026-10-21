@@ -2518,6 +2518,7 @@ export interface operations {
                                     activityId: string | null;
                                     fingerprint: string | null;
                                     signWith: string;
+                                    account?: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
                                     refreshable: boolean;
@@ -2675,6 +2676,7 @@ export interface operations {
                                     activityId: string | null;
                                     fingerprint: string | null;
                                     signWith: string;
+                                    account?: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
                                     refreshable: boolean;
@@ -3325,6 +3327,7 @@ export interface operations {
                                     activityId: string | null;
                                     fingerprint: string | null;
                                     signWith: string;
+                                    account?: string;
                                     unsignedPayload: string;
                                     payloadHash: string;
                                     refreshable: boolean;
@@ -12446,6 +12449,7 @@ export interface operations {
                                 activityId: string | null;
                                 fingerprint: string | null;
                                 signWith: string;
+                                account?: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
                                 refreshable: boolean;
@@ -12529,6 +12533,7 @@ export interface operations {
                                 activityId: string | null;
                                 fingerprint: string | null;
                                 signWith: string;
+                                account?: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
                                 refreshable: boolean;
@@ -12625,6 +12630,7 @@ export interface operations {
                                 activityId: string | null;
                                 fingerprint: string | null;
                                 signWith: string;
+                                account?: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
                                 refreshable: boolean;
@@ -12721,6 +12727,7 @@ export interface operations {
                                 activityId: string | null;
                                 fingerprint: string | null;
                                 signWith: string;
+                                account?: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
                                 refreshable: boolean;
@@ -12844,6 +12851,7 @@ export interface operations {
                                 activityId: string | null;
                                 fingerprint: string | null;
                                 signWith: string;
+                                account?: string;
                                 unsignedPayload: string;
                                 payloadHash: string;
                                 refreshable: boolean;
