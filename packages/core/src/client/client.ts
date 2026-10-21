@@ -60,6 +60,7 @@ import type {
   CosignRequest,
   CosignState,
   PendingConfirmation,
+  RecoveryPasskeyCeremony,
   TxErrorPhase,
 } from '../types';
 import { autoApprovesCosignRequest } from '../cosign/recognize';
@@ -2035,9 +2036,14 @@ export class PollarClient {
    * Reading `_passkey`/`_passkeySign` happens per login/signature (never
    * latched at construction), so filling them later takes effect immediately.
    */
-  setPasskeyDefaults(defaults: { passkey?: PasskeyCeremony; passkeySign?: PasskeySigner }): void {
+  setPasskeyDefaults(defaults: {
+    passkey?: PasskeyCeremony;
+    passkeySign?: PasskeySigner;
+    recoveryPasskey?: RecoveryPasskeyCeremony;
+  }): void {
     if (!this._passkey && defaults.passkey) this._passkey = defaults.passkey;
     if (!this._passkeySign && defaults.passkeySign) this._passkeySign = defaults.passkeySign;
+    if (defaults.recoveryPasskey) this.cosign.recovery.setDefaultPasskey(defaults.recoveryPasskey);
   }
 
   // --- Cancel ---------------------------------------------------------------

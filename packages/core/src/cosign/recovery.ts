@@ -128,12 +128,22 @@ function relayActivity(result: CosignRelayContent): Record<string, unknown> {
 }
 
 export class CosignRecovery {
-  private readonly deps: CosignRecoveryDeps;
+  private deps: CosignRecoveryDeps;
   /** The OTP an email flow is waiting a code for. */
   private otp: { otpId: string; targetBundle: string; email: string; purpose: 'confirm' | 'recover' } | null = null;
 
   constructor(deps: CosignRecoveryDeps) {
     this.deps = deps;
+  }
+
+  /** Install the runtime's passkey ceremony when the client was built without one. */
+  setDefaultPasskey(ceremony: RecoveryPasskeyCeremony): void {
+    if (!this.deps.passkey) this.deps.passkey = ceremony;
+  }
+
+  /** Whether passkey methods can run here (the runtime gave a ceremony). */
+  get passkeyAvailable(): boolean {
+    return !!this.deps.passkey;
   }
 
   /** Whether the wallet can be recovered without this device, and the methods it has. */
