@@ -459,6 +459,61 @@ async function unmount(handle) {
     globalThis.fetch = prevFetch;
   }
 
+  console.log('\n── 8. A USER_CHOICE app lets the user pick the custody ───────');
+  {
+    const { WalletButtonTemplate } = require(path.resolve(__dirname, '../packages/react/dist/index.js'));
+    const picks = [];
+    const noop = () => {};
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const props = {
+      walletAddress: '',
+      signedIn: true,
+      open: true,
+      custodyChoice: true,
+      onCreateWallet: (custody) => picks.push(custody ?? 'none'),
+      accentColor: '#000',
+      wrapperRef: { current: null },
+      onToggleOpen: noop,
+      onCreateAccount: noop,
+      onCopy: noop,
+      onWalletBalance: noop,
+      onTxHistory: noop,
+      onSend: noop,
+      onReceive: noop,
+      onSessions: noop,
+      onKyc: noop,
+      onRamp: noop,
+      onDistributionRules: noop,
+      onLogout: noop,
+      onLogin: noop,
+    };
+    await act(async () => root.render(React.createElement(WalletButtonTemplate, props)));
+    const buttonNamed = (text) => [...container.querySelectorAll('button')].find((b) => b.textContent.trim() === text);
+    check(
+      'both custodies are offered',
+      !!buttonNamed('Create co-signed wallet') && !!buttonNamed('Create self-custody wallet'),
+    );
+    await act(async () => buttonNamed('Create co-signed wallet').click());
+    check('co-signed is created at once with its custody', picks.join(',') === 'COSIGNED', picks);
+
+    await act(async () => buttonNamed('Create self-custody wallet').click());
+    check('self-custody first shows its risks', /nobody can recover the wallet/.test(container.textContent));
+    const create = buttonNamed('Create self-custody wallet');
+    check('it cannot be created before the risks are accepted', create.disabled === true);
+    await act(async () => container.querySelector('input[type=checkbox]').click());
+    check('accepting the risks enables it', buttonNamed('Create self-custody wallet').disabled === false);
+    await act(async () => buttonNamed('Create self-custody wallet').click());
+    check('self-custody is created with its custody', picks.join(',') === 'COSIGNED,SELF_CUSTODY', picks);
+
+    await act(async () => root.render(React.createElement(WalletButtonTemplate, { ...props, custodyChoice: false })));
+    await act(async () => buttonNamed('Create wallet').click());
+    check('an app that fixes the custody names none', picks[picks.length - 1] === 'none', picks);
+    await act(async () => root.unmount());
+    container.remove();
+  }
+
   console.log(`\n${pass} pass, ${fail} fail`);
   process.exit(fail ? 1 : 0);
 })().catch((err) => {

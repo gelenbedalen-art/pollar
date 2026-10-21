@@ -1,6 +1,6 @@
 'use client';
 
-import { isPollarApiError } from '@pollar/core';
+import { type CosignCustody, isPollarApiError } from '@pollar/core';
 import { useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
 import { walletNotReadyReason } from '../../lib/wallet-provisioning';
@@ -116,12 +116,12 @@ export function WalletButton() {
     }
   }
 
-  async function handleCreateWallet() {
+  async function handleCreateWallet(custody?: CosignCustody) {
     if (creatingWallet) return;
     setCreatingWallet(true);
     setCreateWalletError(null);
     try {
-      await createWallet();
+      await createWallet(custody ? { custody } : undefined);
       setOpen(false);
     } catch (err) {
       setCreateWalletError(
@@ -189,6 +189,7 @@ export function WalletButton() {
       signedIn={isAuthenticated}
       creatingWallet={creatingWallet}
       createWalletError={createWalletError}
+      custodyChoice={appConfig.application?.walletCustodyMode === 'USER_CHOICE'}
       {...(appConfig.application?.walletProvisioning === 'NONE' ? {} : { onCreateWallet: handleCreateWallet })}
       notReadyReason={notReadyReason}
       creatingAccount={creating}

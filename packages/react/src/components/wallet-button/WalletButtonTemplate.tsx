@@ -1,5 +1,7 @@
 'use client';
 
+import type { CosignCustody } from '@pollar/core';
+import { useState } from 'react';
 import { LOGO_POLLAR } from '../../constants';
 import './WalletButton.css';
 
@@ -36,7 +38,13 @@ export interface WalletButtonTemplateProps {
   signedIn?: boolean;
   creatingWallet?: boolean;
   createWalletError?: string | null;
-  onCreateWallet?: () => void;
+  /**
+   * The app leaves the custody to the user (USER_CHOICE): Create wallet offers
+   * co-signed and self-custody, and calls `onCreateWallet` with the pick. A
+   * self-custody wallet is created only after the user accepts its risks.
+   */
+  custodyChoice?: boolean;
+  onCreateWallet?: (custody?: CosignCustody) => void;
   onToggleOpen: () => void;
   onCreateAccount: () => void;
   onCopy: () => void;
@@ -86,8 +94,11 @@ export function WalletButtonTemplate({
   signedIn,
   creatingWallet,
   createWalletError,
+  custodyChoice,
   onCreateWallet,
 }: WalletButtonTemplateProps) {
+  const [selfCustodyNotice, setSelfCustodyNotice] = useState(false);
+  const [risksAccepted, setRisksAccepted] = useState(false);
   if (!walletAddress && signedIn) {
     return (
       <div className="pollar-wallet-wrapper" ref={wrapperRef}>
@@ -116,15 +127,80 @@ export function WalletButtonTemplate({
                 <div className="pollar-wallet-dropdown-divider" />
               </>
             )}
-            {onCreateWallet && (
+            {onCreateWallet && !custodyChoice && (
               <>
                 <button
                   className="pollar-wallet-dropdown-item"
                   style={{ color: itemColor }}
-                  onClick={onCreateWallet}
+                  onClick={() => onCreateWallet()}
                   disabled={creatingWallet}
                 >
                   {creatingWallet ? 'Creating wallet…' : 'Create wallet'}
+                </button>
+                <div className="pollar-wallet-dropdown-divider" />
+              </>
+            )}
+            {onCreateWallet && custodyChoice && !selfCustodyNotice && (
+              <>
+                <button
+                  className="pollar-wallet-dropdown-item"
+                  style={{ color: itemColor }}
+                  onClick={() => onCreateWallet('COSIGNED')}
+                  disabled={creatingWallet}
+                >
+                  {creatingWallet ? 'Creating wallet…' : 'Create co-signed wallet'}
+                </button>
+                <div className="pollar-wallet-dropdown-notice" style={{ color: itemColor }}>
+                  You and the app approve every signature together. Your wallet can be recovered with help.
+                </div>
+                <button
+                  className="pollar-wallet-dropdown-item"
+                  style={{ color: itemColor }}
+                  onClick={() => setSelfCustodyNotice(true)}
+                  disabled={creatingWallet}
+                >
+                  Create self-custody wallet
+                </button>
+                <div className="pollar-wallet-dropdown-notice" style={{ color: itemColor }}>
+                  Only your device signs. Nobody else can move or recover your funds.
+                </div>
+                <div className="pollar-wallet-dropdown-divider" />
+              </>
+            )}
+            {onCreateWallet && custodyChoice && selfCustodyNotice && (
+              <>
+                <div className="pollar-wallet-dropdown-notice" style={{ color: itemColor }} role="alert">
+                  In a self-custody wallet only your device can sign. If you lose this device and every recovery method, nobody
+                  can recover the wallet or its funds, not the app and not Pollar. Nobody can undo or freeze a transaction you
+                  sign.
+                </div>
+                <label className="pollar-wallet-dropdown-notice" style={{ color: itemColor }}>
+                  <input
+                    type="checkbox"
+                    checked={risksAccepted}
+                    onChange={(e) => setRisksAccepted(e.target.checked)}
+                    disabled={creatingWallet}
+                  />{' '}
+                  I understand and accept these risks
+                </label>
+                <button
+                  className="pollar-wallet-dropdown-item"
+                  style={{ color: itemColor }}
+                  onClick={() => onCreateWallet('SELF_CUSTODY')}
+                  disabled={creatingWallet || !risksAccepted}
+                >
+                  {creatingWallet ? 'Creating wallet…' : 'Create self-custody wallet'}
+                </button>
+                <button
+                  className="pollar-wallet-dropdown-item"
+                  style={{ color: itemColor }}
+                  onClick={() => {
+                    setSelfCustodyNotice(false);
+                    setRisksAccepted(false);
+                  }}
+                  disabled={creatingWallet}
+                >
+                  Back
                 </button>
                 <div className="pollar-wallet-dropdown-divider" />
               </>

@@ -3,6 +3,7 @@
 import {
   isPollarClient,
   BuildOutcome,
+  CosignCustody,
   EnabledAssetsState,
   isInteractiveAuthAdapter,
   NetworkState,
@@ -114,8 +115,11 @@ interface PollarContextValue {
    * creates none.
    */
   hasWallet: boolean;
-  /** Create the signed-in user's wallet; see `PollarClient.createWallet`. */
-  createWallet: () => Promise<WalletInfo>;
+  /**
+   * Create the signed-in user's wallet; see `PollarClient.createWallet`. An app
+   * whose custody mode is USER_CHOICE needs `custody`: the user's pick.
+   */
+  createWallet: (options?: { custody?: CosignCustody }) => Promise<WalletInfo>;
   /**
    * `true` once the server has confirmed the session (login / refresh /
    * `/auth/session/resume`). `false` while a cold-start session is still
@@ -699,7 +703,7 @@ export function PollarProvider({
       wallets: pollarClient.getWallets(),
       isAuthenticated: hasSession,
       hasWallet: pollarClient.hasWallet(),
-      createWallet: () => pollarClient.createWallet(),
+      createWallet: (options?: { custody?: CosignCustody }) => pollarClient.createWallet(options),
       verified,
       // client
       getClient,
