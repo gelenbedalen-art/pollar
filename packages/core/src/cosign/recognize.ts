@@ -199,8 +199,10 @@ export function recognizedSetupRequest(request: CosignRequest): SetupRecognition
         ? ('change_trust' as const)
         : null;
   if (!setupKind) return { ok: false, reason: 'not a setup operation' };
-  const me = stellarAccountBytes(request.signWith);
-  if (!me) return { ok: false, reason: 'the signing account is not a Stellar address' };
+  // A wallet that moved from Pollar's custody keeps its own address, and the
+  // Turnkey key only signs for it: the setup is checked against the account.
+  const me = stellarAccountBytes(request.account ?? request.signWith);
+  if (!me) return { ok: false, reason: 'the account is not a Stellar address' };
 
   let parsed: ReturnType<typeof parseTransaction>;
   try {

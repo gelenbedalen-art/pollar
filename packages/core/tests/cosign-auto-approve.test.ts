@@ -71,3 +71,26 @@ test('the pending read votes the setup request and hands the ramp step to the us
   assert.ok(shown.includes('ramp-swap'), 'the ramp step is handed to the UI to ask the user');
   assert.ok(!shown.includes('add-solana'), 'the recognized setup never reaches the prompt');
 });
+
+// A sponsored trustline on account A, for a wallet that moved from Pollar's
+// custody: the Turnkey key K only signs for A.
+const MOVED_ACCOUNT = 'GCFIRY65OQE7DFP5KLNS2PF2LVZMUZYJX4OZIEQ36N2IQANUB5XVYOJR';
+const TURNKEY_KEY = 'GCATS5YOVB6ROX2WUNKGNQ2MP3GMXDMKSG2O4N5CLX3A6W4PZGZZI55U';
+const trustline = {
+  id: 'trust-usdc',
+  status: 'PENDING',
+  kind: 'TX',
+  network: 'STELLAR',
+  intent: 'sign_and_send',
+  operation: 'change_trust',
+  unsignedPayload:
+    'AAAAAgAAAADtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAASwAAAAAAAAAAgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAEAAAAACKiOPddAnxlf1S2y08ul1yymcJvx2UEhvzdIgBtA9vXAAAAAEAAAAAiojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1wAAAAGAAAAAVVTREMAAAAAO5kROA7+mIugqJAOsc/kTzZvfb6Ua+0HckD39iTfFcV//////////wAAAAEAAAAAiojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1wAAAARAAAAAAAAAAA=',
+};
+
+test("a moved wallet's trustline is recognized on its own account, not on the Turnkey key", () => {
+  const moved = { ...trustline, signWith: TURNKEY_KEY, account: MOVED_ACCOUNT } as unknown as CosignRequest;
+  assert.equal(autoApprovesCosignRequest(moved, { manual: false }), true);
+  // Without the account, the trustline looks like one on somebody else's account.
+  const keyOnly = { ...trustline, signWith: TURNKEY_KEY } as unknown as CosignRequest;
+  assert.equal(autoApprovesCosignRequest(keyOnly, { manual: false }), false);
+});
