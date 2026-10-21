@@ -56,15 +56,7 @@ function fakeClient() {
   client.getNetwork = () => 'testnet';
   client.getWalletBalanceState = () => client.balance;
   client.recoveryState = { required: false, configured: true };
-  client.migrationState = {
-    required: false,
-    status: 'NONE',
-    chain: 'STELLAR',
-    address: null,
-    toCustody: null,
-    choice: false,
-    error: null,
-  };
+  client.migrationState = { required: false, toCustody: null, choice: false, wallets: [] };
   client.cosign = {
     pending: [],
     recovery: { status: jest.fn(async () => client.recoveryState) },
@@ -539,17 +531,23 @@ test('a signed-in user without a wallet picks the custody and accepts the self-c
 test('a custodial wallet in a co-signed app is moved before anything else, then asked for recovery', async () => {
   const client = fakeClient();
   client.auth = { step: 'authenticated', verified: true, session: { clientSessionId: 's1' } };
-  client.migrationState = {
+  const walletRow = (chain, address, addressChanges) => ({
+    chain,
+    address,
     required: true,
     status: 'NONE',
-    chain: 'STELLAR',
-    address: 'GTEST',
+    addressChanges,
+    newAddress: null,
+    error: null,
+  });
+  client.migrationState = {
+    required: true,
     toCustody: 'COSIGNED',
     choice: false,
-    error: null,
+    wallets: [walletRow('STELLAR', 'GTEST', false), walletRow('SOLANA', 'So1anaTestAddress1111', true)],
   };
-  client.cosign.migrateWallet = jest.fn(async () => {
-    client.migrationState = { ...client.migrationState, required: false, status: 'DONE' };
+  client.cosign.migrateWallets = jest.fn(async () => {
+    client.migrationState = { ...client.migrationState, required: false, wallets: [] };
     return client.migrationState;
   });
   client.recoveryState = {
@@ -575,11 +573,49 @@ test('a custodial wallet in a co-signed app is moved before anything else, then 
       <Text>child</Text>
     </PollarProvider>,
   );
-  await waitFor(() => expect(view.getByText('Move your wallet to this device')).toBeTruthy());
-  await act(async () => fireEvent.press(view.getByText('Move my wallet')));
-  expect(client.cosign.migrateWallet).toHaveBeenCalledWith(undefined);
-  await waitFor(() => expect(view.queryByText('Move your wallet to this device')).toBeNull());
+  await waitFor(() => expect(view.getByText('Move your wallets to this device')).toBeTruthy());
+  expect(view.getByText(/Your Solana address changes/)).toBeTruthy();
+  expect(view.getByText('Same address')).toBeTruthy();
+  await act(async () => fireEvent.press(view.getByText('Move my wallets')));
+  expect(client.cosign.migrateWallets).toHaveBeenCalledWith(undefined);
+  await waitFor(() => expect(view.queryByText('Move your wallets to this device')).toBeNull());
   await waitFor(() => expect(view.getByText('Wallet recovery')).toBeTruthy());
+  await view.unmountAsync();
+});
+test('a wallet blocked by something pending says what, and lets the user carry on for now', async () => {
+  const client = fakeClient();
+  client.auth = { step: 'authenticated', verified: true, session: { clientSessionId: 's1' } };
+  client.migrationState = {
+    required: true,
+    toCustody: 'COSIGNED',
+    choice: false,
+    wallets: [
+      {
+        chain: 'POLYGON',
+        address: '0xabc0000000000000000000000000000000000def',
+        required: true,
+        status: 'NONE',
+        addressChanges: true,
+        newAddress: null,
+        error: null,
+      },
+    ],
+  };
+  const { PollarApiError } = jest.requireActual('@pollar/core');
+  client.cosign.migrateWallets = jest.fn(async () => {
+    throw new PollarApiError('SDK_CUSTODY_MIGRATION_BLOCKED', { reasons: ['1 open ramp order(s)'] });
+  });
+  PollarClient.mockImplementation(() => client);
+  const view = await renderAsync(
+    <PollarProvider config={{ apiKey: 'test' }} appConfig={config}>
+      <Text>child</Text>
+    </PollarProvider>,
+  );
+  await waitFor(() => expect(view.getByText('Move your wallets to this device')).toBeTruthy());
+  await act(async () => fireEvent.press(view.getByText('Move my wallets')));
+  await waitFor(() => expect(view.getByText(/1 open ramp order\(s\)/)).toBeTruthy());
+  await act(async () => fireEvent.press(view.getByText('Continue for now')));
+  await waitFor(() => expect(view.queryByText('Move your wallets to this device')).toBeNull());
   await view.unmountAsync();
 });
 test('Strict Mode creates one owned client and destroys it on unmount', async () => {

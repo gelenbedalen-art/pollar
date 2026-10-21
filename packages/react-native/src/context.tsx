@@ -355,9 +355,12 @@ function ClientProvider({
   const [custodyMigration, setCustodyMigration] = useState<CustodyMigrationState | null>(null);
   const [custodyMigrationTick, setCustodyMigrationTick] = useState(0);
   const refreshCustodyMigration = useCallback(() => setCustodyMigrationTick((t) => t + 1), []);
+  // A wallet blocked by something pending lets the user carry on; the move is asked again next session.
+  const [custodyMigrationLater, setCustodyMigrationLater] = useState(false);
   useEffect(() => {
     if (!signedIn) {
       setCustodyMigration(null);
+      setCustodyMigrationLater(false);
       return;
     }
     let cancelled = false;
@@ -513,7 +516,7 @@ function ClientProvider({
             <CosignModal onClose={() => setCosignModalOpen(false)} />
           </ModalErrorBoundary>
         )}
-        {custodyMigration?.required && (
+        {custodyMigration?.required && !custodyMigrationLater && (
           <ModalErrorBoundary onClose={refreshCustodyMigration}>
             <CustodyMigrationModal
               state={custodyMigration}
@@ -521,6 +524,11 @@ function ClientProvider({
                 refreshCustodyMigration();
                 refreshRecovery();
                 setRecoveryModalOpen(true);
+              }}
+              onLater={() => {
+                setCustodyMigrationLater(true);
+                refreshCustodyMigration();
+                refreshRecovery();
               }}
             />
           </ModalErrorBoundary>

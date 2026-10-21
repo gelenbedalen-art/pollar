@@ -661,10 +661,20 @@ async function unmount(handle) {
     const base = {
       theme: 'light',
       accentColor: '#000',
-      state: { required: true, status: 'NONE', chain: 'STELLAR', address: 'GA', toCustody: null, choice: true, error: null },
+      state: {
+        required: true,
+        toCustody: null,
+        choice: true,
+        wallets: [
+          { chain: 'STELLAR', address: 'GABCDEFGH', required: true, status: 'NONE', addressChanges: false, newAddress: null, error: null },
+          { chain: 'SOLANA', address: 'So1anaABCDEF', required: true, status: 'NONE', addressChanges: true, newAddress: null, error: null },
+        ],
+      },
       busy: false,
       error: null,
+      blockedReasons: null,
       onMove: (custody) => moved.push(custody ?? 'app'),
+      onLater: () => {},
       onLogout: () => {},
     };
     const container = document.createElement('div');
@@ -672,15 +682,26 @@ async function unmount(handle) {
     const root = createRoot(container);
     const buttonNamed = (name) => [...container.querySelectorAll('button')].find((b) => b.textContent.trim() === name);
     await act(async () => root.render(React.createElement(CustodyMigrationModalTemplate, base)));
-    check('with the choice left to the user, nothing moves before a pick', buttonNamed('Move my wallet').disabled === true);
+    check(
+      'a wallet whose address changes says so before it moves',
+      /Your Solana address changes/.test(container.textContent) && /Same address/.test(container.textContent),
+    );
+    check('with the choice left to the user, nothing moves before a pick', buttonNamed('Move my wallets').disabled === true);
     await act(async () => container.querySelectorAll('input[type=radio]')[1].click());
     check(
       'self-custody waits for the risks to be accepted',
-      buttonNamed('Move my wallet').disabled === true && /only your device can sign/.test(container.textContent),
+      buttonNamed('Move my wallets').disabled === true && /only your device can sign/.test(container.textContent),
     );
     await act(async () => container.querySelector('input[type=checkbox]').click());
-    await act(async () => buttonNamed('Move my wallet').click());
+    await act(async () => buttonNamed('Move my wallets').click());
     check('the pick is what moves', moved[0] === 'SELF_CUSTODY');
+    await act(async () =>
+      root.render(React.createElement(CustodyMigrationModalTemplate, { ...base, blockedReasons: ['1 open ramp order(s)'] })),
+    );
+    check(
+      'a blocked wallet names what holds it back and lets the user carry on',
+      /1 open ramp order/.test(container.textContent) && !!buttonNamed('Continue for now'),
+    );
     await act(async () => root.unmount());
     container.remove();
   }

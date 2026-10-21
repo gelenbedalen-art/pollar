@@ -743,9 +743,12 @@ export function PollarProvider({
   const [custodyMigration, setCustodyMigration] = useState<CustodyMigrationState | null>(null);
   const [custodyMigrationTick, setCustodyMigrationTick] = useState(0);
   const refreshCustodyMigration = useCallback(() => setCustodyMigrationTick((t) => t + 1), []);
+  // A wallet blocked by something pending lets the user carry on; the move is asked again next session.
+  const [custodyMigrationLater, setCustodyMigrationLater] = useState(false);
   useEffect(() => {
     if (!hasSession) {
       setCustodyMigration(null);
+      setCustodyMigrationLater(false);
       return;
     }
     let cancelled = false;
@@ -993,7 +996,7 @@ export function PollarProvider({
           <CosignModal onClose={() => setCosignModalOpen(false)} />
         </ModalErrorBoundary>
       )}
-      {custodyMigration?.required && (
+      {custodyMigration?.required && !custodyMigrationLater && (
         <ModalErrorBoundary onClose={refreshCustodyMigration}>
           <CustodyMigrationModal
             state={custodyMigration}
@@ -1001,6 +1004,11 @@ export function PollarProvider({
               refreshCustodyMigration();
               refreshRecovery();
               setRecoveryModalOpen(true);
+            }}
+            onLater={() => {
+              setCustodyMigrationLater(true);
+              refreshCustodyMigration();
+              refreshRecovery();
             }}
           />
         </ModalErrorBoundary>
