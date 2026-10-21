@@ -3497,6 +3497,24 @@ export interface operations {
                             /** @enum {string} */
                             provisioning: "READY" | "CREATING" | "FAILED";
                             existsOnStellar: boolean;
+                            wallets: {
+                                /** @enum {string} */
+                                type: "internal" | "smart" | "external";
+                                provider?: string;
+                                publicKey: string | null;
+                                address: string | null;
+                                /** @enum {string} */
+                                chain?: "STELLAR" | "POLYGON" | "SOLANA";
+                                existsOnStellar?: boolean;
+                                /** @enum {string} */
+                                fundingMode?: "IMMEDIATE" | "DEFERRED";
+                                createdAt?: number;
+                                linkedAt?: number;
+                                network?: string;
+                                deployTxHash?: string | null;
+                                /** @enum {string} */
+                                provisioning?: "READY" | "CREATING" | "FAILED" | "NONE";
+                            }[];
                         };
                     };
                 };

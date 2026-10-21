@@ -1615,6 +1615,7 @@ export class PollarClient {
     const seq = ++this._provisioningSeq;
     try {
       const { data } = await this._api.GET('/wallet/state');
+      await this._addStateWallets(gen, data?.content?.wallets);
       const provisioning = data?.content?.provisioning;
       // A value outside the union would be persisted and then rejected by
       // `isValidSession` on the next reload, costing the user the session over a
@@ -1636,6 +1637,37 @@ export class PollarClient {
     } catch (err) {
       this._log.debug('[PollarClient] wallet state check failed', err);
       return null;
+    }
+  }
+
+  /**
+   * Add to the session the wallets `/wallet/state` lists that it does not hold
+   * yet. The login lists the wallets that exist when it answers; a co-signed
+   * account the device derives afterwards (a chain the app enabled) only
+   * reaches a live session here. Entries already held are kept as they are,
+   * since the login's copy carries fields this answer does not.
+   */
+  private async _addStateWallets(gen: number, listed: PollarApplicationConfigContent['wallet'][] | undefined): Promise<void> {
+    if (!listed || this._destroyed || this._sessionGeneration !== gen || !this._session) return;
+    const held = this._session.wallets ?? [this._session.wallet];
+    const same = (a: string | null | undefined, b: string | null | undefined) =>
+      !!a && !!b && (a.startsWith('0x') ? a.toLowerCase() === b.toLowerCase() : a === b);
+    const added = listed
+      .map(toPersistedWallet)
+      .filter(
+        (w) => w.address && !held.some((h) => (h.chain ?? 'STELLAR') === (w.chain ?? 'STELLAR') && same(h.address, w.address)),
+      );
+    if (added.length === 0) return;
+
+    this._session = { ...this._session, wallets: [...held, ...added] };
+    try {
+      await this._persistSession(gen, this._session);
+    } catch (err) {
+      this._log.error('[PollarClient] Failed to persist the wallets listed by /wallet/state', err);
+    }
+    if (this._destroyed || this._sessionGeneration !== gen) return;
+    if (this._authState.step === 'authenticated') {
+      this._setAuthState({ ...this._authState, session: this._session });
     }
   }
 
@@ -3406,8 +3438,14 @@ export class PollarClient {
    * (atomic flows) or ended it.
    */
   private _noteCosignRequest(request: CosignRequest): void {
-    if (request.status !== 'PENDING') this._settledCosign.add(request.id);
-    else if (this._settledCosign.has(request.id)) return;
+    if (request.status !== 'PENDING') {
+      // An approved derivation added a wallet on a new chain; the session
+      // learns of it from the server, not from the request.
+      if (request.kind === 'ACCOUNT' && request.status === 'APPROVED' && !this._settledCosign.has(request.id)) {
+        void this.refreshWalletState();
+      }
+      this._settledCosign.add(request.id);
+    } else if (this._settledCosign.has(request.id)) return;
     const pending = this._cosignState.pending.filter((r) => r.id !== request.id);
     if (request.status === 'PENDING' && !this._autoHandling.has(request.id)) pending.push(request);
     const lastResolved = request.status !== 'PENDING' ? request : this._cosignState.lastResolved;
@@ -5184,6 +5222,12 @@ export class PollarClient {
       // resume re-enqueues a creation that never landed, so by the time the
       // first check fires there is something to wait for again.
       this._startProvisioningWatch();
+      // A ready platform wallet is read once more for the wallets the restored
+      // session lacks: a chain account derived after its login.
+      const wallet = this._session.wallet;
+      if (wallet.type === 'internal' && wallet.address && wallet.provisioning !== 'CREATING') {
+        void this.refreshWalletState();
+      }
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
       // Network failure (no response) - keep the optimistic (unverified) session

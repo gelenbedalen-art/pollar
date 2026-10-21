@@ -221,6 +221,8 @@ function request(overrides = {}) {
       },
     ],
   };
+  // What `/wallet/state` lists: the session's wallets, plus any derived after the login.
+  let stateWallets = [{ type: 'internal', address: SOURCE, publicKey: SOURCE, chain: 'STELLAR' }];
   let refreshCalls = 0;
   let refreshedRequest = null;
   const quorumReports = [];
@@ -297,6 +299,19 @@ function request(overrides = {}) {
               createdAt: new Date().toISOString(),
             },
           ],
+        },
+      });
+    }
+    if (url.pathname === '/v2/wallet/state') {
+      return json(200, {
+        success: true,
+        code: 'SDK_WALLET_STATE',
+        content: {
+          address: SOURCE,
+          chain: 'STELLAR',
+          provisioning: 'READY',
+          existsOnStellar: true,
+          wallets: stateWallets,
         },
       });
     }
@@ -535,6 +550,26 @@ function request(overrides = {}) {
     unsignedPayload: JSON.stringify({ walletId: 'wallet-tk' }),
   });
   check('verify refuses an account derivation it cannot read', accountBad.ok === false);
+
+  // An approved derivation reaches the session: the client reads /wallet/state
+  // and adds the wallet the login did not list.
+  const POLYGON_ADDRESS = '0xAae901C9cC8A88611C041BB4C1EEE81a895CB943';
+  stateWallets = [
+    ...stateWallets,
+    { type: 'internal', address: POLYGON_ADDRESS, publicKey: POLYGON_ADDRESS, chain: 'POLYGON' },
+  ];
+  const approvedBefore = approvedRequest;
+  approvedRequest = { ...accountRequest, status: 'APPROVED', resolvedAt: new Date().toISOString() };
+  check('the session holds no Polygon wallet before the derivation', !client.getWallets().some((w) => w.chain === 'POLYGON'));
+  await client.cosign.approve({ ...accountRequest, refreshable: false });
+  const derived = await waitFor(() => client.getWallets().some((w) => w.chain === 'POLYGON' && w.address === POLYGON_ADDRESS));
+  check('an approved account derivation adds the new chain wallet to the session', derived, client.getWallets());
+  check(
+    'the wallets the session already held are kept once',
+    client.getWallets().filter((w) => w.chain === 'STELLAR' && w.address === SOURCE).length === 1,
+    client.getWallets(),
+  );
+  approvedRequest = approvedBefore;
 
   // Quorum: read from Turnkey with the device key and recorded server-side.
   mockDeviceKeyHex = await client.cosign.publicKeyHex();
