@@ -595,6 +595,14 @@ async function unmount(handle) {
       !!buttonNamed('Approve') && !!buttonNamed('Reject') && /Laptop wants to join/.test(text()),
     );
 
+    await render({ selfCustodyRisks: true });
+    check(
+      'a fixed self-custody app shows the risks before any setup',
+      /only your device can sign/.test(text()) && !buttonNamed('Approve') && !buttonNamed('Add a passkey'),
+    );
+    await act(async () => buttonNamed('I understand and accept these risks').click());
+    check('accepting the risks opens the recovery methods', !!buttonNamed('Add a passkey'));
+
     await render({
       thisDeviceEnrolled: false,
       state: {

@@ -19,6 +19,8 @@ export interface RecoveryModalTemplateProps {
   thisDeviceEnrolled: boolean;
   /** Whether the runtime can run passkey ceremonies here. */
   passkeyAvailable: boolean;
+  /** A self-custody wallet of an app that never asked the user to accept its risks. */
+  selfCustodyRisks: boolean;
   view: RecoveryView;
   /** The action in flight, by key, for its button's spinner. */
   busy: string | null;
@@ -108,8 +110,12 @@ function CodeForm(props: { busy: string | null; id: string; label: string; onSub
 export function RecoveryModalTemplate(p: RecoveryModalTemplateProps) {
   const cssVars = buildModalCssVars(p.theme, p.accentColor, p.styleOverrides);
   const [exportAccepted, setExportAccepted] = useState(false);
+  const [risksAccepted, setRisksAccepted] = useState(false);
   const state = p.state;
   const locked = !!state && state.required && !state.configured;
+  // An app in SELF_CUSTODY creates the wallet at login, so this is the first
+  // place its user reads what self-custody means; setup waits for the accept.
+  const risksPending = locked && p.selfCustodyRisks && !risksAccepted;
   const lastMethod =
     !!state && state.passkeys.length + (state.email.verified ? 1 : 0) + (state.devices.length >= 2 ? 1 : 0) <= 1;
 
@@ -142,6 +148,22 @@ export function RecoveryModalTemplate(p: RecoveryModalTemplateProps) {
           />
         )}
         <Button busy={p.busy} id="enroll" label="Ask another device to add this one" onClick={p.onRequestEnrollment} />
+      </>
+    );
+  } else if (risksPending && p.view === 'overview') {
+    body = (
+      <>
+        <div className="pollar-recovery-banner pollar-recovery-banner-warn" role="alert">
+          This is a self-custody wallet: only your device can sign. If you lose this device and every recovery method, nobody
+          can recover the wallet or its funds, not the app and not Pollar. Nobody can undo or freeze a transaction you sign.
+        </div>
+        <Button
+          busy={p.busy}
+          id="accept-risks"
+          label="I understand and accept these risks"
+          kind="primary"
+          onClick={() => setRisksAccepted(true)}
+        />
       </>
     );
   } else if (p.view === 'recover-email') {

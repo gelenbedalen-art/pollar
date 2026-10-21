@@ -24,7 +24,7 @@ function errorText(err: unknown): string {
  * wallet sends the user.
  */
 export function RecoveryModal({ onClose }: RecoveryModalProps) {
-  const { getClient, styles, refreshRecovery } = usePollar();
+  const { getClient, styles, refreshRecovery, appConfig } = usePollar();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
   const recovery = getClient().cosign.recovery;
 
@@ -100,6 +100,7 @@ export function RecoveryModal({ onClose }: RecoveryModalProps) {
         thisDeviceKey={thisDeviceKey}
         thisDeviceEnrolled={enrolled}
         passkeyAvailable={recovery.passkeyAvailable}
+        selfCustodyRisks={appConfig.application?.walletCustodyMode === 'SELF_CUSTODY' && devices?.custody === 'SELF_CUSTODY'}
         view={view}
         busy={busy}
         error={error}
