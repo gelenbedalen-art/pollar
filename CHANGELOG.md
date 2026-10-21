@@ -23,6 +23,12 @@
   without a prompt. `cosignGroupOf`, `cosignStepKeyOf`, `stepInGroup` and
   `CosignGroup` are no longer exported. See
   [UPGRADE.md](./UPGRADE.md#co-sign-approval-groups-removed).
+- `@pollar/core/ramps` contract version 2, additive: `actor` and
+  `wallet.signingMode` in the user context, `prebuiltPayload` on a payment,
+  `recorder` in the dependencies, `providerCode` and `detail` on
+  `RampAdapterError`, `fees` on an offer, a declared `validity`, and
+  `contractVersion` on the registration (1 when absent). A version 1 adapter
+  keeps compiling. See [UPGRADE.md](./UPGRADE.md#ramp-adapter-contract-version-2).
 - **Migration:** native provider initialization, transaction modal behavior,
   balance refresh, configuration errors, context types and open-ended bank types
   have changed. See [UPGRADE.md](./UPGRADE.md#0115---0120).
