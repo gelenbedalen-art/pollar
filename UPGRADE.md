@@ -28,6 +28,11 @@ is treated as version 1. Declare `contractVersion: 2` in
   the provider's own code.
 - Break `terms.feeAmount` down in `offer.fees` and declare `validity` on the
   adapter.
+- Keep `configurationId` to the account the provider is configured under, and
+  put what rotates (a credential hash, a corridor snapshot) in
+  `configurationRevision`. Pollar saves `configurationId` with every
+  transaction and compares it on each later call; a value that changes on
+  rotation strands the transactions in flight.
 
 `capabilities().routes` of a version 2 adapter are the provider's native rails:
 the asset and chain the provider itself delivers or takes, not what the end user

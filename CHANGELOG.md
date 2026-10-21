@@ -26,7 +26,8 @@
 - `@pollar/core/ramps` contract version 2, additive: `actor` and
   `wallet.signingMode` in the user context, `prebuiltPayload` on a payment,
   `recorder` in the dependencies, `providerCode` and `detail` on
-  `RampAdapterError`, `fees` on an offer, a declared `validity`, and
+  `RampAdapterError`, `fees` on an offer, a declared `validity`,
+  `configurationRevision` next to a stable `configurationId`, and
   `contractVersion` on the registration (1 when absent). A version 1 adapter
   keeps compiling. See [UPGRADE.md](./UPGRADE.md#ramp-adapter-contract-version-2).
 - **Migration:** native provider initialization, transaction modal behavior,

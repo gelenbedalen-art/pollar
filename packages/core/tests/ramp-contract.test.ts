@@ -97,6 +97,33 @@ test('contract version 2 is additive: a version 1 registration still resolves an
   assert.throws(() => defineRampAdapterRegistration('future', { ...base, contractVersion: 3 as 2 }), isRampAdapterError);
 });
 
+test('a version 2 registration reports a rotating revision under a stable configuration identity', async () => {
+  let key = 'key-1';
+  const registration = defineRampAdapterRegistration('rotating', {
+    defaultChain: 'STELLAR',
+    contractVersion: 2,
+    async resolveConfiguration(scope) {
+      return {
+        configurationId: `app:${scope.applicationId}`,
+        configurationRevision: `credentials:${key}`,
+        client: {},
+        timeoutMs: 1000,
+        clock: () => new Date(),
+        logger: { warn() {} },
+      };
+    },
+    factory() {
+      return {} as RampAdapter;
+    },
+  });
+  const scope = { applicationId: 'app', providerId: 'provider', network: 'testnet' as const };
+  const before = await registration.resolveConfiguration(scope);
+  key = 'key-2';
+  const after = await registration.resolveConfiguration(scope);
+  assert.equal(after.configurationId, before.configurationId);
+  assert.notEqual(after.configurationRevision, before.configurationRevision);
+});
+
 test('a version 2 error carries the provider code and detail without changing the public guard', () => {
   const error = new RampAdapterError('PROVIDER_REJECTED', 'operator', 422, {
     providerCode: 'ORDER_CANCELLED',
