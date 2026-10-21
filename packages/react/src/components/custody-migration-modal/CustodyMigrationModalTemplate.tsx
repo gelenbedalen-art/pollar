@@ -38,23 +38,18 @@ export function CustodyMigrationModalTemplate(p: CustodyMigrationModalTemplatePr
       </div>
       <div className="pollar-recovery-body">
         <p className="pollar-recovery-muted">
-          Until now Pollar held the key of your wallet. This app now keeps wallets on its users&apos; devices, so the key
-          moves here: your address, balance and assets stay exactly the same, and the key Pollar held stops working.
+          Until now Pollar held the key of your wallet. This app now keeps wallets on its users&apos; devices, so the key moves
+          here: your address, balance and assets stay exactly the same, and the key Pollar held stops working.
         </p>
         {p.state.choice && (
           <section className="pollar-recovery-section">
             <h3>Choose how your wallet signs</h3>
             <label className="pollar-recovery-check">
-              <input type="radio" name="custody" checked={pick === 'COSIGNED'} onChange={() => setPick('COSIGNED')} /> Co-signed:
-              you and the app approve every signature together, and the wallet can be recovered with help.
+              <input type="radio" name="custody" checked={pick === 'COSIGNED'} onChange={() => setPick('COSIGNED')} />{' '}
+              Co-signed: you and the app approve every signature together, and the wallet can be recovered with help.
             </label>
             <label className="pollar-recovery-check">
-              <input
-                type="radio"
-                name="custody"
-                checked={pick === 'SELF_CUSTODY'}
-                onChange={() => setPick('SELF_CUSTODY')}
-              />{' '}
+              <input type="radio" name="custody" checked={pick === 'SELF_CUSTODY'} onChange={() => setPick('SELF_CUSTODY')} />{' '}
               Self-custody: only your device signs. Nobody else can move or recover your funds.
             </label>
           </section>

@@ -56,7 +56,15 @@ function fakeClient() {
   client.getNetwork = () => 'testnet';
   client.getWalletBalanceState = () => client.balance;
   client.recoveryState = { required: false, configured: true };
-  client.migrationState = { required: false, status: 'NONE', chain: 'STELLAR', address: null, toCustody: null, choice: false, error: null };
+  client.migrationState = {
+    required: false,
+    status: 'NONE',
+    chain: 'STELLAR',
+    address: null,
+    toCustody: null,
+    choice: false,
+    error: null,
+  };
   client.cosign = {
     pending: [],
     recovery: { status: jest.fn(async () => client.recoveryState) },
@@ -556,7 +564,10 @@ test('a custodial wallet in a co-signed app is moved before anything else, then 
     devices: [],
   };
   Object.assign(client.cosign.recovery, { passkeyAvailable: false });
-  client.cosign.devices = jest.fn(async () => ({ devices: [{ id: 'k1', publicKey: 'ab'.repeat(33), label: null }], enrollments: [] }));
+  client.cosign.devices = jest.fn(async () => ({
+    devices: [{ id: 'k1', publicKey: 'ab'.repeat(33), label: null }],
+    enrollments: [],
+  }));
   client.cosign.publicKeyHex = jest.fn(async () => 'ab'.repeat(33));
   PollarClient.mockImplementation(() => client);
   const view = await renderAsync(
