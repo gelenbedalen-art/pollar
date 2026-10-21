@@ -38,9 +38,6 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      # The version comes from the tag and is not committed back: the tag is the record.
-      # ponytail: only the package versions move. Internal ranges (^0.12.0-rc.1)
-      # cover every rc of the same X.Y.Z; a new X.Y.Z needs them bumped by hand first.
       - name: Set the version
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version $(printf -- '-w packages/%s ' $PACKAGES)
 
