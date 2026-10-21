@@ -8,6 +8,31 @@ client adapter packages to their matching 0.12 candidates when using this core
 version. Their peer ranges accept both 0.11.x and 0.12; older adapter releases
 with a core peer range of only `^0.11.2` cannot be used with core 0.12.
 
+### Ramp adapter contract version 2
+
+A server adapter built with `@pollar/core/ramps` keeps working as is: every
+field version 2 adds is optional, and a registration without `contractVersion`
+is treated as version 1. Declare `contractVersion: 2` in
+`defineRampAdapterRegistration` to opt in, then:
+
+- Read `user.actor` to tell a session user (`SDK_USER`) from a user the
+  application's backend manages (`APP_USER`); `user.sdkUserId` stays set for both.
+- Read `user.wallet.signingMode` (`COSIGNED`, `SELF_CUSTODY`, `EXTERNAL`,
+  `APP_CUSTODY`) instead of inferring it from `custody`.
+- Return `prebuiltPayload` in a `RampAdapterPayment` when the provider builds
+  the transaction itself; Pollar validates it, has it signed and asks for a
+  fresh one if it expires first.
+- Call `dependencies.recorder.record(...)` around each provider call; Pollar
+  stores it as an attempt of the leg. Put personal data only in `sensitive`.
+- Throw `RampAdapterError` with `{ providerCode, detail }` so the operator sees
+  the provider's own code.
+- Break `terms.feeAmount` down in `offer.fees` and declare `validity` on the
+  adapter.
+
+`capabilities().routes` of a version 2 adapter are the provider's native rails:
+the asset and chain the provider itself delivers or takes, not what the end user
+receives. Pollar's planner adds the swap and bridge legs.
+
 ### Native provider and context
 
 - Children render after the provider effect creates its owned client. Put startup
