@@ -1627,6 +1627,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cosign/custody/migration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether my wallet has to move to Turnkey
+         * @description `required` when my Stellar wallet is one Pollar custodies in an app whose wallets live in Turnkey (co-signed, self-custody or the user's choice). The move keeps the address. Wallets on other chains are not moved yet.
+         */
+        get: operations["getCosignCustodyMigration"];
+        put?: never;
+        /**
+         * Move my Stellar wallet to Turnkey
+         * @description Creates my Turnkey sub-org with this device as its first credential, makes its Stellar account the wallet's signer and drops the key Pollar held to weight 0, in one sponsored transaction. The address, balances and trustlines stay. Safe to retry: a sub-org or a chain change that already exists is read back. `custody` is required when the app leaves it to me. Afterwards the wallet needs a recovery method like any Turnkey wallet.
+         */
+        post: operations["postCosignCustodyMigration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cosign/recovery": {
         parameters: {
             query?: never;
@@ -13356,6 +13380,176 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Upstream provider error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    getCosignCustodyMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where the move stands */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_CUSTODY_MIGRATION";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            required: boolean;
+                            /** @enum {string} */
+                            status: "NONE" | "PENDING" | "SUBMITTED" | "DONE" | "FAILED";
+                            /** @constant */
+                            chain: "STELLAR";
+                            address: string | null;
+                            toCustody: ("COSIGNED" | "SELF_CUSTODY") | null;
+                            choice: boolean;
+                            error: string | null;
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postCosignCustodyMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    devicePublicKey: string;
+                    /** @enum {string} */
+                    custody?: "COSIGNED" | "SELF_CUSTODY";
+                };
+            };
+        };
+        responses: {
+            /** @description Moved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_CUSTODY_MIGRATION";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            required: boolean;
+                            /** @enum {string} */
+                            status: "NONE" | "PENDING" | "SUBMITTED" | "DONE" | "FAILED";
+                            /** @constant */
+                            chain: "STELLAR";
+                            address: string | null;
+                            toCustody: ("COSIGNED" | "SELF_CUSTODY") | null;
+                            choice: boolean;
+                            error: string | null;
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unprocessable */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
