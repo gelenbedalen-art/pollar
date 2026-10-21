@@ -2,6 +2,7 @@ import type { PollarApiClient } from '../api/client';
 import type { KeyManager } from '../keys/types';
 import type { PollarLogger } from '../lib/logger';
 import type {
+  CosignCustody,
   CosignDevicesContent,
   CosignQuorumReport,
   CosignRelayContent,
@@ -11,6 +12,7 @@ import type {
 } from '../types';
 import { PollarApiError } from '../types';
 import { bytesToHex, compressedPublicKeyHex, encodeStamp, rawSignatureToDer } from './encoding';
+import { checkCustodySwitchStep, type CustodySwitchStep } from './custody';
 import { checkEvmRequest, polygonChainIdFor } from './evm';
 import { checkSolanaRequest } from './solana';
 import { stellarTransactionHashHex } from './stellar-hash';
@@ -430,6 +432,52 @@ export class CosignManager {
     });
     if (res.status !== 200) throw new PollarApiError('SDK_COSIGN_UPSTREAM_ERROR', { status: res.status, body: res.body });
     return this.devices();
+  }
+
+  /**
+   * Move the user's wallet to `to`: co-signed (Pollar's approver votes on every
+   * signature) or self-custody (only this device signs). Each step is a Turnkey
+   * activity this device stamps after checking it keeps the wallet the user's
+   * ({@link checkCustodySwitchStep}); sdk-api forwards it only when it is
+   * exactly the next step, and Pollar votes only on lowering a 2-of-2 quorum.
+   * A switch that stops halfway resumes where it is on the next call. Resolves
+   * with the quorum as this device reads it once the switch is done.
+   *
+   * Throws {@link PollarApiError}: `SDK_COSIGN_CUSTODY_SWITCH_NOT_ALLOWED` for an
+   * app that does not let its users choose, `SDK_COSIGN_CUSTODY_SWITCH_PENDING`
+   * while a co-sign request waits, `SDK_COSIGN_VERIFICATION_FAILED` when a step
+   * fails the device's check (nothing is stamped).
+   */
+  async switchCustody(to: CosignCustody): Promise<CosignQuorumReport> {
+    let state = content(
+      await this.deps.api.POST('/cosign/custody/next', { body: { to } }),
+      'SDK_COSIGN_CUSTODY_SWITCH_NOT_ALLOWED',
+    );
+    for (let round = 0; round < 8; round++) {
+      if (state.done) return this.inspectQuorum();
+      if (!state.step) throw new PollarApiError('SDK_COSIGN_UPSTREAM_ERROR', { reason: 'no step and not done' });
+      const step = state.step as CustodySwitchStep;
+      const check = checkCustodySwitchStep(step, to, state.endUserId);
+      if (!check.ok) throw new PollarApiError('SDK_COSIGN_VERIFICATION_FAILED', { verification: check, step });
+      const body = JSON.stringify({
+        type: step.type,
+        timestampMs: String(Date.now()),
+        organizationId: state.subOrgId,
+        parameters: step.parameters,
+      });
+      const stamp = await this.stamp(body);
+      const result = content(
+        await this.deps.api.POST('/cosign/custody/step', { body: { to, path: state.step.path, body, stamp } }),
+        'SDK_COSIGN_UPSTREAM_ERROR',
+      );
+      const activity = isRecord(result.body) && isRecord(result.body.activity) ? result.body.activity : undefined;
+      if (stringField(activity, 'status') !== 'ACTIVITY_STATUS_COMPLETED') {
+        throw new PollarApiError('SDK_COSIGN_UPSTREAM_ERROR', { status: result.status, body: result.body });
+      }
+      // The answer already carries where the switch stands after this step.
+      state = result.next;
+    }
+    throw new PollarApiError('SDK_COSIGN_UPSTREAM_ERROR', { reason: 'the custody switch did not converge' });
   }
 
   private async readQuorum(): Promise<CosignQuorumReport> {

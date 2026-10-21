@@ -1587,6 +1587,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cosign/custody/next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Where moving my wallet between co-signed and self-custody stands
+         * @description Reads the sub-organization from Turnkey and answers with the next activity for the device to stamp, or `done` once the wallet is in the new custody. To self-custody: lower the root quorum to the user alone (Pollar votes on it), then delete the other users. To co-signed: add the app approver, install the end-user policies, raise the quorum to 2. Only an app in USER_CHOICE custody lets its users switch, and only with no co-sign request waiting.
+         */
+        post: operations["postCosignCustodyNext"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cosign/custody/step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit one stamped step of a custody switch
+         * @description The device stamps the exact JSON of the step `/custody/next` returned (`organizationId` = `subOrgId`, a fresh `timestampMs`). Pollar forwards it to Turnkey only when it is exactly the next step, and answers with Turnkey reply and where the switch stands after it.
+         */
+        post: operations["postCosignCustodyStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/distribution/rules": {
         parameters: {
             query?: never;
@@ -12976,6 +13016,258 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postCosignCustodyNext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    to: "COSIGNED" | "SELF_CUSTODY";
+                };
+            };
+        };
+        responses: {
+            /** @description The next step, or done */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_CUSTODY_SWITCH";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            subOrgId: string;
+                            endUserId: string;
+                            done: boolean;
+                            /** @enum {string} */
+                            custody: "COSIGNED" | "SELF_CUSTODY";
+                            step?: {
+                                /** @enum {string} */
+                                path: "/public/v1/submit/update_root_quorum" | "/public/v1/submit/delete_users" | "/public/v1/submit/create_users" | "/public/v1/submit/create_policies";
+                                type: string;
+                                parameters: {
+                                    [key: string]: unknown;
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postCosignCustodyStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    to: "COSIGNED" | "SELF_CUSTODY";
+                    /** @enum {string} */
+                    path: "/public/v1/submit/update_root_quorum" | "/public/v1/submit/delete_users" | "/public/v1/submit/create_users" | "/public/v1/submit/create_policies";
+                    body: string;
+                    stamp: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Turnkey's answer and the next step, or done */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_CUSTODY_SWITCH";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            status: number;
+                            body: unknown;
+                            next: {
+                                subOrgId: string;
+                                endUserId: string;
+                                done: boolean;
+                                /** @enum {string} */
+                                custody: "COSIGNED" | "SELF_CUSTODY";
+                                step?: {
+                                    /** @enum {string} */
+                                    path: "/public/v1/submit/update_root_quorum" | "/public/v1/submit/delete_users" | "/public/v1/submit/create_users" | "/public/v1/submit/create_policies";
+                                    type: string;
+                                    parameters: {
+                                        [key: string]: unknown;
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
