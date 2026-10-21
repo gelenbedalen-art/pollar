@@ -401,6 +401,13 @@ export type CosignRelayPath = NonNullable<
 /** The 202 a signing call answers with for a co-signed wallet. */
 export type CosignPendingContent = pollarPaths['/tx/sign']['post']['responses'][202]['content']['application/json']['content'];
 
+/**
+ * Whether the user's Stellar wallet, one Pollar custodies, has to move to
+ * Turnkey because the app's wallets live there, and where the move stands.
+ */
+export type CustodyMigrationState =
+  pollarPaths['/cosign/custody/migration']['get']['responses'][200]['content']['application/json']['content'];
+
 /** Whether the user's Turnkey wallet can be recovered without this device, and the methods it has. */
 export type RecoveryState = pollarPaths['/cosign/recovery']['get']['responses'][200]['content']['application/json']['content'];
 

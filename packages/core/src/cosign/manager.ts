@@ -3,6 +3,7 @@ import type { KeyManager } from '../keys/types';
 import type { PollarLogger } from '../lib/logger';
 import type {
   CosignCustody,
+  CustodyMigrationState,
   CosignDevicesContent,
   CosignQuorumReport,
   CosignRelayContent,
@@ -403,6 +404,32 @@ export class CosignManager {
     const request = typeof target === 'string' ? await this.get(target) : target;
     if (request.status !== 'PENDING') throw new PollarApiError('SDK_COSIGN_REQUEST_NOT_PENDING', { status: request.status });
     return this.cancel(request.id);
+  }
+
+  /** Whether the user's custodial Stellar wallet has to move to Turnkey, and where the move stands. */
+  async custodyMigration(): Promise<CustodyMigrationState> {
+    return content(await this.deps.api.GET('/cosign/custody/migration'), 'SDK_COSIGN_UPSTREAM_ERROR');
+  }
+
+  /**
+   * Move the user's custodial Stellar wallet to Turnkey with this device as
+   * its first credential. The address, balances and trustlines stay; the key
+   * Pollar held stops counting. `custody` is the user's pick when the app
+   * leaves it to them. Like any new Turnkey wallet, the quorum is read back
+   * here, and the wallet needs a recovery method before it signs.
+   */
+  async migrateWallet(custody?: CosignCustody): Promise<CustodyMigrationState> {
+    const devicePublicKey = await this.publicKeyHex();
+    const state = content(
+      await this.deps.api.POST('/cosign/custody/migration', {
+        body: { devicePublicKey, ...(custody ? { custody } : {}) },
+      }),
+      'SDK_COSIGN_UPSTREAM_ERROR',
+    );
+    await this.inspectQuorum().catch((err: unknown) =>
+      this.deps.logger.warn('[PollarClient] could not read the quorum of the moved wallet', err),
+    );
+    return state;
   }
 
   /**
