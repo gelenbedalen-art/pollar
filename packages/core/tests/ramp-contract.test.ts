@@ -1,0 +1,83 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import {
+  defineRampAdapter,
+  defineRampAdapterRegistration,
+  isRampAdapterError,
+  RampAdapterError,
+  type RampAdapter,
+} from '../src/ramps/index';
+
+test('adapter definition preserves server class methods and rejects incomplete boundaries', () => {
+  class Provider implements RampAdapter {
+    readonly adapterId = 'custom-provider';
+    private readonly identity = 'bound';
+    async capabilities() {
+      assert.equal(this.identity, 'bound');
+      return {
+        routes: [],
+        callbacks: false,
+        polling: true,
+        providerIdempotency: false,
+        operationLookup: false,
+        fiatPayoutEvidence: false,
+        keyRetentionSeconds: null,
+      };
+    }
+    async quote(): ReturnType<RampAdapter['quote']> {
+      throw new RampAdapterError('UNSUPPORTED_ROUTE', 'correct_input');
+    }
+    async create(): ReturnType<RampAdapter['create']> {
+      return { outcome: 'unknown', error: new RampAdapterError('OUTCOME_UNKNOWN', 'reconcile') };
+    }
+    async status(): ReturnType<RampAdapter['status']> {
+      throw new RampAdapterError('PROVIDER_UNAVAILABLE', 'retry_read');
+    }
+    async reconcile() {
+      return null;
+    }
+  }
+  const instance = new Provider();
+  assert.equal(defineRampAdapter(instance), instance);
+  assert.throws(() => defineRampAdapter({ adapterId: 'incomplete' } as RampAdapter), isRampAdapterError);
+  assert.throws(() => defineRampAdapter({ ...instance, adapterId: ' ' } as RampAdapter), isRampAdapterError);
+});
+
+test('server registration keeps the configuration resolver and typed factory paired', async () => {
+  const transport = { account: 'server-account' };
+  const registration = defineRampAdapterRegistration('custom-provider', {
+    defaultChain: 'STELLAR',
+    async resolveConfiguration(scope) {
+      return {
+        configurationId: `${scope.applicationId}:revision`,
+        client: transport,
+        timeoutMs: 1000,
+        clock: () => new Date(),
+        logger: { warn() {} },
+      };
+    },
+    factory(dependencies) {
+      assert.equal(dependencies.client.account, transport.account);
+      return {} as RampAdapter;
+    },
+  });
+  const configured = await registration.resolveConfiguration({
+    applicationId: 'app',
+    providerId: 'provider',
+    network: 'testnet',
+  });
+  registration.factory(configured);
+  assert.equal(configured.configurationId, 'app:revision');
+  assert.throws(() => defineRampAdapterRegistration('', registration), isRampAdapterError);
+  assert.throws(
+    () => defineRampAdapterRegistration('bad', { ...registration, defaultChain: 'UNKNOWN' as 'STELLAR' }),
+    isRampAdapterError,
+  );
+});
+
+test('public error guard checks branded codes and recovery without accepting arbitrary error messages', () => {
+  assert.equal(isRampAdapterError(new RampAdapterError('OUTCOME_UNKNOWN', 'reconcile')), true);
+  assert.equal(isRampAdapterError(new Error('provider-secret')), false);
+  assert.equal(isRampAdapterError({ code: 'OUTCOME_UNKNOWN', recovery: 'reconcile' }), false);
+  assert.equal(isRampAdapterError(new RampAdapterError('INVALID_INPUT', 'correct_input', 999)), false);
+});

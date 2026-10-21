@@ -4,6 +4,7 @@
 // modules so bundlers can tree-shake unused code paths.
 
 export { PollarClient, isPollarClient } from './client/client';
+export * from './ramps/index';
 export { POLLAR_CORE_VERSION } from './version';
 export { createLogger } from './lib/logger';
 export { toBaseUnits, fromBaseUnits } from './lib/units';

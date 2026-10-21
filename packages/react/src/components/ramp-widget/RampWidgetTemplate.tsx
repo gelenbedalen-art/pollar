@@ -154,6 +154,8 @@ interface RampWidgetTemplateProps {
   completing: boolean;
   savedRamps?: Array<{ txId: string; provider: string }>;
   onResumeRamp?: (id: string) => void;
+  onDismissRamp?: (id: string) => void;
+  onDismissCurrentRamp?: (() => void) | undefined;
   onExploreRoutes?: (() => void) | undefined;
   errorMsg: string | null;
   /** Neutral guidance on the route list, e.g. after identity verification sent the user back to it. */
@@ -250,6 +252,8 @@ export function RampWidgetTemplate({
   completing,
   savedRamps = [],
   onResumeRamp,
+  onDismissRamp,
+  onDismissCurrentRamp,
   onExploreRoutes,
   errorMsg,
   noticeMsg,
@@ -291,7 +295,9 @@ export function RampWidgetTemplate({
     // money, not who you are. Say which, rather than asserting the Bridge case
     // over every provider.
     contact: `${provider || 'This provider'} needs ${listOf(requiredFields.filter((f) => !f.optional).map((f) => f.label.toLowerCase()))} to continue`,
-    status: `Finish the flow at ${provider || 'the provider'} to continue`,
+    status: workflowContent
+      ? 'Follow the next step below to continue'
+      : `Finish the flow at ${provider || 'the provider'} to continue`,
     error: 'Please try again',
   };
 
@@ -353,35 +359,42 @@ export function RampWidgetTemplate({
       )}
 
       {step === 'input' && savedRamps.length > 0 && (
-        <section className="pollar-ramp-payment" aria-label="Pending operations">
+        <section className="pollar-ramp-payment pollar-ramp-saved" aria-label="Pending operations">
           <p className="pollar-ramp-payment-note">
             Your pending operations are saved. Starting another route does not cancel them.
           </p>
           {savedRamps.map((ramp) => (
-            <button
-              key={ramp.txId}
-              type="button"
-              className="pollar-btn-secondary"
-              disabled={isLoading}
-              onClick={() => onResumeRamp?.(ramp.txId)}
-            >
-              Resume {ramp.provider} · {ramp.txId.slice(-8)}
-            </button>
+            <div className="pollar-ramp-saved-row" key={ramp.txId}>
+              <button
+                type="button"
+                className="pollar-btn-secondary"
+                disabled={isLoading}
+                onClick={() => onResumeRamp?.(ramp.txId)}
+              >
+                Resume {ramp.provider} · {ramp.txId.slice(-8)}
+              </button>
+              {onDismissRamp && (
+                <button
+                  type="button"
+                  className="pollar-btn-secondary"
+                  disabled={isLoading}
+                  aria-label={`Remove ${ramp.provider} ${ramp.txId.slice(-8)} from pending list`}
+                  onClick={() => onDismissRamp(ramp.txId)}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
           ))}
         </section>
       )}
-      {step === 'status' && onExploreRoutes && (
-        <>
-          <button type="button" className="pollar-btn-secondary" disabled={completing} onClick={onExploreRoutes}>
-            Try another route
-          </button>
-          <p className="pollar-ramp-payment-note">
-            This keeps the current operation pending; it does not cancel a payment or refund funds.
-          </p>
-        </>
-      )}
       {step === 'input' && (
         <>
+          {noticeMsg && (
+            <p className="pollar-ramp-payment-note" role="status">
+              {noticeMsg}
+            </p>
+          )}
           <div className="pollar-tabs">
             <button
               type="button"
@@ -402,7 +415,9 @@ export function RampWidgetTemplate({
           </div>
 
           <div className="pollar-ramp-field">
-            <label className="pollar-ramp-label">Country</label>
+            <label className="pollar-ramp-label" htmlFor="pollar-ramp-country">
+              Country
+            </label>
             {countriesLoading ? (
               <div className="pollar-ramp-input pollar-select-loading">
                 <span className="pollar-spinner pollar-spinner-sm" />
@@ -411,7 +426,12 @@ export function RampWidgetTemplate({
             ) : countries.length === 0 ? (
               <div className="pollar-modal-error">No ramp providers available on this network yet.</div>
             ) : (
-              <select className="pollar-ramp-input" value={country} onChange={(e) => onCountryChange(e.target.value)}>
+              <select
+                id="pollar-ramp-country"
+                className="pollar-ramp-input"
+                value={country}
+                onChange={(e) => onCountryChange(e.target.value)}
+              >
                 {countries.map((c) => (
                   <option key={c.code} value={c.code}>
                     {flagEmoji(c.code)} {c.code}
@@ -422,9 +442,14 @@ export function RampWidgetTemplate({
             )}
           </div>
 
+          {routeSelector}
+
           <div className="pollar-ramp-field">
-            <label className="pollar-ramp-label">Amount{currency ? ` (${currency})` : ''}</label>
+            <label className="pollar-ramp-label" htmlFor="pollar-ramp-amount">
+              Amount{currency ? ` (${currency})` : ''}
+            </label>
             <input
+              id="pollar-ramp-amount"
               type="number"
               className="pollar-ramp-input"
               placeholder="0.00"
@@ -567,8 +592,28 @@ export function RampWidgetTemplate({
         </>
       )}
 
-      {step === 'input' && routeSelector}
       {step === 'status' && workflowContent}
+      {step === 'status' && onDismissCurrentRamp && txStatus !== 'completed' && txStatus !== 'failed' && (
+        <div className="pollar-ramp-explore">
+          <button type="button" className="pollar-btn-secondary" disabled={completing} onClick={onDismissCurrentRamp}>
+            Remove from pending list
+          </button>
+          <p className="pollar-ramp-payment-note">
+            This only hides the operation in this tab. To request cancellation, open the provider link above when available or
+            contact the provider’s support. Payments and refunds must be confirmed by the provider.
+          </p>
+        </div>
+      )}
+      {step === 'status' && onExploreRoutes && (
+        <div className="pollar-ramp-explore">
+          <button type="button" className="pollar-btn-secondary" disabled={completing} onClick={onExploreRoutes}>
+            {txStatus === 'completed' || txStatus === 'failed' ? 'Start another operation' : 'Try another route'}
+          </button>
+          {txStatus !== 'completed' && txStatus !== 'failed' && (
+            <p className="pollar-ramp-payment-note">Your current operation stays saved so you can resume it later.</p>
+          )}
+        </div>
+      )}
       {step === 'status' && !workflowContent && (
         <div className="pollar-ramp-payment">
           <div className="pollar-ramp-payment-field">
@@ -772,7 +817,7 @@ export function RampWidgetTemplate({
                   Submitting…
                 </>
               ) : (
-                "I've completed KYC — withdraw"
+                'Check verification and continue'
               )}
             </button>
           )}

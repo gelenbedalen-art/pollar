@@ -20,6 +20,16 @@ function loadHelper(relative) {
 }
 const rampKyc = loadHelper('ramp-widget/ramp-kyc.ts');
 const { requiredRampKyc, lockedRouteCopy } = rampKyc;
+const { unavailableRampMessage } = loadHelper('ramp-widget/ramp-quotes.ts');
+assert.match(
+  unavailableRampMessage('BO', [{ provider: 'Stereum', code: 'SDK_RAMPS_PROVIDER_NOT_CONFIGURED' }]),
+  /not configured correctly/,
+);
+assert.doesNotMatch(
+  unavailableRampMessage('BO', [{ provider: 'Stereum', code: 'SDK_RAMPS_PROVIDER_NOT_CONFIGURED' }]),
+  /try again later/,
+);
+assert.match(unavailableRampMessage('BO', [{ provider: 'Stereum', code: 'INTERNAL_SERVER_ERROR' }]), /temporarily unavailable/);
 const error = {
   code: 'SDK_RAMPS_KYC_REQUIRED',
   body: { rampProviderId: 'ramp-a', kycProviderId: 'option-a', corridorId: 'corridor-a' },
@@ -166,6 +176,7 @@ const widgetScope = {
     if (id === '../provider-registration-modal/ProviderRegistrationModal') return stepModal('ProviderRegistrationModal');
     if (id === '../modal-theme') return { modalChrome: () => ({}) };
     if (id === './ramp-kyc') return rampKyc;
+    if (id === './ramp-quotes') return loadHelper('ramp-widget/ramp-quotes.ts');
     if (id.endsWith('.css')) return {};
     throw new Error(`Unexpected import: ${id}`);
   },
@@ -230,7 +241,7 @@ async function exercise(direction, outcome) {
     assert.equal(attempts, 1); // Approval never starts an order by itself.
     if (outcome === 'approve') {
       assert.equal(rampProps.step, 'select_route');
-      assert.deepEqual(rampProps.quotes, [fresh]);
+      assert.deepEqual(Array.from(rampProps.quotes), [fresh]);
       assert.match(rampProps.noticeMsg, /verified/);
       assert.equal(rampProps.amount, '10');
       assert.equal(rampProps.direction, direction);
@@ -294,8 +305,8 @@ async function exerciseLockedRoute(direction) {
   // Empty quotes with a locked route is a route list, not "no providers".
   assert.equal(rampProps.step, 'select_route');
   assert.equal(rampProps.errorMsg, null);
-  assert.deepEqual(rampProps.quotes, []);
-  assert.deepEqual(rampProps.kycRequired, [locked]);
+  assert.deepEqual(Array.from(rampProps.quotes), []);
+  assert.deepEqual(Array.from(rampProps.kycRequired), [locked]);
   await React.act(async () => rampProps.onVerifyRoute(locked));
   assert.equal(kycProps.providerId, 'option-b');
   assert.equal(kycProps.corridorId, 'corridor-b');
@@ -309,8 +320,8 @@ async function exerciseLockedRoute(direction) {
   assert.equal(quoteCalls, 2); // approval re-quotes the same input once
   assert.equal(attempts, 0);
   assert.equal(rampProps.step, 'select_route');
-  assert.deepEqual(rampProps.quotes, [unlocked]);
-  assert.deepEqual(rampProps.kycRequired, []);
+  assert.deepEqual(Array.from(rampProps.quotes), [unlocked]);
+  assert.deepEqual(Array.from(rampProps.kycRequired), []);
   assert.equal(rampProps.amount, '10');
   assert.equal(rampProps.direction, direction);
   assert.match(rampProps.noticeMsg, /verified/);
@@ -360,7 +371,7 @@ async function exerciseStepRoute(type, outcome) {
     rampProps.onDirectionChange('onramp');
   });
   await React.act(async () => rampProps.onFindRoute());
-  assert.deepEqual(rampProps.kycRequired, [locked]);
+  assert.deepEqual(Array.from(rampProps.kycRequired), [locked]);
   await React.act(async () => rampProps.onVerifyRoute(locked));
   assert.equal(kycProps, null); // not the KYC modal
   const expected = {
@@ -385,7 +396,7 @@ async function exerciseStepRoute(type, outcome) {
     assert.equal(stepProps, null);
     assert.equal(quoteCalls, 2);
     assert.equal(rampProps.step, 'select_route');
-    assert.deepEqual(rampProps.quotes, [unlocked]);
+    assert.deepEqual(Array.from(rampProps.quotes), [unlocked]);
     assert.match(rampProps.noticeMsg, /details are saved/);
   }
   await React.act(async () => root.unmount());
