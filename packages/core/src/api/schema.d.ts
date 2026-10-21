@@ -1627,6 +1627,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cosign/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My recovery methods
+         * @description Whether my Turnkey wallet can be recovered without this device (a passkey, a second device, or an email confirmed with an OTP code), and the methods it has. Until `configured`, signatures other than the wallet setup and on-ramps answer 409 SDK_WALLET_RECOVERY_REQUIRED, on testnet and mainnet.
+         */
+        get: operations["getCosignRecovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cosign/devices/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask to add this device to my wallet
+         * @description For a device I signed in on whose key is not one of my credentials yet. One of my enrolled devices approves it by adding the key through `/relay` (`create_api_keys`); the request lapses after 15 minutes. Once approved, the key appears in `/devices`.
+         */
+        post: operations["postCosignDevicesEnrollments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cosign/devices/enrollments/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn down a device asking to join my wallet */
+        post: operations["postCosignDevicesEnrollmentsByIdReject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/distribution/rules": {
         parameters: {
             query?: never;
@@ -12751,9 +12808,11 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    path: "/public/v1/submit/sign_raw_payload" | "/public/v1/submit/sign_transaction" | "/public/v1/submit/create_wallet_accounts" | "/public/v1/submit/create_api_keys" | "/public/v1/submit/delete_api_keys" | "/public/v1/submit/create_authenticators" | "/public/v1/query/get_activity" | "/public/v1/query/get_organization" | "/public/v1/query/get_whoami" | "/public/v1/query/get_api_keys";
+                    path: "/public/v1/submit/sign_raw_payload" | "/public/v1/submit/sign_transaction" | "/public/v1/submit/create_wallet_accounts" | "/public/v1/submit/create_api_keys" | "/public/v1/submit/delete_api_keys" | "/public/v1/submit/create_authenticators" | "/public/v1/submit/delete_authenticators" | "/public/v1/submit/update_user_email" | "/public/v1/submit/export_wallet" | "/public/v1/query/get_activity" | "/public/v1/query/get_organization" | "/public/v1/query/get_whoami" | "/public/v1/query/get_api_keys";
                     body: string;
                     stamp: string;
+                    /** @enum {string} */
+                    stampHeader?: "X-Stamp" | "X-Stamp-WebAuthn";
                     requestId?: string;
                 };
             };
@@ -13024,6 +13083,12 @@ export interface operations {
                                 enrolledVia: "ONBOARDING" | "PASSKEY" | "DEVICE" | "OTP";
                                 lastSeenAt: string | null;
                                 createdAt: string;
+                            }[];
+                            enrollments: {
+                                id: string;
+                                publicKey: string;
+                                label: string | null;
+                                expiresAt: string;
                             }[];
                         };
                     };
@@ -13298,6 +13363,242 @@ export interface operations {
             };
             /** @description Upstream provider error */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    getCosignRecovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recovery state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_RECOVERY";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            required: boolean;
+                            configured: boolean;
+                            subOrgId: string | null;
+                            endUserId: string | null;
+                            walletId: string | null;
+                            authProxyConfigId: string | null;
+                            email: {
+                                address: string | null;
+                                verified: boolean;
+                            };
+                            passkeys: {
+                                authenticatorId: string;
+                                credentialId: string;
+                                name: string;
+                                createdAt: string;
+                            }[];
+                            devices: {
+                                apiKeyId: string;
+                                name: string;
+                                publicKey: string;
+                                createdAt: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Upstream provider error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postCosignDevicesEnrollments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    publicKey: string;
+                    label?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The open request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_DEVICES";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            id: string;
+                            expiresAt: string;
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postCosignDevicesEnrollmentsByIdReject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_DEVICES";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            /** @constant */
+                            rejected: true;
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -341,6 +341,13 @@ export interface PollarClientConfig {
    */
   cosignKeyManager?: KeyManager;
   /**
+   * The passkey ceremonies a Turnkey wallet's recovery uses (add a passkey,
+   * recover with one). Injected by `@pollar/react` with the browser's
+   * WebAuthn; a React Native app passes its own, or the passkey methods of
+   * `client.cosign.recovery` are unavailable.
+   */
+  recoveryPasskey?: RecoveryPasskeyCeremony;
+  /**
    * How a signing call treats the user, whatever the wallet's custody.
    * `'auto'` (default) signs without a prompt: a custodial wallet signs on the
    * server, a co-signed one has the device verify and vote on its own, an
@@ -393,6 +400,31 @@ export type CosignRelayPath = NonNullable<
 >['content']['application/json']['path'];
 /** The 202 a signing call answers with for a co-signed wallet. */
 export type CosignPendingContent = pollarPaths['/tx/sign']['post']['responses'][202]['content']['application/json']['content'];
+
+/** Whether the user's Turnkey wallet can be recovered without this device, and the methods it has. */
+export type RecoveryState = pollarPaths['/cosign/recovery']['get']['responses'][200]['content']['application/json']['content'];
+
+/**
+ * The passkey ceremonies wallet recovery needs, injected by the runtime layer
+ * (`@pollar/react` uses `navigator.credentials`). All binary fields are
+ * base64url, as WebAuthn's JSON serialization gives them.
+ */
+export interface RecoveryPasskeyCeremony {
+  /** Register a passkey for the wallet; `challenge` goes to `navigator.credentials.create`. */
+  create(options: { challenge: string; userName: string }): Promise<{
+    credentialId: string;
+    clientDataJson: string;
+    attestationObject: string;
+    transports: string[];
+  }>;
+  /** Sign `challenge` with one of `allowCredentials`. */
+  get(options: { challenge: string; allowCredentials: string[] }): Promise<{
+    credentialId: string;
+    authenticatorData: string;
+    clientDataJson: string;
+    signature: string;
+  }>;
+}
 
 /** The requests waiting for this device's vote, as `client.cosign` knows them. */
 export interface CosignState {

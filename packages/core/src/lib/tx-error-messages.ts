@@ -27,6 +27,12 @@ const MESSAGES: Record<string, string> = {
   SDK_COSIGN_REQUEST_NOT_FOUND: 'This request no longer exists.',
   SDK_COSIGN_DEVICE_NOT_ENROLLED: "This device can't approve requests for this wallet.",
   SDK_COSIGN_UPSTREAM_ERROR: "The signing service didn't answer. Please try again.",
+  SDK_WALLET_RECOVERY_REQUIRED:
+    'Set up a way to recover this wallet first: a passkey, a second device or your email. Without one, losing this device means losing the funds, and nobody can get them back.',
+  SDK_COSIGN_TURNKEY_REJECTED: 'The wallet provider refused the request. Please try again in a moment.',
+  SDK_COSIGN_CUSTODY_SWITCH_PENDING: 'Finish or cancel the pending approvals before changing how this wallet is secured.',
+  SDK_COSIGN_CUSTODY_SWITCH_NOT_ALLOWED: "This app doesn't let you change how your wallet is secured.",
+  SDK_COSIGN_PASSKEY_UNAVAILABLE: "Passkeys aren't available on this device.",
 };
 
 const GENERIC = 'Something went wrong. Please try again.';

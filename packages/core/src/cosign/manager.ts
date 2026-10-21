@@ -9,10 +9,12 @@ import type {
   CosignRelayPath,
   CosignRequest,
   CosignVerification,
+  RecoveryPasskeyCeremony,
 } from '../types';
 import { PollarApiError } from '../types';
 import { bytesToHex, compressedPublicKeyHex, encodeStamp, rawSignatureToDer } from './encoding';
 import { checkCustodySwitchStep, type CustodySwitchStep } from './custody';
+import { CosignRecovery } from './recovery';
 import { checkEvmRequest, polygonChainIdFor } from './evm';
 import { checkSolanaRequest } from './solana';
 import { stellarTransactionHashHex } from './stellar-hash';
@@ -49,6 +51,8 @@ export interface CosignManagerDeps {
   autoApprove?: (request: CosignRequest) => boolean;
   /** Tell the store a request is being settled by the client itself, so no prompt opens for it. */
   markAutoHandled?: (id: string, handled: boolean) => void;
+  /** The passkey ceremony recovery uses; injected by the runtime layer. */
+  recoveryPasskey?: RecoveryPasskeyCeremony;
 }
 
 const SCHEME = 'SIGNATURE_SCHEME_TK_API_P256';
@@ -98,9 +102,20 @@ function content<T>(res: { data?: { content?: T }; error?: unknown }, fallback: 
 export class CosignManager {
   private readonly deps: CosignManagerDeps;
   private _publicKeyHex: string | null = null;
+  /** The ways back into the wallet without this device, and the export of its key. */
+  readonly recovery: CosignRecovery;
 
   constructor(deps: CosignManagerDeps) {
     this.deps = deps;
+    this.recovery = new CosignRecovery({
+      api: deps.api,
+      publicKeyHex: () => this.publicKeyHex(),
+      stamp: (body) => this.stamp(body),
+      relay: (path, body) => this.relay(path, body),
+      relayStamped: (path, body, stamp, stampHeader) => this.relayStamped(path, body, stamp, stampHeader),
+      devices: () => this.devices(),
+      ...(deps.recoveryPasskey ? { passkey: deps.recoveryPasskey } : {}),
+    });
   }
 
   /** The device key's public half as Turnkey registers it: SEC1 compressed, hex. */
@@ -227,6 +242,19 @@ export class CosignManager {
     );
     if (result.request) this.deps.onRequest(result.request);
     return result;
+  }
+
+  /** Forward a body another credential stamped (a passkey, an OTP session), unchanged. */
+  async relayStamped(
+    path: CosignRelayPath,
+    body: string,
+    stamp: string,
+    stampHeader: 'X-Stamp' | 'X-Stamp-WebAuthn',
+  ): Promise<CosignRelayContent> {
+    return content(
+      await this.deps.api.POST('/cosign/relay', { body: { path, body, stamp, stampHeader } }),
+      'SDK_COSIGN_UPSTREAM_ERROR',
+    );
   }
 
   /**

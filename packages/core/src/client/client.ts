@@ -676,6 +676,7 @@ export class PollarClient {
       logger: this._log,
       networkPassphrase: () => this._networkPassphrase(),
       onRequest: (request) => this._noteCosignRequest(request),
+      ...(config.recoveryPasskey ? { recoveryPasskey: config.recoveryPasskey } : {}),
       // Setup Pollar opens on its own (account creation, trustlines, a new
       // chain) is approved without a prompt only when the device can read it
       // and it names this wallet; a custodial wallet does the same setup
