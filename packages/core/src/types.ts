@@ -408,6 +408,9 @@ export type CosignPendingContent = pollarPaths['/tx/sign']['post']['responses'][
 export type CustodyMigrationState =
   pollarPaths['/cosign/custody/migration']['get']['responses'][200]['content']['application/json']['content'];
 
+/** A chain whose custodial wallet can move to Turnkey. */
+export type CustodyMigrationChain = CustodyMigrationState['wallets'][number]['chain'];
+
 /** Whether the user's Turnkey wallet can be recovered without this device, and the methods it has. */
 export type RecoveryState = pollarPaths['/cosign/recovery']['get']['responses'][200]['content']['application/json']['content'];
 

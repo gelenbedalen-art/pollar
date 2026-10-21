@@ -3,6 +3,7 @@ import type { KeyManager } from '../keys/types';
 import type { PollarLogger } from '../lib/logger';
 import type {
   CosignCustody,
+  CustodyMigrationChain,
   CustodyMigrationState,
   CosignDevicesContent,
   CosignQuorumReport,
@@ -412,23 +413,53 @@ export class CosignManager {
   }
 
   /**
-   * Move the user's custodial Stellar wallet to Turnkey with this device as
-   * its first credential. The address, balances and trustlines stay; the key
-   * Pollar held stops counting. `custody` is the user's pick when the app
+   * Move one of the user's custodial wallets to Turnkey with this device as the
+   * sub-org's first credential. Stellar keeps its address and the key Pollar
+   * held stops counting; Solana and Polygon move every token and the native
+   * balance to the user's Turnkey account on that chain, a new address. When
+   * that account has to be derived first, its request is voted here as wallet
+   * setup and the move runs again. `custody` is the user's pick when the app
    * leaves it to them. Like any new Turnkey wallet, the quorum is read back
-   * here, and the wallet needs a recovery method before it signs.
+   * afterwards, and the wallet needs a recovery method before it signs.
+   *
+   * Throws `SDK_CUSTODY_MIGRATION_BLOCKED`, with `body.reasons`, while something
+   * still points at the old wallet (an open ramp order, a transaction in flight).
    */
-  async migrateWallet(custody?: CosignCustody): Promise<CustodyMigrationState> {
+  async migrateWallet(custody?: CosignCustody, options?: { chain?: CustodyMigrationChain }): Promise<CustodyMigrationState> {
     const devicePublicKey = await this.publicKeyHex();
-    const state = content(
-      await this.deps.api.POST('/cosign/custody/migration', {
-        body: { devicePublicKey, ...(custody ? { custody } : {}) },
-      }),
-      'SDK_COSIGN_UPSTREAM_ERROR',
-    );
+    const chain = options?.chain ?? 'STELLAR';
+    let state: CustodyMigrationState | undefined;
+    for (let round = 0; round < 6; round++) {
+      state = content(
+        await this.deps.api.POST('/cosign/custody/migration', {
+          body: { devicePublicKey, chain, ...(custody ? { custody } : {}) },
+        }),
+        'SDK_COSIGN_UPSTREAM_ERROR',
+      );
+      if (!state.awaitingAccount) break;
+      // Deriving the account is wallet setup: the pending read votes it.
+      await this.pending();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    if (!state || state.awaitingAccount) {
+      throw new PollarApiError('SDK_COSIGN_UPSTREAM_ERROR', { reason: `the ${chain} account to move to was not derived` });
+    }
     await this.inspectQuorum().catch((err: unknown) =>
       this.deps.logger.warn('[PollarClient] could not read the quorum of the moved wallet', err),
     );
+    return state;
+  }
+
+  /**
+   * Move every wallet that still has to, Stellar first: the sub-org it creates
+   * is the one the other chains reuse.
+   */
+  async migrateWallets(custody?: CosignCustody): Promise<CustodyMigrationState> {
+    let state = await this.custodyMigration();
+    for (const chain of ['STELLAR', 'SOLANA', 'POLYGON'] as const) {
+      if (!state.wallets.some((w) => w.chain === chain && w.required)) continue;
+      state = await this.migrateWallet(custody, { chain });
+    }
     return state;
   }
 
