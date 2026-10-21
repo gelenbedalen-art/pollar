@@ -1636,13 +1636,13 @@ export interface paths {
         };
         /**
          * Whether my wallet has to move to Turnkey
-         * @description `required` when my Stellar wallet is one Pollar custodies in an app whose wallets live in Turnkey (co-signed, self-custody or the user's choice). The move keeps the address. Wallets on other chains are not moved yet.
+         * @description Per chain, whether my wallet is one Pollar custodies in an app whose wallets live in Turnkey (co-signed, self-custody or the user's choice), and where its move stands. Stellar keeps its address; Solana and Polygon move their funds to my Turnkey account on that chain, a new address.
          */
         get: operations["getCosignCustodyMigration"];
         put?: never;
         /**
          * Move my Stellar wallet to Turnkey
-         * @description Creates my Turnkey sub-org with this device as its first credential, makes its Stellar account the wallet's signer and drops the key Pollar held to weight 0, in one sponsored transaction. The address, balances and trustlines stay. Safe to retry: a sub-org or a chain change that already exists is read back. `custody` is required when the app leaves it to me. Afterwards the wallet needs a recovery method like any Turnkey wallet.
+         * @description Stellar: creates my Turnkey sub-org with this device as its first credential, makes its Stellar account the wallet's signer and drops the key Pollar held to weight 0, in one sponsored transaction; the address, balances and trustlines stay. Solana and Polygon: moves every token and the native balance to my Turnkey account on that chain, with the app paying the gas, and that account becomes my wallet; refused with 409 SDK_CUSTODY_MIGRATION_BLOCKED and the `reasons` while anything still points at the old wallet. `awaitingAccount` when that account has to be derived first. Safe to retry. `custody` is required when the app leaves it to me. Afterwards the wallet needs a recovery method like any Turnkey wallet.
          */
         post: operations["postCosignCustodyMigration"];
         delete?: never;
@@ -13432,14 +13432,20 @@ export interface operations {
                         success: true;
                         content: {
                             required: boolean;
-                            /** @enum {string} */
-                            status: "NONE" | "PENDING" | "SUBMITTED" | "DONE" | "FAILED";
-                            /** @constant */
-                            chain: "STELLAR";
-                            address: string | null;
                             toCustody: ("COSIGNED" | "SELF_CUSTODY") | null;
                             choice: boolean;
-                            error: string | null;
+                            wallets: {
+                                /** @enum {string} */
+                                chain: "STELLAR" | "SOLANA" | "POLYGON";
+                                address: string;
+                                required: boolean;
+                                /** @enum {string} */
+                                status: "NONE" | "PENDING" | "SUBMITTED" | "DONE" | "FAILED";
+                                addressChanges: boolean;
+                                newAddress: string | null;
+                                error: string | null;
+                            }[];
+                            awaitingAccount?: boolean;
                         };
                     };
                 };
@@ -13474,6 +13480,11 @@ export interface operations {
                     devicePublicKey: string;
                     /** @enum {string} */
                     custody?: "COSIGNED" | "SELF_CUSTODY";
+                    /**
+                     * @default STELLAR
+                     * @enum {string}
+                     */
+                    chain?: "STELLAR" | "SOLANA" | "POLYGON";
                 };
             };
         };
@@ -13491,14 +13502,20 @@ export interface operations {
                         success: true;
                         content: {
                             required: boolean;
-                            /** @enum {string} */
-                            status: "NONE" | "PENDING" | "SUBMITTED" | "DONE" | "FAILED";
-                            /** @constant */
-                            chain: "STELLAR";
-                            address: string | null;
                             toCustody: ("COSIGNED" | "SELF_CUSTODY") | null;
                             choice: boolean;
-                            error: string | null;
+                            wallets: {
+                                /** @enum {string} */
+                                chain: "STELLAR" | "SOLANA" | "POLYGON";
+                                address: string;
+                                required: boolean;
+                                /** @enum {string} */
+                                status: "NONE" | "PENDING" | "SUBMITTED" | "DONE" | "FAILED";
+                                addressChanges: boolean;
+                                newAddress: string | null;
+                                error: string | null;
+                            }[];
+                            awaitingAccount?: boolean;
                         };
                     };
                 };
