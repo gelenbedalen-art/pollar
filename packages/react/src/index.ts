@@ -47,6 +47,7 @@ export { CardModal } from './components/card-modal/CardModal';
 export { ReceiveModal } from './components/receive-modal/ReceiveModal';
 export { SessionsModal } from './components/sessions-modal/SessionsModal';
 export { CosignModal } from './components/cosign-modal/CosignModal';
+export { RecoveryModal } from './components/recovery-modal/RecoveryModal';
 export { DistributionRulesModal } from './components/distribution-rules-modal/DistributionRulesModal';
 
 // --- Modal theming ------------------------------------------------------------
@@ -83,6 +84,9 @@ export type { ReceiveModalTemplateProps } from './components/receive-modal/Recei
 export { SessionsModalTemplate } from './components/sessions-modal/SessionsModalTemplate';
 export { CosignModalTemplate } from './components/cosign-modal/CosignModalTemplate';
 export type { CosignModalTemplateProps } from './components/cosign-modal/CosignModalTemplate';
+export { RecoveryModalTemplate } from './components/recovery-modal/RecoveryModalTemplate';
+export type { RecoveryModalTemplateProps, RecoveryView } from './components/recovery-modal/RecoveryModalTemplate';
+export { browserRecoveryPasskey } from './lib/passkey-ceremony';
 export type { SessionsModalTemplateProps, SessionsState } from './components/sessions-modal/SessionsModalTemplate';
 export { DistributionRulesModalTemplate } from './components/distribution-rules-modal/DistributionRulesModalTemplate';
 

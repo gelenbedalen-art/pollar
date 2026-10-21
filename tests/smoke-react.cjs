@@ -514,6 +514,138 @@ async function unmount(handle) {
     container.remove();
   }
 
+  console.log('\n-- 9. The recovery modal says why a wallet is locked and guards the export --');
+  {
+    const { RecoveryModalTemplate, ReceiveModalTemplate } = require(path.resolve(__dirname, '../packages/react/dist/index.js'));
+    const noop = () => {};
+    const state = {
+      required: true,
+      configured: false,
+      subOrgId: 'sub-1',
+      endUserId: 'tk-user',
+      walletId: 'w-1',
+      authProxyConfigId: 'cfg',
+      email: { address: 'user@x.test', verified: false },
+      passkeys: [],
+      devices: [{ apiKeyId: 'k0', name: 'phone', publicKey: '02' + 'ab'.repeat(32), createdAt: '' }],
+    };
+    const devices = {
+      subOrgId: 'sub-1',
+      endUserId: 'tk-user',
+      custody: 'SELF_CUSTODY',
+      quorumState: 'VERIFIED',
+      devices: [
+        {
+          id: 'd0',
+          publicKey: '02' + 'ab'.repeat(32),
+          tkApiKeyId: 'k0',
+          label: 'phone',
+          enrolledVia: 'ONBOARDING',
+          lastSeenAt: null,
+          createdAt: '',
+        },
+      ],
+      enrollments: [{ id: 'e1', publicKey: '03' + 'cd'.repeat(32), label: 'Laptop', expiresAt: '' }],
+    };
+    const exported = [];
+    const base = {
+      theme: 'light',
+      accentColor: '#000',
+      state,
+      devices,
+      thisDeviceKey: '02' + 'ab'.repeat(32),
+      thisDeviceEnrolled: true,
+      passkeyAvailable: true,
+      view: 'overview',
+      busy: null,
+      error: null,
+      notice: null,
+      emailDraft: '',
+      codeSent: false,
+      phrase: null,
+      onView: noop,
+      onEmailDraft: noop,
+      onAddPasskey: noop,
+      onRemovePasskey: noop,
+      onSendEmailCode: noop,
+      onConfirmEmail: noop,
+      onApproveDevice: noop,
+      onRejectDevice: noop,
+      onRequestEnrollment: noop,
+      onRecoverWithPasskey: noop,
+      onSendRecoveryCode: noop,
+      onRecoverWithCode: noop,
+      onExport: () => exported.push(1),
+      onClose: noop,
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const render = (props) => act(async () => root.render(React.createElement(RecoveryModalTemplate, { ...base, ...props })));
+    const text = () => container.textContent;
+    const buttonNamed = (name) => [...container.querySelectorAll('button')].find((b) => b.textContent.trim() === name);
+
+    await render({});
+    check(
+      'a locked wallet says it is locked and why',
+      /locked until you add a way to recover it/.test(text()) && /nobody can get them back/.test(text()),
+    );
+    check(
+      'a device asking to join can be approved or rejected',
+      !!buttonNamed('Approve') && !!buttonNamed('Reject') && /Laptop wants to join/.test(text()),
+    );
+
+    await render({
+      thisDeviceEnrolled: false,
+      state: {
+        ...state,
+        passkeys: [{ authenticatorId: 'p', credentialId: 'c', name: 'pk', createdAt: '' }],
+        email: { address: 'user@x.test', verified: true },
+      },
+    });
+    check(
+      'a device outside the wallet is told so and offered every way back in',
+      /isn.t part of your wallet yet/.test(text()) &&
+        !!buttonNamed('Use a passkey') &&
+        !!buttonNamed('Ask another device to add this one') &&
+        /Email a code to user@x.test/.test(text()),
+    );
+
+    await render({ view: 'export' });
+    check('the export stays off until the risk is acknowledged', buttonNamed('Show recovery phrase').disabled === true);
+    await act(async () => container.querySelector('input[type=checkbox]').click());
+    check('acknowledging the risk enables it', buttonNamed('Show recovery phrase').disabled === false);
+    await act(async () => buttonNamed('Show recovery phrase').click());
+    check('the export runs once asked', exported.length === 1);
+    await render({ view: 'export', phrase: 'abandon abandon about' });
+    check(
+      'the phrase is shown with its warning',
+      /abandon abandon about/.test(text()) && /controls every account/.test(text()),
+    );
+
+    await act(async () =>
+      root.render(
+        React.createElement(ReceiveModalTemplate, {
+          theme: 'light',
+          accentColor: '#000',
+          walletAddress: 'GABC',
+          selectedChain: 'STELLAR',
+          copied: false,
+          recoveryLocked: true,
+          onSetupRecovery: noop,
+          onCopy: noop,
+          onClose: noop,
+        }),
+      ),
+    );
+    check(
+      'a locked wallet does not show its address to receive',
+      !text().includes('GABC') && /Set up a way to recover this wallet/.test(text()),
+    );
+    await act(async () => root.unmount());
+    container.remove();
+  }
+
   console.log(`\n${pass} pass, ${fail} fail`);
   process.exit(fail ? 1 : 0);
 })().catch((err) => {

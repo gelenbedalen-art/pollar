@@ -191,3 +191,22 @@
     padding-inline: 0.625rem;
   }
 }
+
+.pollar-receive-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--pollar-error-border, #fecaca);
+  border-radius: var(--pollar-card-border-radius, 10px);
+  background: var(--pollar-error-bg, #fef2f2);
+  color: var(--pollar-error-text, #b91c1c);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.pollar-receive-locked p {
+  margin: 0;
+}

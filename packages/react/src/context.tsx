@@ -49,12 +49,13 @@ import { EarnModal } from './components/earn-modal/EarnModal';
 import { CardModal } from './components/card-modal/CardModal';
 import { SessionsModal } from './components/sessions-modal/SessionsModal';
 import { CosignModal } from './components/cosign-modal/CosignModal';
+import { RecoveryModal } from './components/recovery-modal/RecoveryModal';
 import { ConfirmModal } from './components/confirm-modal/ConfirmModal';
-import type { CosignState, PendingConfirmation } from '@pollar/core';
+import type { CosignState, PendingConfirmation, RecoveryState } from '@pollar/core';
 import { TransactionModal } from './components/transaction-modal/TransactionModal';
 import { TxHistoryModal } from './components/tx-history-modal/TxHistoryModal';
 import { WalletBalanceModal } from './components/wallet-balance-modal/WalletBalanceModal';
-import { browserPasskeyCeremony, browserPasskeySigner } from './lib/passkey-ceremony';
+import { browserPasskeyCeremony, browserPasskeySigner, browserRecoveryPasskey } from './lib/passkey-ceremony';
 import type { PollarConfig, PollarStyles } from './types';
 
 const DEFAULT_APP_CONFIG: PollarConfig = {
@@ -137,6 +138,17 @@ interface PollarContextValue {
   cosign: CosignState;
   /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
   openCosignModal: () => void;
+  /**
+   * The recovery state of the user's Turnkey wallet: null until read, or for a
+   * session without one. `recoveryLocked` is true while the wallet has no way
+   * to be recovered without this device: it signs nothing but its own setup.
+   */
+  recovery: RecoveryState | null;
+  recoveryLocked: boolean;
+  /** Read the recovery state again (after a method changed elsewhere). */
+  refreshRecovery: () => void;
+  /** Open the recovery methods modal: passkeys, email, devices, export. */
+  openRecoveryModal: () => void;
   /** Signing calls waiting for the user under `confirmation: 'prompt'`; the provider shows the first one. */
   confirmations: PendingConfirmation[];
   appConfig: PollarConfig;
@@ -394,7 +406,11 @@ export function PollarProvider({
   // ceremony winning while an absent/undefined one still gets the default.
   const [pollarClient] = useState<PollarClient>(() => {
     if (isPollarClient(client)) {
-      client.setPasskeyDefaults({ passkey: browserPasskeyCeremony, passkeySign: browserPasskeySigner });
+      client.setPasskeyDefaults({
+        passkey: browserPasskeyCeremony,
+        passkeySign: browserPasskeySigner,
+        recoveryPasskey: browserRecoveryPasskey,
+      });
       return client;
     }
     // Reuse the instance a discarded render pass already built (see
@@ -406,6 +422,7 @@ export function PollarProvider({
       ...client,
       passkey: client.passkey ?? browserPasskeyCeremony,
       passkeySign: client.passkeySign ?? browserPasskeySigner,
+      recoveryPasskey: client.recoveryPasskey ?? browserRecoveryPasskey,
     });
     clientByConfig.set(client, built);
     return built;
@@ -637,6 +654,7 @@ export function PollarProvider({
   const [receiveModalOpen, setReceiveModalOpen] = useState(false);
   const [sessionsModalOpen, setSessionsModalOpen] = useState(false);
   const [cosignModalOpen, setCosignModalOpen] = useState(false);
+  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   // A signing call that came back pending needs the user's vote now; open the
   // prompt the moment a new request appears, never when one merely resolves.
   const cosignPendingCount = useRef(0);
@@ -667,6 +685,7 @@ export function PollarProvider({
         setReceiveModalOpen(false);
         setSessionsModalOpen(false);
         setCosignModalOpen(false);
+        setRecoveryModalOpen(false);
         setDistributionRulesModalOpen(false);
       }),
     [pollarClient],
@@ -686,6 +705,32 @@ export function PollarProvider({
   // demand is authenticated before they have an address.
   const hasSession = sessionState !== null;
   const getClient = useCallback(() => pollarClient, [pollarClient]);
+
+  // The recovery state of a Turnkey wallet, read once a session exists and
+  // again when the wallet changes, so a locked wallet says so before the user
+  // tries to send. A user without a Turnkey wallet reads `required: false`.
+  const [recovery, setRecovery] = useState<RecoveryState | null>(null);
+  const [recoveryTick, setRecoveryTick] = useState(0);
+  const refreshRecovery = useCallback(() => setRecoveryTick((t) => t + 1), []);
+  useEffect(() => {
+    if (!hasSession) {
+      setRecovery(null);
+      return;
+    }
+    let cancelled = false;
+    pollarClient.cosign.recovery
+      .status()
+      .then((next) => {
+        if (!cancelled) setRecovery(next);
+      })
+      .catch(() => {
+        if (!cancelled) setRecovery(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pollarClient, hasSession, walletAddress, recoveryTick]);
+  const recoveryLocked = !!recovery && recovery.required && !recovery.configured;
   // refreshBalance resolves the own wallet server-side from the session;
   // walletAddress stays in deps so the callback re-binds when the wallet changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- walletAddress is an intentional re-bind trigger, not read in the body
@@ -772,6 +817,10 @@ export function PollarProvider({
       // cosign
       cosign,
       openCosignModal: () => setCosignModalOpen(true),
+      recovery,
+      recoveryLocked,
+      refreshRecovery,
+      openRecoveryModal: () => setRecoveryModalOpen(true),
       confirmations,
       // distribution
       openDistributionRulesModal: () => setDistributionRulesModalOpen(true),
@@ -796,6 +845,9 @@ export function PollarProvider({
   }, [
     walletAddress,
     walletProvisioning,
+    recovery,
+    recoveryLocked,
+    refreshRecovery,
     hasSession,
     verified,
     pollarClient,
@@ -905,6 +957,11 @@ export function PollarProvider({
       {cosignModalOpen && (
         <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
           <CosignModal onClose={() => setCosignModalOpen(false)} />
+        </ModalErrorBoundary>
+      )}
+      {recoveryModalOpen && (
+        <ModalErrorBoundary onClose={() => setRecoveryModalOpen(false)}>
+          <RecoveryModal onClose={() => setRecoveryModalOpen(false)} />
         </ModalErrorBoundary>
       )}
       {firstConfirmation && (

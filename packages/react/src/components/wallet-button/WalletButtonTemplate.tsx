@@ -28,6 +28,13 @@ export interface WalletButtonTemplateProps {
    * custom template written before this existed keeps compiling.
    */
   notReadyReason?: string | null;
+  /**
+   * The wallet has no recovery method yet and signs nothing but its own setup.
+   * Shown at the top of the menu with a way to fix it. Optional for custom templates.
+   */
+  recoveryLocked?: boolean;
+  /** Open the recovery methods; the item shows only when set. */
+  onRecovery?: () => void;
   creatingAccount: boolean;
   /**
    * Signed in with no wallet yet (an app that creates wallets on demand, or
@@ -77,6 +84,8 @@ export function WalletButtonTemplate({
   isInProgress,
   showCreateAccount,
   notReadyReason,
+  recoveryLocked,
+  onRecovery,
   creatingAccount,
   onToggleOpen,
   onCreateAccount,
@@ -268,6 +277,15 @@ export function WalletButtonTemplate({
 
       {open && (
         <div className="pollar-wallet-dropdown" style={{ backgroundColor: dropdownBg, borderColor: dropdownBorder }}>
+          {recoveryLocked && (
+            <>
+              <div className="pollar-wallet-dropdown-notice pollar-danger" role="alert">
+                Locked: add a way to recover this wallet before sending or receiving. If you lose this device without one, the
+                funds are lost.
+              </div>
+              <div className="pollar-wallet-dropdown-divider" />
+            </>
+          )}
           {notReadyReason && (
             <>
               <div className="pollar-wallet-dropdown-notice" style={{ color: itemColor }} role="status">
@@ -464,6 +482,27 @@ export function WalletButtonTemplate({
             </svg>
             Active sessions
           </button>
+          {onRecovery && (
+            <button
+              className={`pollar-wallet-dropdown-item${recoveryLocked ? ' pollar-danger' : ''}`}
+              style={recoveryLocked ? undefined : { color: itemColor }}
+              onClick={onRecovery}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3z" />
+              </svg>
+              {recoveryLocked ? 'Set up wallet recovery' : 'Wallet recovery'}
+            </button>
+          )}
           <div className="pollar-wallet-dropdown-divider" />
           <button className="pollar-wallet-dropdown-item pollar-danger" onClick={onLogout}>
             <svg

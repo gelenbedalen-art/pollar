@@ -26,6 +26,9 @@ export function WalletButton() {
     isAuthenticated,
     createWallet,
     appConfig,
+    recovery,
+    recoveryLocked,
+    openRecoveryModal,
   } = usePollar();
   // The address shown (and copied) is the one on the app's FIRST configured
   // chain, not `wallet.address` - that field is the Stellar wallet by definition
@@ -159,6 +162,11 @@ export function WalletButton() {
     openSessionsModal();
   }
 
+  function handleRecovery() {
+    setOpen(false);
+    openRecoveryModal();
+  }
+
   function handleKyc() {
     setOpen(false);
     openKycModal();
@@ -201,6 +209,9 @@ export function WalletButton() {
       onSend={handleSend}
       onReceive={handleReceive}
       onSessions={handleSessions}
+      recoveryLocked={recoveryLocked}
+      // Only a Turnkey wallet has recovery methods to manage.
+      {...(recovery?.required ? { onRecovery: handleRecovery } : {})}
       onKyc={handleKyc}
       onRamp={handleRamp}
       onDistributionRules={handleDistributionRules}
