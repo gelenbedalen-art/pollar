@@ -97,7 +97,7 @@ function check(label, ok, extra) {
   for (let i = 0; i < 2; i++) await client.getAppConfig().catch(() => {});
   const credits = warnings.filter((w) => w.includes('SDK_CREDITS_INSUFFICIENT'));
   check('one warning for two 402 answers', credits.length === 1, warnings);
-  check('  tells the developer to top up', credits[0]?.includes('topped up'), credits[0]);
+  check('  tells the developer to top up', credits[0]?.includes('Top up'), credits[0]);
   const shown = sdk.appUnavailableMessage({ code: 'SDK_CREDITS_INSUFFICIENT' });
   check('the user text points to the app, not to credits', shown?.includes("app's support") && !/credit/i.test(shown), shown);
   check(
