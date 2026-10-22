@@ -75,21 +75,14 @@ export {
 
 // --- Ramps endpoints ----------------------------------------------------------
 export {
-  continueRamp,
-  continueRampTransaction,
   getRampRoutes,
-  getRampsQuote,
-  getRampCountries,
-  createOnRamp,
-  createOffRamp,
-  completeWithdraw,
-  submitRampSignature,
-  getRampTransaction,
-  retryRampTransaction,
-  pollRampTransaction,
-  getRampLiquidity,
-  getRampKycStatus,
-  decodePixQr,
+  quoteRamp,
+  createRampOrder,
+  getRampOrder,
+  listRampOrders,
+  submitRampLegSignature,
+  pollRampOrder,
+  isRampOrderSettled,
 } from './api/endpoints/ramps';
 
 // --- Distribution endpoints ---------------------------------------------------
@@ -101,8 +94,15 @@ export { quoteSwap, getSwapConfig, getSwapTokens } from './api/endpoints/swap';
 // --- Earn endpoints -----------------------------------------------------------
 export { getEarnProviders, getEarnOpportunities, getEarnPosition, buildEarnTx } from './api/endpoints/earn';
 
-export { describeRampAction, mergeRampSnapshot, mergeRampCountries } from './ramps/workflow';
-export type { RampSnapshot, RampSigningHandler } from './ramps/workflow';
+export {
+  describeRampAction,
+  rampCountries,
+  rampLegStatus,
+  rampLegTitle,
+  rampQuoteFields,
+  rampResolutionText,
+} from './ramps/workflow';
+export type { RampSigningHandler } from './ramps/workflow';
 // --- Cards endpoints ----------------------------------------------------------
 export {
   getCardProviders,
@@ -128,11 +128,3 @@ export {
 export type { EncryptedCardSecrets } from './api/endpoints/cards';
 export { createCardSecretsSession, openCardSecrets } from './lib/card-secrets';
 export type { CardSecretsSession, CardSecretsEngine } from './lib/card-secrets';
-
-export type {
-  RampContinuation,
-  RampWorkflowAction,
-  RampWorkflowRoutes,
-  RampWorkflowTerms,
-  RampWorkflowView,
-} from './api/ramp-workflow';
