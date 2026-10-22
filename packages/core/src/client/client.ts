@@ -396,6 +396,8 @@ export class PollarClient {
   private _dpopNonce: string | null = null;
   /** The API-retirement warning is for the developer, once; not a log line per request. */
   private _deprecationWarned = false;
+  /** Same for an app out of credits: the user gets a generic text, the developer the reason. */
+  private _creditsWarned = false;
   /**
    * Clock skew compensation, in seconds (`serverTime - localTime`), learned from
    * the `Date` header of every server response and added to the DPoP proof
@@ -1038,6 +1040,13 @@ export class PollarClient {
           self._log.warn(
             `[PollarClient] The Pollar API version this SDK calls is deprecated${sunset ? ` and retires on ${sunset}` : ''}. ` +
               `Upgrade @pollar/core to the current release${guide ? `: ${guide}` : '.'}`,
+          );
+        }
+
+        if (response.status === 402 && !self._creditsWarned) {
+          self._creditsWarned = true;
+          self._log.warn(
+            '[PollarClient] This app is out of Pollar credits (SDK_CREDITS_INSUFFICIENT): billable features are refused until its credits are topped up in the Pollar dashboard.',
           );
         }
 
