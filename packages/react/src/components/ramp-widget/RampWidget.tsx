@@ -9,7 +9,7 @@ import type {
   RampRoute,
   RampSigningHandler,
 } from '@pollar/core';
-import { appUnavailableMessage, isPollarApiError, rampCountries, rampQuoteFields } from '@pollar/core';
+import { appUnavailableMessage, assertRampStellarSigner, isPollarApiError, rampCountries, rampQuoteFields } from '@pollar/core';
 import { useEffect, useMemo, useState } from 'react';
 import { usePollar } from '../../context';
 import type { RampStep } from './RampWidgetTemplate';
@@ -63,7 +63,12 @@ async function signLegWithWallet(client: PollarClient, orderId: string, actionId
     }
   };
   lend('STELLAR', 'xdr', async (action) => {
+    const wallet = client.getWallet();
+    if (!wallet) throw new Error('Connect the Stellar wallet this step was built for.');
+    assertRampStellarSigner(action, wallet.address);
     const outcome = await client.signTx(action.payload.value);
+    if (client.getWallet()?.address !== wallet.address)
+      throw new Error('The connected wallet changed. Refresh before signing.');
     if (outcome.status === 'signed') return outcome.signedXdr;
     throw new Error(
       outcome.status === 'error' ? (outcome.message ?? outcome.details ?? 'Signing was cancelled.') : 'Signing was cancelled.',
@@ -72,10 +77,13 @@ async function signLegWithWallet(client: PollarClient, orderId: string, actionId
   lend('SOLANA', 'solana-v0-json', async (action) => {
     // The server built the transfer from the user's wallet; sign only one from the wallet connected now.
     const payload = JSON.parse(action.payload.value) as { from?: string; unsignedTransaction?: string };
-    const wallet = client.getWallets().find((w) => w.chain === 'SOLANA' && w.custody === 'external');
+    const solanaWallet = () => client.getWallets().find((w) => w.chain === 'SOLANA' && w.custody === 'external');
+    const wallet = solanaWallet();
     if (!wallet || payload.from !== wallet.address || !payload.unsignedTransaction)
       throw new Error('This step must be signed by the Solana wallet it was built for. Reconnect that wallet.');
-    return client.signSolanaTransaction(payload.unsignedTransaction);
+    const signed = await client.signSolanaTransaction(payload.unsignedTransaction);
+    if (solanaWallet()?.address !== wallet.address) throw new Error('The connected wallet changed. Refresh before signing.');
+    return signed;
   });
   try {
     return await client.signRampLeg(orderId, actionId);

@@ -118,6 +118,16 @@ async function rerender(fn) {
   });
 }
 
+const { Account, Asset, Keypair, Networks, Operation, TransactionBuilder } = require('@stellar/stellar-sdk');
+const userKey = Keypair.random();
+const unsignedXdr = new TransactionBuilder(new Account(userKey.publicKey(), '1'), {
+  fee: '100',
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(Operation.payment({ destination: Keypair.random().publicKey(), asset: Asset.native(), amount: '1' }))
+  .setTimeout(300)
+  .build()
+  .toXDR();
 const later = (seconds) => new Date(Date.now() + seconds * 1000).toISOString();
 const bob = { kind: 'fiat', currency: 'BOB', rail: 'QR', country: 'BO' };
 const usdc = { kind: 'asset', code: 'USDC', identifier: 'GA5Z', chain: 'STELLAR' };
@@ -223,11 +233,17 @@ const order = (pendingAction, patch = {}) => ({
       client.signers.set(key, handler);
       return () => client.signers.delete(key);
     },
+    getWallet: () => ({ address: userKey.publicKey() }),
     signTx: async (xdr) => ({ status: 'signed', signedXdr: `wallet-signed:${xdr}` }),
     signRampLeg: async (id, actionId) => {
       const signer = client.signers.get('STELLAR/xdr');
       if (!signer) throw new Error('Register a ramp signing handler for STELLAR/xdr.');
-      calls.push(['signRampLeg', id, actionId, await signer({ payload: { value: 'x' } })]);
+      calls.push([
+        'signRampLeg',
+        id,
+        actionId,
+        await signer({ summary: 'payment', payload: { encoding: 'xdr', value: unsignedXdr } }),
+      ]);
       return order(null, { state: 'processing' });
     },
   };
@@ -258,7 +274,10 @@ const order = (pendingAction, patch = {}) => ({
   unmount = await render(React.createElement(RampWidget, { onClose() {} }));
   assert.equal(calls.filter(([name]) => name === 'signRampLeg').length, 0, 'never sign before the user presses');
   await press('Authorize');
-  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(['signRampLeg', 'order-0001', 'sign', 'wallet-signed:x']));
+  assert.equal(
+    JSON.stringify(calls.at(-1)),
+    JSON.stringify(['signRampLeg', 'order-0001', 'sign', `wallet-signed:${unsignedXdr}`]),
+  );
   assert.equal(client.signers.size, 0, 'the widget releases the Stellar signer it lent to the user wallet');
   await unmount();
 

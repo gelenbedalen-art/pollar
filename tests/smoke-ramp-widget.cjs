@@ -100,19 +100,29 @@ const qrAction = {
     },
   },
 };
+// A real payment from the user's account: the widget reads its source before the wallet is asked.
+const { Account, Asset, Keypair, Networks, Operation, TransactionBuilder } = require('@stellar/stellar-sdk');
+const userKey = Keypair.random();
+const paymentFrom = (address) =>
+  new TransactionBuilder(new Account(address, '1'), { fee: '100', networkPassphrase: Networks.TESTNET })
+    .addOperation(Operation.payment({ destination: Keypair.random().publicKey(), asset: Asset.native(), amount: '1' }))
+    .setTimeout(300)
+    .build()
+    .toXDR();
+const unsignedXdr = paymentFrom(userKey.publicKey());
 const signAction = {
   kind: 'SIGNATURE',
   actionId: 'sign',
   legIndex: 0,
   chain: 'STELLAR',
-  payload: { encoding: 'xdr', value: 'unsigned' },
+  payload: { encoding: 'xdr', value: unsignedXdr },
   summary: 'payment',
   expiresAt: later(60),
 };
 
 function fixtureClient(overrides = {}) {
   const client = new PollarClient({ apiKey: 'pub_mainnet_fixture', baseUrl: 'https://api.test', logLevel: 'silent' });
-  const wallet = { address: 'G-wallet', network: 'STELLAR' };
+  const wallet = { address: userKey.publicKey(), network: 'STELLAR' };
   client.getNetworkState = () => ({ step: 'connected', network: 'mainnet' });
   client.onNetworkStateChange = (cb) => {
     cb(client.getNetworkState());
@@ -226,10 +236,48 @@ async function mount(client) {
     assert.equal(calls.filter(([name]) => name === 'signRampLeg').length, 0, 'never sign before the user clicks');
     await ui.click(ui.button('Authorize'));
     assert.deepEqual(calls.slice(-2), [
-      ['signTx', 'unsigned'],
-      ['signRampLeg', 'order-0001', 'sign', 'wallet-signed:unsigned'],
+      ['signTx', unsignedXdr],
+      ['signRampLeg', 'order-0001', 'sign', `wallet-signed:${unsignedXdr}`],
     ]);
     assert.equal(client._rampSigners.resolve('STELLAR', 'xdr'), undefined, 'the widget releases the signer it lent');
+    await ui.unmount();
+    client.destroy();
+  }
+
+  // --- A Stellar step built for another account never reaches the wallet ---
+  {
+    const foreign = { ...signAction, payload: { encoding: 'xdr', value: paymentFrom(Keypair.random().publicKey()) } };
+    const { client, calls } = fixtureClient({
+      listRampOrders: async () => ({ orders: [order(foreign)], nextCursor: null }),
+      getRampOrder: async () => order(foreign),
+      signRampLeg: async (id, actionId) => {
+        calls.push(['signRampLeg', id, actionId, await client._rampSigners.resolve('STELLAR', 'xdr')(foreign)]);
+        return order(null, { state: 'processing' });
+      },
+    });
+    const ui = await mount(client);
+    await ui.click(ui.button('Resume purchase'));
+    await ui.click(ui.button('Authorize'));
+    assert.equal(calls.filter(([name]) => name === 'signTx').length, 0, 'Freighter is never asked');
+    assert.match(ui.container.textContent, /not for the connected Stellar account/);
+    await ui.unmount();
+    client.destroy();
+  }
+
+  // --- The wallet switched accounts while it was signing: the signature is not sent ---
+  {
+    const { client, calls } = fixtureClient({
+      listRampOrders: async () => ({ orders: [order(signAction)], nextCursor: null }),
+    });
+    client.signTx = async () => {
+      client.getWallet = () => ({ address: Keypair.random().publicKey(), network: 'STELLAR' });
+      return { status: 'signed', signedXdr: 'signed-by-the-other-account' };
+    };
+    const ui = await mount(client);
+    await ui.click(ui.button('Resume purchase'));
+    await ui.click(ui.button('Authorize'));
+    assert.equal(calls.filter(([name]) => name === 'signRampLeg').length, 0);
+    assert.match(ui.container.textContent, /connected wallet changed/);
     await ui.unmount();
     client.destroy();
   }
@@ -273,7 +321,7 @@ async function mount(client) {
       },
     });
     client.getWallets = () => [
-      { address: 'G-wallet', network: 'STELLAR', chain: 'STELLAR' },
+      { address: userKey.publicKey(), network: 'STELLAR', chain: 'STELLAR' },
       { address: 'So1User', chain: 'SOLANA', custody: 'external' },
     ];
     const ui = await mount(client);
