@@ -251,6 +251,48 @@ async function mount(client) {
     client.destroy();
   }
 
+  // --- An external Solana wallet signs its own leg; a leg built for another wallet is refused ---
+  for (const from of ['So1User', 'So1Someone']) {
+    const solanaAction = {
+      ...signAction,
+      chain: 'SOLANA',
+      payload: { encoding: 'solana-v0-json', value: JSON.stringify({ from, unsignedTransaction: 'AAEC' }) },
+    };
+    const { client, calls } = fixtureClient({
+      listRampOrders: async () => ({ orders: [order(solanaAction)], nextCursor: null }),
+      getRampOrder: async () => order(solanaAction),
+      signRampLeg: async (id, actionId) => {
+        const signer = client._rampSigners.resolve('SOLANA', 'solana-v0-json');
+        if (!signer) throw new Error('Register a ramp signing handler for SOLANA/solana-v0-json.');
+        calls.push(['signRampLeg', id, actionId, await signer(solanaAction)]);
+        return order(null, { state: 'processing' });
+      },
+      signSolanaTransaction: async (tx) => {
+        calls.push(['signSolanaTransaction', tx]);
+        return `wallet-signed:${tx}`;
+      },
+    });
+    client.getWallets = () => [
+      { address: 'G-wallet', network: 'STELLAR', chain: 'STELLAR' },
+      { address: 'So1User', chain: 'SOLANA', custody: 'external' },
+    ];
+    const ui = await mount(client);
+    await ui.click(ui.button('Resume purchase'));
+    await ui.click(ui.button('Authorize'));
+    if (from === 'So1User')
+      assert.deepEqual(calls.slice(-2), [
+        ['signSolanaTransaction', 'AAEC'],
+        ['signRampLeg', 'order-0001', 'sign', 'wallet-signed:AAEC'],
+      ]);
+    else {
+      assert.equal(calls.filter(([name]) => name === 'signSolanaTransaction').length, 0);
+      assert.match(ui.container.textContent, /signed by the Solana wallet it was built for/);
+    }
+    assert.equal(client._rampSigners.resolve('SOLANA', 'solana-v0-json'), undefined);
+    await ui.unmount();
+    client.destroy();
+  }
+
   // --- A pending order is resumed from the start screen ---
   {
     const { client, calls } = fixtureClient({
@@ -280,7 +322,7 @@ async function mount(client) {
     client.destroy();
   }
 
-  console.log('Ramp widget v3: route, quote, details, order, QR, explicit signature, resume and 402 passed.');
+  console.log('Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, resume and 402 passed.');
 })().catch((error) => {
   console.error(error);
   process.exit(1);

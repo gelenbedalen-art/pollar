@@ -20,8 +20,10 @@
   `SOLANA`) and amounts stay exact strings.
 - `registerRampSigningHandler` signs a leg for every chain/encoding pair; core
   has no built-in ramp signer and no Stellar XDR parser.
-  `<RampWidget>` lends the connected wallet as the Stellar signer while the user
-  authorizes, unless the app registered its own.
+  `<RampWidget>` lends the connected wallet as the Stellar and Solana signer
+  while the user authorizes, unless the app registered its own.
+- `signSolanaTransaction(base64)`: the user's external Solana wallet signs a
+  serialized transaction, without broadcasting it.
 - An app out of credits (402 `SDK_CREDITS_INSUFFICIENT`): the user sees a
   generic text pointing to the app's support (`appUnavailableMessage`), and the
   developer gets one console warning.

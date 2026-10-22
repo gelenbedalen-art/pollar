@@ -238,7 +238,7 @@ Mount an interactive adapter's native provider above `PollarProvider`.
 `RampWidget` and `RampPanel` run the v3 ramps API: they list the routes (`client.getRampRoutes(direction)`), quote
 them leg by leg, ask for the fields a quote needs, create the order and follow it at the pace the server suggests.
 The order's pending action is shown as it comes: a payment QR or bank details, Authorize for a signature, the
-co-sign approval or a verification link. Signing uses a handler registered for the action's chain and encoding (a Stellar leg falls back to the
+co-sign approval or a verification link. Signing uses a handler registered for the action's chain and encoding (a Stellar or Solana leg falls back to the
 connected wallet) and only runs on a user press; polling never signs. The widget keeps the order in `usePollar().ramp` while it is closed.
 
 Native panels require `react-native-safe-area-context` and `react-native-svg`; QR rendering uses

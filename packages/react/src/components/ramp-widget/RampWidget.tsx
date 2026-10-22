@@ -1,6 +1,14 @@
 'use client';
 
-import type { PollarClient, RampDirection, RampOrder, RampQuote, RampQuoteRejection, RampRoute } from '@pollar/core';
+import type {
+  PollarClient,
+  RampDirection,
+  RampOrder,
+  RampQuote,
+  RampQuoteRejection,
+  RampRoute,
+  RampSigningHandler,
+} from '@pollar/core';
 import { appUnavailableMessage, isPollarApiError, rampCountries, rampQuoteFields } from '@pollar/core';
 import { useEffect, useMemo, useState } from 'react';
 import { usePollar } from '../../context';
@@ -39,30 +47,40 @@ function rampErrorMessage(error: unknown, fallback: string): string {
 const DECIMAL = /^\d+(\.\d+)?$/;
 
 /**
- * Signs a leg, lending the user's own wallet as the Stellar signer while it
- * does: the wallet (Freighter, Albedo...) shows the transaction and the user
- * approves it there. Core keeps no built-in ramp signer; an app that registered
- * its own Stellar signer keeps it, and the widget's is released once signed.
+ * Signs a leg, lending the user's own connected wallet as the ramp signer while
+ * it does: the wallet (Freighter, Phantom...) shows the transaction and the
+ * user approves it there. Core keeps no built-in ramp signer; an app that
+ * registered its own signer for a chain keeps it, and the widget's are released
+ * once the leg is signed.
  */
 async function signLegWithWallet(client: PollarClient, orderId: string, actionId: string): Promise<RampOrder> {
-  let release: (() => void) | null = null;
-  try {
-    release = client.registerRampSigningHandler('STELLAR', 'xdr', async (action) => {
-      const outcome = await client.signTx(action.payload.value);
-      if (outcome.status === 'signed') return outcome.signedXdr;
-      throw new Error(
-        outcome.status === 'error'
-          ? (outcome.message ?? outcome.details ?? 'Signing was cancelled.')
-          : 'Signing was cancelled.',
-      );
-    });
-  } catch {
-    // The app registered its own Stellar signer: that one signs.
-  }
+  const lent: Array<() => void> = [];
+  const lend = (chain: 'STELLAR' | 'SOLANA', encoding: string, handler: RampSigningHandler) => {
+    try {
+      lent.push(client.registerRampSigningHandler(chain, encoding, handler));
+    } catch {
+      // The app registered its own signer for this chain: that one signs.
+    }
+  };
+  lend('STELLAR', 'xdr', async (action) => {
+    const outcome = await client.signTx(action.payload.value);
+    if (outcome.status === 'signed') return outcome.signedXdr;
+    throw new Error(
+      outcome.status === 'error' ? (outcome.message ?? outcome.details ?? 'Signing was cancelled.') : 'Signing was cancelled.',
+    );
+  });
+  lend('SOLANA', 'solana-v0-json', async (action) => {
+    // The server built the transfer from the user's wallet; sign only one from the wallet connected now.
+    const payload = JSON.parse(action.payload.value) as { from?: string; unsignedTransaction?: string };
+    const wallet = client.getWallets().find((w) => w.chain === 'SOLANA' && w.custody === 'external');
+    if (!wallet || payload.from !== wallet.address || !payload.unsignedTransaction)
+      throw new Error('This step must be signed by the Solana wallet it was built for. Reconnect that wallet.');
+    return client.signSolanaTransaction(payload.unsignedTransaction);
+  });
   try {
     return await client.signRampLeg(orderId, actionId);
   } finally {
-    release?.();
+    for (const release of lent) release();
   }
 }
 

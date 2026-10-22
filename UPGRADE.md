@@ -149,11 +149,13 @@ and return the signed payload without broadcasting. Call `signRampLeg` only
 from an explicit user action; it reads the order again, signs only the action
 the user saw and delegates to that handler. Polling an order does not sign.
 
-`<RampWidget>` (React and React Native) signs a Stellar leg with the user's
-connected wallet when the app registered no `STELLAR`/`xdr` signer: it lends one
-to core while the user authorizes, and the wallet shows the transaction. An app
-signer registered before Authorize is used instead. Other chains always need
-the app's signer.
+`<RampWidget>` (React and React Native) signs a leg with the user's connected
+wallet when the app registered no signer for it: a Stellar XDR through
+`signTx`, a Solana transfer (`solana-v0-json`) through the new
+`signSolanaTransaction(base64)` after checking it was built for the connected
+external Solana wallet. The widget lends these signers to core only while the
+user authorizes, and the wallet shows the transaction. An app signer registered
+before Authorize is used instead.
 
 For example, with your application's existing chain-specific wallet integration:
 
