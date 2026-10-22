@@ -3,6 +3,13 @@ name: Release candidate
 on:
   push:
     tags: ['v*-rc*']
+    branches: ['v*-rc*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: RC version to publish (for example, 0.12.0-rc.2)
+        required: true
+        type: string
 
 concurrency:
   group: release-rc
@@ -28,9 +35,10 @@ jobs:
 
       - name: Check the version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || { echo "::error::$GITHUB_REF_NAME is not vX.Y.Z-rc.N"; exit 1; }
-          # The tagged code has to be on that release line, or a tag on the wrong branch publishes the wrong code.
+          VERSION="${{ inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || { echo "::error::$VERSION is not X.Y.Z-rc.N"; exit 1; }
+          # The source has to be on that release line, or it publishes the wrong code.
           base="$(node -p 'require("./packages/core/package.json").version.split("-")[0]')"
           [ "${VERSION%-rc.*}" = "$base" ] || { echo "::error::$GITHUB_REF_NAME points at code for $base"; exit 1; }
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
