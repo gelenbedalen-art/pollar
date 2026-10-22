@@ -19,9 +19,13 @@
 - Ramp chains stay a closed `RampChain` catalog (`STELLAR`, `POLYGON`,
   `SOLANA`) and amounts stay exact strings.
 - `registerRampSigningHandler` signs a leg for every chain/encoding pair; core
-  has no built-in ramp signer and no Stellar XDR parser.
+  has no built-in ramp signer and no Stellar library.
+  `assertRampStellarSigner(action, address)` reads a Stellar ramp XDR's sources
+  without one and refuses a step that does not spend from `address`.
   `<RampWidget>` lends the connected wallet as the Stellar and Solana signer
-  while the user authorizes, unless the app registered its own.
+  while the user authorizes, unless the app registered its own; it signs only a
+  step built for the connected account, and drops the signature if the wallet
+  changed meanwhile.
 - `signSolanaTransaction(base64)`: the user's external Solana wallet signs a
   serialized transaction, without broadcasting it.
 - An app out of credits (402 `SDK_CREDITS_INSUFFICIENT`): the user sees a

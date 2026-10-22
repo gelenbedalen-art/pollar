@@ -792,7 +792,7 @@ lowercase names, unknown chains and CAIP-2 identifiers are rejected. Adding
 another chain requires a backend enum migration and an updated SDK contract.
 Exact amount strings keep their precision and formatting.
 
-Register a signer for each chain/encoding pair a leg may ask for with `registerRampSigningHandler(chain, encoding, async action => signedPayload)`, `STELLAR`/`xdr` included: core has no built-in ramp signer and treats payloads as opaque. Handlers must validate the payload and authorized wallet account, chain and network before returning a signed payload without broadcasting it. Polling never invokes signing.
+Register a signer for each chain/encoding pair a leg may ask for with `registerRampSigningHandler(chain, encoding, async action => signedPayload)`, `STELLAR`/`xdr` included: core has no built-in ramp signer. In a Stellar signer, `assertRampStellarSigner(action, address)` refuses a transaction that does not spend from `address` (or a SEP-10 login that is not the anchor's challenge for it). Handlers must validate the payload and authorized wallet account, chain and network before returning a signed payload without broadcasting it. Polling never invokes signing.
 
 The backend lists only the routes its configured rails, venues and bridges can run.
 
