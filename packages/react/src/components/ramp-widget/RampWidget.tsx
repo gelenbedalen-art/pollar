@@ -1,6 +1,6 @@
 'use client';
 
-import type { RampDirection, RampOrder, RampQuote, RampQuoteRejection, RampRoute } from '@pollar/core';
+import type { PollarClient, RampDirection, RampOrder, RampQuote, RampQuoteRejection, RampRoute } from '@pollar/core';
 import { appUnavailableMessage, isPollarApiError, rampCountries, rampQuoteFields } from '@pollar/core';
 import { useEffect, useMemo, useState } from 'react';
 import { usePollar } from '../../context';
@@ -37,6 +37,34 @@ function rampErrorMessage(error: unknown, fallback: string): string {
 
 /** An exact decimal, as the API takes amounts: "10", "10.5", never "1e3" or "-2". */
 const DECIMAL = /^\d+(\.\d+)?$/;
+
+/**
+ * Signs a leg, lending the user's own wallet as the Stellar signer while it
+ * does: the wallet (Freighter, Albedo...) shows the transaction and the user
+ * approves it there. Core keeps no built-in ramp signer; an app that registered
+ * its own Stellar signer keeps it, and the widget's is released once signed.
+ */
+async function signLegWithWallet(client: PollarClient, orderId: string, actionId: string): Promise<RampOrder> {
+  let release: (() => void) | null = null;
+  try {
+    release = client.registerRampSigningHandler('STELLAR', 'xdr', async (action) => {
+      const outcome = await client.signTx(action.payload.value);
+      if (outcome.status === 'signed') return outcome.signedXdr;
+      throw new Error(
+        outcome.status === 'error'
+          ? (outcome.message ?? outcome.details ?? 'Signing was cancelled.')
+          : 'Signing was cancelled.',
+      );
+    });
+  } catch {
+    // The app registered its own Stellar signer: that one signs.
+  }
+  try {
+    return await client.signRampLeg(orderId, actionId);
+  } finally {
+    release?.();
+  }
+}
 
 export function RampWidget({ onClose }: RampWidgetProps) {
   const { getClient, styles, network, openCosignModal } = usePollar();
@@ -196,7 +224,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     setSigning(true);
     setErrorMsg(null);
     try {
-      setOrder(await client.signRampLeg(order.id, action.actionId));
+      setOrder(await signLegWithWallet(client, order.id, action.actionId));
     } catch (error) {
       setErrorMsg(rampErrorMessage(error, error instanceof Error && error.message ? error.message : 'Signing was cancelled.'));
       setOrder(await client.getRampOrder(order.id).catch(() => order));

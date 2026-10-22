@@ -140,9 +140,16 @@ function fixtureClient(overrides = {}) {
       return order(signAction);
     },
     pollRampOrder: async () => new Promise(() => {}),
+    // As core does: the signer registered for the action's chain and encoding signs it.
     signRampLeg: async (id, actionId) => {
-      calls.push(['signRampLeg', id, actionId]);
+      const signer = client._rampSigners.resolve('STELLAR', 'xdr');
+      if (!signer) throw new Error('Register a ramp signing handler for STELLAR/xdr.');
+      calls.push(['signRampLeg', id, actionId, await signer(signAction)]);
       return order(null, { state: 'processing' });
+    },
+    signTx: async (xdr) => {
+      calls.push(['signTx', xdr]);
+      return { status: 'signed', signedXdr: `wallet-signed:${xdr}` };
     },
     ...overrides,
   });
@@ -218,7 +225,28 @@ async function mount(client) {
     assert.deepEqual(calls.at(-1), ['getRampOrder', 'order-0001']);
     assert.equal(calls.filter(([name]) => name === 'signRampLeg').length, 0, 'never sign before the user clicks');
     await ui.click(ui.button('Authorize'));
-    assert.deepEqual(calls.at(-1), ['signRampLeg', 'order-0001', 'sign']);
+    assert.deepEqual(calls.slice(-2), [
+      ['signTx', 'unsigned'],
+      ['signRampLeg', 'order-0001', 'sign', 'wallet-signed:unsigned'],
+    ]);
+    assert.equal(client._rampSigners.resolve('STELLAR', 'xdr'), undefined, 'the widget releases the signer it lent');
+    await ui.unmount();
+    client.destroy();
+  }
+
+  // --- An app with its own Stellar signer keeps it ---
+  {
+    const { client, calls } = fixtureClient({
+      listRampOrders: async () => ({ orders: [order(signAction)], nextCursor: null }),
+    });
+    const own = client.registerRampSigningHandler('STELLAR', 'xdr', async () => 'app-signed');
+    const ui = await mount(client);
+    await ui.click(ui.button('Resume purchase'));
+    await ui.click(ui.button('Authorize'));
+    assert.deepEqual(calls.at(-1), ['signRampLeg', 'order-0001', 'sign', 'app-signed']);
+    assert.equal(calls.filter(([name]) => name === 'signTx').length, 0);
+    assert.ok(client._rampSigners.resolve('STELLAR', 'xdr'), "the app's signer stays registered");
+    own();
     await ui.unmount();
     client.destroy();
   }

@@ -215,8 +215,19 @@ const order = (pendingAction, patch = {}) => ({
         expiresAt: later(60),
       }),
     pollRampOrder: async () => new Promise(() => {}),
+    // As core does: one signer per chain and encoding, and the registered one signs.
+    signers: new Map(),
+    registerRampSigningHandler(chain, encoding, handler) {
+      const key = `${chain}/${encoding}`;
+      if (client.signers.has(key)) throw new Error('Ramp signing handler already registered');
+      client.signers.set(key, handler);
+      return () => client.signers.delete(key);
+    },
+    signTx: async (xdr) => ({ status: 'signed', signedXdr: `wallet-signed:${xdr}` }),
     signRampLeg: async (id, actionId) => {
-      calls.push(['signRampLeg', id, actionId]);
+      const signer = client.signers.get('STELLAR/xdr');
+      if (!signer) throw new Error('Register a ramp signing handler for STELLAR/xdr.');
+      calls.push(['signRampLeg', id, actionId, await signer({ payload: { value: 'x' } })]);
       return order(null, { state: 'processing' });
     },
   };
@@ -247,7 +258,8 @@ const order = (pendingAction, patch = {}) => ({
   unmount = await render(React.createElement(RampWidget, { onClose() {} }));
   assert.equal(calls.filter(([name]) => name === 'signRampLeg').length, 0, 'never sign before the user presses');
   await press('Authorize');
-  assert.deepEqual(calls.at(-1), ['signRampLeg', 'order-0001', 'sign']);
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(['signRampLeg', 'order-0001', 'sign', 'wallet-signed:x']));
+  assert.equal(client.signers.size, 0, 'the widget releases the Stellar signer it lent to the user wallet');
   await unmount();
 
   console.log('React Native RampWidget v3: route, quote, details, order, QR, kept order and explicit signature passed');
