@@ -59,4 +59,3 @@ jobs:
             (cd "packages/$pkg" && npm publish --access public --tag next) || exit 1
           done
           echo "Published $VERSION with dist-tag next" >> "$GITHUB_STEP_SUMMARY"
-
