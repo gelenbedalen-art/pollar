@@ -43,6 +43,11 @@ const CATALOG: Record<string, ResolvedAuthError> = {
     message: APP_UNAVAILABLE_MESSAGE,
     errorCode: AUTH_ERROR_CODES.AUTH_FAILED,
   },
+  // The app has an overdue Pollar bill (HTTP 402); the same for the end user.
+  SDK_BILLING_OVERDUE: {
+    message: APP_UNAVAILABLE_MESSAGE,
+    errorCode: AUTH_ERROR_CODES.AUTH_FAILED,
+  },
 
   // -- Passkey ceremony --------------------------------------------------------
   PASSKEY_ALREADY_REGISTERED: {
