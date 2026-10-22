@@ -295,6 +295,23 @@ const order = (patch) => ({
   reads = [order({ pendingAction: signature('s2', 'evm-eip1559-json') })];
   await assert.rejects(client.signRampLeg('o1', 's2'), /Register a ramp signing handler for STELLAR\/evm-eip1559-json/);
 
+  // --- Signing a Solana transaction with the user's external wallet: base64 in and out ---
+  await assert.rejects(client.signSolanaTransaction('AAEC'), /cannot sign a Solana transaction/);
+  const seenChains = [];
+  client._walletAdapter = {
+    type: 'phantom',
+    signSolanaTransaction: async (bytes, chain) => {
+      seenChains.push(chain);
+      return Uint8Array.from([...bytes, 0xff, 0xfe]);
+    },
+  };
+  const unsignedTx = Buffer.from([0, 1, 2, 250, 251]).toString('base64');
+  const signedTx = await client.signSolanaTransaction(unsignedTx);
+  assert.deepEqual([...Buffer.from(signedTx, 'base64')], [0, 1, 2, 250, 251, 0xff, 0xfe]);
+  assert.equal(signedTx, Buffer.from([0, 1, 2, 250, 251, 0xff, 0xfe]).toString('base64'), 'standard base64, padded');
+  assert.deepEqual(seenChains, ['solana:devnet']);
+  client._walletAdapter = null;
+
   // --- Polling: at the server's pace, until the order settles ---
   reads = [order({}), order({ state: 'processing' }), order({ state: 'completed', nextPollAfter: null })];
   const seen = [];

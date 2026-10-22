@@ -140,14 +140,29 @@ strings retain their precision and formatting.
 Every chain/encoding pair, including `STELLAR`/`xdr`, requires an explicitly
 registered signer through `registerRampSigningHandler(chain, encoding, handler)`.
 Remove it with the returned cleanup function. Core has no built-in ramp signer
-and does not decode chain-specific payloads or include an XDR library. An
-unregistered pair fails before signing.
+and includes no XDR library. An unregistered pair fails before signing.
 
 The registered integration must validate the requested payload against the
 authorized wallet account, chain and network before signing, reject cancellation,
 and return the signed payload without broadcasting. Call `signRampLeg` only
 from an explicit user action; it reads the order again, signs only the action
 the user saw and delegates to that handler. Polling an order does not sign.
+
+`<RampWidget>` (React and React Native) signs a leg with the user's connected
+wallet when the app registered no signer for it, and checks it first:
+
+- A Stellar XDR is read with `assertRampStellarSigner(action, address)`: every
+  operation of a payment or contract call must run as the connected account
+  (inside the app's fee bump too); a SEP-10 login must be the anchor's challenge
+  with its first data entry from that account. The wallet is asked only then,
+  through `signTx`.
+- A Solana transfer (`solana-v0-json`) must be built from the connected external
+  Solana wallet, and is signed through the new `signSolanaTransaction(base64)`.
+- If the connected wallet changes while it signs, the signature is not sent.
+
+The widget lends these signers to core only while the user authorizes. An app
+signer registered before Authorize is used instead; an app that registers its
+own Stellar signer can call `assertRampStellarSigner` in it.
 
 For example, with your application's existing chain-specific wallet integration:
 
@@ -160,8 +175,9 @@ const removeSigner = client.registerRampSigningHandler('STELLAR', 'xdr', async (
 
 UI helpers exported from core are `describeRampAction(order)`,
 `rampCountries`, `rampQuoteFields`, `rampLegTitle`, `rampLegStatus` and
-`rampResolutionText`, with the `RampSigningHandler` type; registry and URL
-internals are private.
+`rampResolutionText`, with the `RampSigningHandler` type, and
+`assertRampStellarSigner` for a Stellar signer; registry and URL internals are
+private.
 
 ### Co-sign approval groups removed
 

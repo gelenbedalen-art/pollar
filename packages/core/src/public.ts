@@ -103,6 +103,7 @@ export {
   rampResolutionText,
 } from './ramps/workflow';
 export type { RampSigningHandler } from './ramps/workflow';
+export { assertRampStellarSigner } from './ramps/stellar-signing';
 // --- Cards endpoints ----------------------------------------------------------
 export {
   getCardProviders,
