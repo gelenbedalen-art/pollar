@@ -35,6 +35,14 @@ const CATALOG: Record<string, ResolvedAuthError> = {
     errorCode: AUTH_ERROR_CODES.PASSKEY_FAILED,
   },
 
+  // -- The app's Pollar credits --------------------------------------------------
+  // The app ran out of credits for what this action costs Pollar (HTTP 402). The
+  // end user can do nothing about it: only the app's developer can top up.
+  SDK_CREDITS_INSUFFICIENT: {
+    message: "This app can't complete this right now. Please try again later or contact the app's developer.",
+    errorCode: AUTH_ERROR_CODES.AUTH_FAILED,
+  },
+
   // -- Passkey ceremony --------------------------------------------------------
   PASSKEY_ALREADY_REGISTERED: {
     message: 'A passkey is already registered for this account. Try signing in instead.',
