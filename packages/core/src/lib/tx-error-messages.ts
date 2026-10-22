@@ -41,6 +41,7 @@ const MESSAGES: Record<string, string> = {
   SDK_COSIGN_CUSTODY_SWITCH_NOT_ALLOWED: "This app doesn't let you change how your wallet is secured.",
   SDK_COSIGN_PASSKEY_UNAVAILABLE: "Passkeys aren't available on this device.",
   SDK_CREDITS_INSUFFICIENT: APP_UNAVAILABLE_MESSAGE,
+  SDK_BILLING_OVERDUE: APP_UNAVAILABLE_MESSAGE,
 };
 
 const GENERIC = 'Something went wrong. Please try again.';
@@ -55,8 +56,8 @@ export function transactionErrorMessage(code?: string | null, details?: string |
   return GENERIC;
 }
 
-/** The text for an error the user cannot fix and the app must (402, out of credits); null for any other error. */
+/** The text for an error the user cannot fix and the app must (402: out of credits or an overdue bill); null for any other error. */
 export function appUnavailableMessage(error: unknown): string | null {
   const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
-  return code === 'SDK_CREDITS_INSUFFICIENT' ? (MESSAGES[code] ?? null) : null;
+  return code === 'SDK_CREDITS_INSUFFICIENT' || code === 'SDK_BILLING_OVERDUE' ? (MESSAGES[code] ?? null) : null;
 }

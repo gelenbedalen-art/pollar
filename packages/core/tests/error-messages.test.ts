@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolveAuthError } from '../src/client/auth/errorMessages';
-import { transactionErrorMessage } from '../src/lib/tx-error-messages';
+import { appUnavailableMessage, transactionErrorMessage } from '../src/lib/tx-error-messages';
 import { AUTH_ERROR_CODES } from '../src/types';
 
 test("an app out of Pollar credits (402) tells the user to reach the app's support, as every other flow does", () => {
@@ -12,6 +12,13 @@ test("an app out of Pollar credits (402) tells the user to reach the app's suppo
   assert.equal(resolved.message, transactionErrorMessage('SDK_CREDITS_INSUFFICIENT'));
   assert.match(resolved.message, /app's support/);
   assert.equal(resolved.errorCode, AUTH_ERROR_CODES.AUTH_FAILED);
+});
+
+test('an app with an overdue Pollar bill (402) reads the same as one out of credits', () => {
+  const resolved = resolveAuthError('SDK_BILLING_OVERDUE', 'fallback');
+  assert.equal(resolved.message, resolveAuthError('SDK_CREDITS_INSUFFICIENT', 'fallback').message);
+  assert.equal(transactionErrorMessage('SDK_BILLING_OVERDUE'), transactionErrorMessage('SDK_CREDITS_INSUFFICIENT'));
+  assert.equal(appUnavailableMessage({ code: 'SDK_BILLING_OVERDUE' }), transactionErrorMessage('SDK_CREDITS_INSUFFICIENT'));
 });
 
 test('an unknown code keeps the fallback, bucketed by its domain', () => {

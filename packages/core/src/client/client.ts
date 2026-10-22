@@ -1034,7 +1034,7 @@ export class PollarClient {
         if (response.status === 402 && !self._creditsWarned) {
           self._creditsWarned = true;
           self._log.warn(
-            '[PollarClient] This app is out of Pollar credits (SDK_CREDITS_INSUFFICIENT): billable features are refused until its credits are topped up in the Pollar dashboard.',
+            "[PollarClient] Pollar refuses this app's billable features (402): it is out of credits (SDK_CREDITS_INSUFFICIENT) or has an overdue statement (SDK_BILLING_OVERDUE). Top up or pay it in the Pollar dashboard.",
           );
         }
 
