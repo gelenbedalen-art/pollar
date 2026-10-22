@@ -26,6 +26,15 @@
   while the user authorizes, unless the app registered its own; it signs only a
   step built for the connected account, and drops the signature if the wallet
   changed meanwhile.
+- `<SendModal>` looks a Stellar destination up before paying it. When it has
+  no account, the modal says so and offers to create it with the XLM being sent
+  (a `create_account` with that starting balance, at least 1 XLM) or to wait
+  until another wallet funds it; a non-XLM asset only gets the explanation.
+- A transaction that fails on-chain names its cause: `getTxStatus` returns
+  `operationCodes`, and a failed tx's state and outcome carry the matching
+  `code` (`paymentNoDestination` is `TX_DESTINATION_NOT_FOUND`).
+  `transactionErrorMessage` maps on-chain codes too, so a bare `txFailed` never
+  reaches the screen.
 - `signSolanaTransaction(base64)`: the user's external Solana wallet signs a
   serialized transaction, without broadcasting it.
 - An app out of credits (402 `SDK_CREDITS_INSUFFICIENT`): the user sees a

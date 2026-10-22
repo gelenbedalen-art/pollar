@@ -73,6 +73,7 @@ import { hashApiKey } from '../lib/api-key-hash';
 import { createLogger, type PollarLogger } from '../lib/logger';
 import { redactBody, redactDeep } from '../lib/logging';
 import { randomUUID } from '../lib/random-uuid';
+import { onChainErrorCode } from '../lib/tx-error-messages';
 import { apiErrorFields, isRecord, stringField } from '../api/error-fields';
 import { bytesToHex, hexToBytes } from '../cosign/encoding';
 import { base64urlDecode, base64urlEncode } from '../lib/base64url';
@@ -3547,6 +3548,8 @@ export class PollarClient {
     hash: string;
     status: 'PENDING' | 'SUCCESS' | 'FAILED';
     resultCode?: string;
+    /** A Stellar tx that failed on its operations: each operation's result code (e.g. `paymentNoDestination`). */
+    operationCodes?: string[];
     message?: string;
     ledger?: number;
   }> {
@@ -3598,11 +3601,13 @@ export class PollarClient {
         return { status: 'success', hash, ...outcomeExtra };
       }
       if (status.status === 'FAILED') {
+        const code = onChainErrorCode(status.resultCode, ...(status.operationCodes ?? []));
         this._setTransactionState({
           step: 'error',
           phase: errorPhase,
           ...(buildData && { buildData }),
           ...(status.resultCode && { details: status.resultCode }),
+          ...(code && { code }),
           ...(status.message && { message: status.message }),
         });
         return {
@@ -3610,6 +3615,7 @@ export class PollarClient {
           hash,
           ...outcomeExtra,
           ...(status.resultCode && { details: status.resultCode, resultCode: status.resultCode }),
+          ...(code && { code }),
           ...(status.message && { message: status.message }),
         };
       }

@@ -17,7 +17,8 @@ const MESSAGES: Record<string, string> = {
   TX_INSUFFICIENT_FEE: 'The network fee was too low for the network right now. Please try again.',
   TX_FEE_LIMIT_EXCEEDED: 'The network fee is higher than this app allows right now. Please try again later.',
   TX_LOW_RESERVE: 'This wallet would fall below its minimum balance.',
-  TX_DESTINATION_NOT_FOUND: "The destination account doesn't exist yet.",
+  TX_DESTINATION_NOT_FOUND:
+    "You can't send to this account: it doesn't exist on the network yet. It has to be created and funded with XLM first.",
   TX_SOURCE_NOT_FOUND: "This wallet isn't active on the network yet.",
   TX_NO_TRUSTLINE: "The destination can't receive this asset yet.",
   TX_LINE_FULL: "The destination can't hold that much of this asset.",
@@ -46,12 +47,59 @@ const MESSAGES: Record<string, string> = {
 
 const GENERIC = 'Something went wrong. Please try again.';
 
-/** An error code rather than a sentence: what the backend sends when it has nothing more to say. */
-const CODE_LIKE = /^[A-Z0-9_]+$/;
+/**
+ * Stellar result codes (the RPC's camelCase and Horizon's snake_case) for the
+ * failures a sender can understand, mapped to the code that carries the message.
+ */
+const ON_CHAIN_CODES: Record<string, string> = {
+  paymentNoDestination: 'TX_DESTINATION_NOT_FOUND',
+  pathPaymentStrictSendNoDestination: 'TX_DESTINATION_NOT_FOUND',
+  pathPaymentStrictReceiveNoDestination: 'TX_DESTINATION_NOT_FOUND',
+  op_no_destination: 'TX_DESTINATION_NOT_FOUND',
+  paymentUnderfunded: 'TX_INSUFFICIENT_BALANCE',
+  pathPaymentStrictSendUnderfunded: 'TX_INSUFFICIENT_BALANCE',
+  createAccountUnderfunded: 'TX_INSUFFICIENT_BALANCE',
+  op_underfunded: 'TX_INSUFFICIENT_BALANCE',
+  txInsufficientBalance: 'TX_INSUFFICIENT_BALANCE',
+  paymentNoTrust: 'TX_NO_TRUSTLINE',
+  pathPaymentStrictSendNoTrust: 'TX_NO_TRUSTLINE',
+  op_no_trust: 'TX_NO_TRUSTLINE',
+  paymentLineFull: 'TX_LINE_FULL',
+  op_line_full: 'TX_LINE_FULL',
+  paymentNotAuthorized: 'TX_NOT_AUTHORIZED',
+  paymentSrcNotAuthorized: 'TX_NOT_AUTHORIZED',
+  op_not_authorized: 'TX_NOT_AUTHORIZED',
+  txTooLate: 'TX_TOO_LATE',
+  tx_too_late: 'TX_TOO_LATE',
+  txBadSeq: 'TX_BAD_SEQUENCE',
+  tx_bad_seq: 'TX_BAD_SEQUENCE',
+  txInsufficientFee: 'TX_INSUFFICIENT_FEE',
+  tx_insufficient_fee: 'TX_INSUFFICIENT_FEE',
+  txNoAccount: 'TX_SOURCE_NOT_FOUND',
+  tx_no_source_account: 'TX_SOURCE_NOT_FOUND',
+};
+
+/**
+ * The SDK error code behind a failed transaction's on-chain result codes (the
+ * transaction's own, then each operation's), or undefined when none is one a
+ * sender can act on. `txFailed` alone says nothing: the operation codes do.
+ */
+export function onChainErrorCode(...codes: (string | null | undefined)[]): string | undefined {
+  for (const code of codes.flatMap((c) => c?.split(',') ?? [])) {
+    const mapped = ON_CHAIN_CODES[code.trim()];
+    if (mapped) return mapped;
+  }
+  return undefined;
+}
+
+/** An error code rather than a sentence: SDK codes, and on-chain ones like `txFailed` or `op_no_destination,tx_failed`. */
+const CODE_LIKE = /^[A-Za-z0-9_,]+$/;
 
 export function transactionErrorMessage(code?: string | null, details?: string | null): string {
   if (code && MESSAGES[code]) return MESSAGES[code];
   if (details && MESSAGES[details]) return MESSAGES[details];
+  const onChain = onChainErrorCode(code, details);
+  if (onChain && MESSAGES[onChain]) return MESSAGES[onChain];
   if (details && !CODE_LIKE.test(details.trim())) return details;
   return GENERIC;
 }

@@ -21,6 +21,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tx/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get transaction status
+         * @description Multichain. `hash` is a Stellar transaction hash (64 hex chars) or a Solana signature (base58, 86-88 chars); the format selects the chain. `ledger` is the Stellar ledger sequence or the Solana slot. A Stellar tx that failed on its operations (`resultCode: txFailed`) also carries `operationCodes`, one per operation, and a `message` for the failing one.
+         */
+        get: operations["getTxStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tx/build": {
         parameters: {
             query?: never;
@@ -126,26 +146,6 @@ export interface paths {
          * @description Platform-managed wallets. `chain` defaults to STELLAR, which behaves exactly as v1. SOLANA takes an SPL/SOL transfer and POLYGON a POL/ERC-20 transfer, both with integer base-unit amounts and a required idempotencyKey. An external Solana wallet uses /v2/tx/build and /v2/tx/submit instead.
          */
         post: operations["postTxBuildSignSubmit"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/tx/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get transaction status
-         * @description Multichain. `hash` is a Stellar transaction hash (64 hex chars) or a Solana signature (base58, 86-88 chars); the format selects the chain. `ledger` is the Stellar ledger sequence or the Solana slot.
-         */
-        get: operations["getTxStatus"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2030,6 +2030,72 @@ export interface operations {
             };
         };
     };
+    getTxStatus: {
+        parameters: {
+            query: {
+                hash: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_TX_STATUS";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            hash: string;
+                            /** @enum {string} */
+                            status: "PENDING" | "SUCCESS" | "FAILED";
+                            resultCode?: string;
+                            ledger?: number;
+                            message?: string;
+                            operationCodes?: string[];
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
     postTxBuild: {
         parameters: {
             query?: never;
@@ -3313,71 +3379,6 @@ export interface operations {
             };
             /** @description Build/sign/submit error */
             502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        success: false;
-                        code: string;
-                        message?: string;
-                        resultCode?: string;
-                    };
-                };
-            };
-        };
-    };
-    getTxStatus: {
-        parameters: {
-            query: {
-                hash: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        code: "SDK_TX_STATUS";
-                        /** @constant */
-                        success: true;
-                        content: {
-                            hash: string;
-                            /** @enum {string} */
-                            status: "PENDING" | "SUCCESS" | "FAILED";
-                            resultCode?: string;
-                            ledger?: number;
-                            message?: string;
-                        };
-                    };
-                };
-            };
-            /** @description Validation error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        success: false;
-                        code: string;
-                        message?: string;
-                        resultCode?: string;
-                    };
-                };
-            };
-            /** @description Unauthorized */
-            401: {
                 headers: {
                     [name: string]: unknown;
                 };

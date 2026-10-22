@@ -162,7 +162,12 @@ export interface SendModalTemplateProps {
   accentColor: string;
   /** Per-app modal chrome overrides (background, card + button radius). */
   styleOverrides?: ModalStyleOverrides;
-  step: 'form' | 'tx';
+  /**
+   * `create-account`: the Stellar destination has no account yet, so the user
+   * chooses between creating it with the XLM being sent and waiting for someone
+   * else to fund it.
+   */
+  step: 'form' | 'create-account' | 'tx';
   txTitle: string;
   assets: WalletBalanceRecord[];
   selectedAsset: WalletBalanceRecord | null;
@@ -192,6 +197,12 @@ export interface SendModalTemplateProps {
   destination: string;
   formError: string;
   isLoadingBalance: boolean;
+  /** The destination's account is being looked up; the form waits for it. */
+  isCheckingDestination?: boolean;
+  /** The least XLM a new Stellar account can start with. */
+  minStartingBalance?: number;
+  /** Builds a `create_account` for the destination, funded with the amount. Required for the `create-account` step. */
+  onCreateAccount?: () => void;
   transaction: TransactionState;
   showXdr: boolean;
   copied: boolean;
@@ -241,6 +252,9 @@ export function SendModalTemplate({
   destination,
   formError,
   isLoadingBalance,
+  isCheckingDestination = false,
+  minStartingBalance = 1,
+  onCreateAccount,
   transaction,
   showXdr,
   copied,
@@ -280,9 +294,13 @@ export function SendModalTemplate({
     parsedAmount > 0 &&
     parsedAmount <= availableAmount &&
     !!destination.trim() &&
-    !isLoadingBalance;
+    !isLoadingBalance &&
+    !isCheckingDestination;
 
-  const title = step === 'form' ? 'Send' : txTitle;
+  const title = step === 'form' ? 'Send' : step === 'create-account' ? 'Create account?' : txTitle;
+  // Only XLM can create an account; any other asset needs the account to exist first.
+  const createsWithNative = selectedAsset?.type === 'native';
+  const meetsMinimum = Number.isFinite(parsedAmount) && parsedAmount >= minStartingBalance;
 
   return (
     <div
@@ -434,7 +452,46 @@ export function SendModalTemplate({
 
           <div className="pollar-modal-actions">
             <button className="pollar-btn-primary" onClick={onSubmit} disabled={!canSubmit}>
-              Continue
+              {isCheckingDestination ? 'Checking destination…' : 'Continue'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Destination has no account */}
+      {step === 'create-account' && (
+        <>
+          <div className="pollar-send-notice">
+            <p className="pollar-send-notice-title">This account doesn't exist yet</p>
+            <p className="pollar-send-notice-address">{destination.trim()}</p>
+            {createsWithNative ? (
+              <p>
+                A Stellar account has to be created and funded before it can receive payments. Instead of a payment, this will{' '}
+                <strong>create the account</strong> with {amount} XLM as its starting balance.
+              </p>
+            ) : (
+              <p>
+                It can't receive {selectedAsset?.code ?? 'this asset'} yet: it has to be created and funded with XLM first, and
+                then add a trustline for {selectedAsset?.code ?? 'the asset'}.
+              </p>
+            )}
+            {createsWithNative && !meetsMinimum && (
+              <p className="pollar-send-notice-warning">
+                A new account needs a starting balance of at least {minStartingBalance} XLM. Go back and raise the amount to
+                create it.
+              </p>
+            )}
+            <p>Or wait until another wallet funds it, and send afterwards.</p>
+          </div>
+
+          <div className="pollar-send-account-actions">
+            {createsWithNative && onCreateAccount && (
+              <button className="pollar-btn-primary" onClick={onCreateAccount} disabled={!meetsMinimum}>
+                Create account with {amount} XLM
+              </button>
+            )}
+            <button className="pollar-btn-secondary" onClick={onBack}>
+              I'll wait until it's funded
             </button>
           </div>
         </>

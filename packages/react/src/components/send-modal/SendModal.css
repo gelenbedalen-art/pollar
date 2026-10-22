@@ -331,3 +331,43 @@ html.dark .pollar-send-inline-action {
   background-size: 200% 100%;
   animation: pollar-pulse 1.4s ease-in-out infinite;
 }
+
+/* ---- Destination without an account ---- */
+.pollar-send-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--pollar-border);
+  border-radius: var(--pollar-card-border-radius, 12px);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--pollar-text);
+}
+
+.pollar-send-notice p {
+  margin: 0;
+}
+
+.pollar-send-notice-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.pollar-send-notice-address {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--pollar-muted);
+  word-break: break-all;
+}
+
+.pollar-send-notice-warning {
+  color: var(--pollar-error-text, #dc2626);
+}
+
+.pollar-send-account-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}

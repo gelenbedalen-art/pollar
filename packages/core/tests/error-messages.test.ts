@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolveAuthError } from '../src/client/auth/errorMessages';
-import { appUnavailableMessage, transactionErrorMessage } from '../src/lib/tx-error-messages';
+import { appUnavailableMessage, onChainErrorCode, transactionErrorMessage } from '../src/lib/tx-error-messages';
 import { AUTH_ERROR_CODES } from '../src/types';
 
 test("an app out of Pollar credits (402) tells the user to reach the app's support, as every other flow does", () => {
@@ -26,4 +26,19 @@ test('an unknown code keeps the fallback, bucketed by its domain', () => {
     message: 'fallback',
     errorCode: AUTH_ERROR_CODES.TX_FAILED,
   });
+});
+
+test('a payment to an account that does not exist says so, from the operation code behind txFailed', () => {
+  assert.equal(onChainErrorCode('txFailed', 'paymentNoDestination'), 'TX_DESTINATION_NOT_FOUND');
+  assert.equal(onChainErrorCode('op_no_destination,tx_failed'), 'TX_DESTINATION_NOT_FOUND');
+  const message = transactionErrorMessage('TX_DESTINATION_NOT_FOUND');
+  assert.match(message, /doesn't exist/);
+  assert.match(message, /created and funded/);
+  assert.equal(transactionErrorMessage(null, 'txFailed,paymentNoDestination'), message);
+});
+
+test('a bare on-chain code never reaches the screen', () => {
+  assert.equal(onChainErrorCode('txFailed'), undefined);
+  assert.equal(transactionErrorMessage(null, 'txFailed'), 'Something went wrong. Please try again.');
+  assert.equal(transactionErrorMessage(null, 'The memo is too long.'), 'The memo is too long.');
 });

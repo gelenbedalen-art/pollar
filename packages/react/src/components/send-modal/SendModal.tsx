@@ -42,6 +42,9 @@ function parseMemo(type: SendMemoType, raw: string): { type: SendMemoType; value
   return { type, value };
 }
 
+/** The least a new Stellar account can start with: two base reserves of 0.5 XLM. */
+const MIN_STARTING_BALANCE_XLM = 1;
+
 function assetParam(record: WalletBalanceRecord) {
   if (record.type === 'native') return { type: 'native' as const };
   if (record.type === 'credit_alphanum4') {
@@ -61,13 +64,17 @@ export function SendModal({ onClose }: SendModalProps) {
     wallet,
     network,
     styles,
+    getClient,
   } = usePollar();
   // External-wallet signing-adapter id (freighter/albedo) drives the wallet logo;
   // null for embedded/smart, which fall back to the Pollar logo.
   const walletType = wallet?.custody === 'external' ? wallet.provider : null;
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
 
-  const [step, setStep] = useState<'form' | 'tx'>('form');
+  const [step, setStep] = useState<'form' | 'create-account' | 'tx'>('form');
+  // The destination had no Stellar account, so the tx being built creates it.
+  const [createsAccount, setCreatesAccount] = useState(false);
+  const [checkingDestination, setCheckingDestination] = useState(false);
   const [amount, setAmount] = useState('');
   const [destination, setDestination] = useState('');
   const [memo, setMemo] = useState('');
@@ -160,15 +167,34 @@ export function SendModal({ onClose }: SendModalProps) {
     'building-signing-submitting',
   ] as const;
   const isInProgress = (IN_FLIGHT_STEPS as readonly string[]).includes(transaction.step);
-  const showBack = step === 'tx' && (transaction.step === 'error' || transaction.step === 'success') && !isInProgress;
+  const showBack =
+    step === 'create-account' ||
+    (step === 'tx' && (transaction.step === 'error' || transaction.step === 'success') && !isInProgress);
 
-  const txTitle = isInProgress
-    ? 'Sending…'
-    : transaction.step === 'success'
-      ? 'Sent!'
-      : transaction.step === 'error'
-        ? 'Send failed'
-        : 'Confirm Send';
+  const txTitle = createsAccount
+    ? isInProgress
+      ? 'Creating account…'
+      : transaction.step === 'success'
+        ? 'Account created!'
+        : transaction.step === 'error'
+          ? 'Create account failed'
+          : 'Confirm Create Account'
+    : isInProgress
+      ? 'Sending…'
+      : transaction.step === 'success'
+        ? 'Sent!'
+        : transaction.step === 'error'
+          ? 'Send failed'
+          : 'Confirm Send';
+
+  /** Whether `address` has a Stellar account; null when that could not be read. */
+  async function stellarAccountExists(address: string): Promise<boolean | null> {
+    try {
+      return (await getClient().getWalletBalance(address)).exists;
+    } catch {
+      return null;
+    }
+  }
 
   async function handleSubmit() {
     setFormError('');
@@ -233,6 +259,20 @@ export function SendModal({ onClose }: SendModalProps) {
       }
     }
 
+    // A payment to a Stellar address with no account fails on-chain
+    // (`paymentNoDestination`), so the user picks between creating it and waiting.
+    // An unreadable lookup sends the payment as asked.
+    if (selectedChain === 'STELLAR') {
+      setCheckingDestination(true);
+      const exists = await stellarAccountExists(destination.trim());
+      setCheckingDestination(false);
+      if (exists === false) {
+        setStep('create-account');
+        return;
+      }
+    }
+
+    setCreatesAccount(false);
     setStep('tx');
 
     if (selectedChain === 'SOLANA' || selectedChain === 'POLYGON') {
@@ -250,6 +290,18 @@ export function SendModal({ onClose }: SendModalProps) {
     await buildTx(
       'payment',
       { destination: destination.trim(), amount, asset: assetParam(selectedAsset) },
+      parsedMemo ? { memo: parsedMemo } : undefined,
+    );
+  }
+
+  async function handleCreateAccount() {
+    const parsedMemo = parseMemo(memoType, memo);
+    if (typeof parsedMemo === 'string' || parseFloat(amount) < MIN_STARTING_BALANCE_XLM) return;
+    setCreatesAccount(true);
+    setStep('tx');
+    await buildTx(
+      'create_account',
+      { destination: destination.trim(), startingBalance: amount },
       parsedMemo ? { memo: parsedMemo } : undefined,
     );
   }
@@ -315,6 +367,7 @@ export function SendModal({ onClose }: SendModalProps) {
 
   function handleBack() {
     setStep('form');
+    setCreatesAccount(false);
     setShowXdr(false);
     setCopied(false);
   }
@@ -338,6 +391,9 @@ export function SendModal({ onClose }: SendModalProps) {
         destination={destination}
         formError={formError}
         isLoadingBalance={walletBalance.step === 'loading'}
+        isCheckingDestination={checkingDestination}
+        minStartingBalance={MIN_STARTING_BALANCE_XLM}
+        onCreateAccount={() => void handleCreateAccount()}
         transaction={transaction}
         showXdr={showXdr}
         copied={copied}
