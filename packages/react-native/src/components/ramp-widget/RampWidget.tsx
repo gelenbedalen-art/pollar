@@ -212,6 +212,16 @@ export interface RampWidgetTemplateProps {
   onClose: () => void;
 }
 
+/** Renders again at `at` (ms since epoch), so what lapses then (a signature's button) goes then, not at the next read. */
+function useRenderAt(at: number | null) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (at === null) return;
+    const timer = setTimeout(() => setTick((n) => n + 1), Math.max(0, at - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [at]);
+}
+
 export function RampWidgetTemplate({
   theme = 'light',
   accentColor = '#005DB4',
@@ -279,6 +289,7 @@ export function RampWidgetTemplate({
   // Held (no next read) or final: the order no longer moves on its own.
   const stopped = order ? rampOrderStopped(order) : false;
   const receive = order ? rampOrderReceive(order) : null;
+  useRenderAt(view?.canSign && view.expiresAt ? Date.parse(view.expiresAt) : null);
   const missingField = fields.some((f) => !rampFieldValid(f, fieldValues[f.key]));
   const canFind = !!amount && Number(amount) > 0 && !!fiat && !!asset && !isLoading;
 

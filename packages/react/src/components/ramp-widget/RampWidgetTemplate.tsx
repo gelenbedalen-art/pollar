@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import type {
   CosignCustody,
   RampAsset,
@@ -182,6 +183,16 @@ function trustKey(rejection: RampQuoteRejection): string | null {
 
 const LOADING_STEPS = ['Checking routes…', 'Quoting each step…', 'Route found!'];
 
+/** Renders again at `at` (ms since epoch), so what lapses then (a signature's button) goes then, not at the next read. */
+function useRenderAt(at: number | null) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (at === null) return;
+    const timer = setTimeout(() => setTick((n) => n + 1), Math.max(0, at - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [at]);
+}
+
 export function RampWidgetTemplate({
   theme,
   accentColor,
@@ -248,6 +259,7 @@ export function RampWidgetTemplate({
   const stopped = order ? rampOrderStopped(order) : false;
   const receive = order ? rampOrderReceive(order) : null;
   const payBy = view?.action?.kind === 'FIAT_PAYMENT' && view.expiresAt ? Date.parse(view.expiresAt) : null;
+  useRenderAt(view?.canSign && view.expiresAt ? Date.parse(view.expiresAt) : null);
 
   const stepTitle: Record<RampStep, string> = {
     input: onramp ? 'Buy crypto' : 'Sell crypto',

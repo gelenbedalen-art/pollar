@@ -249,6 +249,25 @@ async function mount(client, application = {}) {
     client.destroy();
   }
 
+  // --- A signature that lapses on screen loses its button then, without waiting for a read ---
+  {
+    const lapsing = { ...signAction, expiresAt: later(0.3) };
+    const { client } = fixtureClient({
+      listRampOrders: async () => ({ orders: [order(lapsing)], nextCursor: null }),
+      getRampOrder: async () => order(lapsing),
+    });
+    const ui = await mount(client);
+    await ui.click(ui.button('Resume purchase'));
+    assert.ok(ui.button('Authorize'), 'signable while the payload is live');
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 450));
+    });
+    assert.equal(ui.button('Authorize'), undefined, 'gone once it lapsed');
+    assert.match(ui.container.textContent, /Preparing a new signature request/);
+    await ui.unmount();
+    client.destroy();
+  }
+
   // --- A Stellar step built for another account never reaches the wallet ---
   {
     const foreign = { ...signAction, payload: { encoding: 'xdr', value: paymentFrom(Keypair.random().publicKey()) } };
