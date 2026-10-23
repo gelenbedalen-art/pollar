@@ -80,32 +80,47 @@ export function RejectedRouteDisplay({
   rejection,
   disabled = false,
   trusting = false,
+  creatingWallet = false,
   onVerify,
   onTrust,
+  onCreateWallet,
 }: {
   rejection: RampQuoteRejection;
-  /** A route is starting or a trustline is being added, so nothing else opens meanwhile. */
+  /** A route is starting, a trustline or a wallet is being added, so nothing else opens meanwhile. */
   disabled?: boolean;
   /** This row's trustline is being added. */
   trusting?: boolean;
+  /** The user's wallet is being created. */
+  creatingWallet?: boolean;
   /** Without it, a verification step is described but offers no button. */
   onVerify?: ((requirement: RampQuoteRequirement) => void) | undefined;
   /** Without it, a missing trustline is described but offers no button. */
   onTrust?: ((asset: { code: string; issuer: string }) => void) | undefined;
+  /** Without it (an app that leaves the custody to the user), the wallet is created from the wallet menu. */
+  onCreateWallet?: (() => void) | undefined;
 }) {
   const requirement = rejection.requirement;
   const copy = requirement ? rampRequirementCopy(requirement) : null;
   const trustAsset = !requirement && onTrust ? rampTrustlineAsset(rejection) : null;
+  const toCreate = rejection.failure.resolutionAction === 'create_wallet';
+  const meta = copy
+    ? copy.message
+    : toCreate && !onCreateWallet
+      ? 'You need a wallet to receive this. Create it from the wallet menu, then find the route again.'
+      : rampResolutionText(rejection.failure);
+  const busy = trusting || (toCreate && creatingWallet);
   return (
     <div
       className="pollar-ramp-route-card"
       data-locked
       data-kyc-status={requirement?.status}
-      data-disabled={(!(copy?.action && onVerify) && !trustAsset) || (disabled && !trusting) || undefined}
+      data-disabled={
+        (!(copy?.action && onVerify) && !trustAsset && !(toCreate && onCreateWallet)) || (disabled && !busy) || undefined
+      }
     >
       <div className="pollar-ramp-route-left">
         <span className="pollar-ramp-route-provider">{rejection.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</span>
-        <span className="pollar-ramp-route-meta">{copy ? copy.message : rampResolutionText(rejection.failure)}</span>
+        <span className="pollar-ramp-route-meta">{meta}</span>
       </div>
       {trustAsset && (
         <div className="pollar-ramp-route-right">
@@ -122,6 +137,25 @@ export function RejectedRouteDisplay({
               </>
             ) : (
               `Add ${trustAsset.code} trustline`
+            )}
+          </button>
+        </div>
+      )}
+      {toCreate && onCreateWallet && (
+        <div className="pollar-ramp-route-right">
+          <button
+            type="button"
+            className="pollar-btn-secondary pollar-ramp-route-verify"
+            disabled={disabled}
+            aria-busy={creatingWallet}
+            onClick={onCreateWallet}
+          >
+            {creatingWallet ? (
+              <>
+                <span className="pollar-spinner pollar-spinner-sm" /> Creating…
+              </>
+            ) : (
+              'Create wallet'
             )}
           </button>
         </div>

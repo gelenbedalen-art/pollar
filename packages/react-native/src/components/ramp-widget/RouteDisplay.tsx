@@ -51,28 +51,42 @@ export function RejectedRouteDisplay({
   accentColor = '#005DB4',
   disabled = false,
   trusting = false,
+  creatingWallet = false,
   onVerify,
   onTrust,
+  onCreateWallet,
 }: {
   rejection: RampQuoteRejection;
   accentColor?: string;
-  /** A route is starting or a trustline is being added, so nothing else opens meanwhile. */
+  /** A route is starting, a trustline or a wallet is being added, so nothing else opens meanwhile. */
   disabled?: boolean;
   /** This row's trustline is being added. */
   trusting?: boolean;
+  /** The user's wallet is being created. */
+  creatingWallet?: boolean;
   /** Without it, a verification step is described but offers no button. */
   onVerify?: ((requirement: RampQuoteRequirement) => void) | undefined;
   /** Without it, a missing trustline is described but offers no button. */
   onTrust?: ((asset: { code: string; issuer: string }) => void) | undefined;
+  /** Without it (an app that leaves the custody to the user), the wallet is created from the wallet menu. */
+  onCreateWallet?: (() => void) | undefined;
 }) {
   const requirement = rejection.requirement;
   const copy = requirement ? rampRequirementCopy(requirement) : null;
   const trustAsset = !requirement && onTrust ? rampTrustlineAsset(rejection) : null;
+  const toCreate = rejection.failure.resolutionAction === 'create_wallet';
+  const meta = copy
+    ? copy.message
+    : toCreate && !onCreateWallet
+      ? 'You need a wallet to receive this. Create it from the wallet menu, then find the route again.'
+      : rampResolutionText(rejection.failure);
   return (
-    <View style={[styles.card, !(copy?.action && onVerify) && !trustAsset && { opacity: 0.6 }]}>
+    <View
+      style={[styles.card, !(copy?.action && onVerify) && !trustAsset && !(toCreate && onCreateWallet) && { opacity: 0.6 }]}
+    >
       <View style={styles.left}>
         <Text style={styles.provider}>{rejection.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</Text>
-        <Text style={styles.meta}>{copy ? copy.message : rampResolutionText(rejection.failure)}</Text>
+        <Text style={styles.meta}>{meta}</Text>
       </View>
       {trustAsset && (
         <TouchableOpacity
@@ -88,6 +102,23 @@ export function RejectedRouteDisplay({
             </View>
           ) : (
             <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>Add {trustAsset.code} trustline</Text>
+          )}
+        </TouchableOpacity>
+      )}
+      {toCreate && onCreateWallet && (
+        <TouchableOpacity
+          style={[styles.verify, { borderColor: accentColor, opacity: disabled && !creatingWallet ? 0.5 : 1 }]}
+          disabled={disabled}
+          accessibilityState={{ busy: creatingWallet, disabled }}
+          onPress={onCreateWallet}
+        >
+          {creatingWallet ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ActivityIndicator size="small" color={accentColor} />
+              <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>Creating…</Text>
+            </View>
+          ) : (
+            <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>Create wallet</Text>
           )}
         </TouchableOpacity>
       )}

@@ -99,7 +99,7 @@ async function signLegWithWallet(client: PollarClient, orderId: string, actionId
 }
 
 export function RampWidget({ onClose }: RampWidgetProps) {
-  const { getClient, styles, network, openCosignModal } = usePollar();
+  const { getClient, styles, network, openCosignModal, appConfig } = usePollar();
   const client = getClient();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
 
@@ -124,6 +124,10 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
   const [trustingAsset, setTrustingAsset] = useState<string | null>(null);
+  const [creatingWallet, setCreatingWallet] = useState(false);
+  // An app that leaves the custody to the user creates the wallet from the wallet menu, where the user picks it.
+  const custodyChoice = appConfig.application?.walletCustodyMode === 'USER_CHOICE';
+  const appChains = appConfig.application?.chains;
   // The step opened last: a modal that reports after it was closed or replaced is ignored.
   const verifyAttempt = useRef<RampQuoteRequirement | null>(null);
 
@@ -259,6 +263,25 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       setErrorMsg(rampErrorMessage(error, `Could not add the ${asset.code} trustline. Please try again.`));
     } finally {
       setTrustingAsset(null);
+    }
+  }
+
+  /** Creates the user's wallet on the app's chains, then quotes again. */
+  async function handleCreateWallet() {
+    if (creatingWallet) return;
+    setCreatingWallet(true);
+    setErrorMsg(null);
+    try {
+      await client.createWallet();
+      await handleFindRoute();
+    } catch (error) {
+      setErrorMsg(
+        isPollarApiError(error) && error.code === 'SDK_WALLET_PROVISIONING_DISABLED'
+          ? 'This app does not create wallets.'
+          : rampErrorMessage(error, 'Could not create the wallet. Please try again.'),
+      );
+    } finally {
+      setCreatingWallet(false);
     }
   }
 
@@ -450,6 +473,9 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         onVerifyRoute={handleVerifyRoute}
         trustingAsset={trustingAsset}
         onTrustAsset={(asset) => void handleTrustAsset(asset)}
+        creatingWallet={creatingWallet}
+        onCreateWallet={custodyChoice ? undefined : () => void handleCreateWallet()}
+        noChains={Array.isArray(appChains) && appChains.length === 0}
         onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
         onContactContinue={() => {
           if (selected) void startOrder(selected);

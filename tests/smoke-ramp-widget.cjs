@@ -166,7 +166,7 @@ function fixtureClient(overrides = {}) {
   return { client, calls };
 }
 
-async function mount(client) {
+async function mount(client, application = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -174,7 +174,10 @@ async function mount(client) {
     root.render(
       h(
         PollarProvider,
-        { client, appConfig: { application: { name: 'Fixture', network: 'mainnet', chains: ['STELLAR'] }, styles: {} } },
+        {
+          client,
+          appConfig: { application: { name: 'Fixture', network: 'mainnet', chains: ['STELLAR'], ...application }, styles: {} },
+        },
         h(RampWidget, { onClose() {} }),
       ),
     );
@@ -451,6 +454,70 @@ async function mount(client) {
     client.destroy();
   }
 
+  // --- A user without a wallet creates it from the route's row, and the route is quoted again ---
+  {
+    const walletless = {
+      legs: [{ index: 0, kind: 'PROVIDER_ONRAMP', from: bob, to: usdc }],
+      failure: {
+        code: 'WALLET_NOT_CREATED',
+        legIndex: 0,
+        retryable: false,
+        resolutionOwner: 'END_USER',
+        resolutionAction: 'create_wallet',
+      },
+    };
+    for (const custody of ['COSIGNED', 'USER_CHOICE']) {
+      let created = false;
+      let release;
+      const { client, calls } = fixtureClient({
+        quoteRamp: async (body) => {
+          calls.push(['quoteRamp', body]);
+          if (created) return { quotes: [quote], rejected: [] };
+          throw new PollarApiError('SDK_RAMPS_NO_ROUTE', { code: 'SDK_RAMPS_NO_ROUTE', rejected: [walletless] });
+        },
+        createWallet: () => {
+          calls.push(['createWallet']);
+          return new Promise((resolve) => {
+            release = () => {
+              created = true;
+              resolve({ address: userKey.publicKey(), chain: 'STELLAR' });
+            };
+          });
+        },
+      });
+      const ui = await mount(client, { walletCustodyMode: custody });
+      await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+      await ui.click(ui.button('Find best route'));
+      if (custody === 'USER_CHOICE') {
+        assert.equal(ui.button('Create wallet'), undefined, 'the custody is picked in the wallet menu');
+        assert.match(ui.container.textContent, /Create it from the wallet menu/);
+      } else {
+        await ui.click(ui.button('Create wallet'));
+        const creating = ui.button('Creating');
+        assert.ok(creating && creating.disabled, 'the button spins and stays disabled while the wallet is created');
+        await ui.click(creating);
+        assert.equal(calls.filter(([name]) => name === 'createWallet').length, 1, 'a second click creates nothing');
+        await act(async () => {
+          release();
+          await new Promise((r) => setTimeout(r, 20));
+        });
+        assert.equal(calls.filter(([name]) => name === 'quoteRamp').length, 2, 'quoted again once the wallet exists');
+        assert.match(ui.container.textContent, /100 BOB → 14.2 USDC/);
+      }
+      await ui.unmount();
+      client.destroy();
+    }
+  }
+
+  // --- An app with no chain says so instead of an empty list ---
+  {
+    const { client } = fixtureClient({ getRampRoutes: async () => ({ routes: [] }) });
+    const ui = await mount(client, { chains: [] });
+    assert.match(ui.container.textContent, /no chains enabled/);
+    await ui.unmount();
+    client.destroy();
+  }
+
   // --- An app out of credits: the user is pointed to the app, never told about credits ---
   {
     const { client } = fixtureClient({
@@ -468,7 +535,7 @@ async function mount(client) {
   }
 
   console.log(
-    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, resume and 402 passed.',
+    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume and 402 passed.',
   );
 })().catch((error) => {
   console.error(error);

@@ -49,6 +49,7 @@ let saved = null;
 const pollarContext = {
   getClient: () => client,
   styles: {},
+  appConfig: { application: { name: 'Fixture', network: 'mainnet', chains: ['STELLAR'] } },
   copyText: async () => {},
   openCosignModal() {},
   get ramp() {

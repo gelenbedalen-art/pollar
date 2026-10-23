@@ -167,6 +167,12 @@ export interface RampWidgetTemplateProps {
   trustingAsset?: string | null;
   /** Adds the trustline a dropped route needs, then quotes again. */
   onTrustAsset?: (asset: { code: string; issuer: string }) => void;
+  /** The user's wallet is being created. */
+  creatingWallet?: boolean;
+  /** Creates the user's wallet a dropped route needs, then quotes again; absent, the row points to the wallet menu. */
+  onCreateWallet?: (() => void) | undefined;
+  /** The app serves no chain, so it has nothing to buy or sell. */
+  noChains?: boolean;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -212,6 +218,9 @@ export function RampWidgetTemplate({
   onVerifyRoute,
   trustingAsset = null,
   onTrustAsset,
+  creatingWallet = false,
+  onCreateWallet,
+  noChains = false,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -323,7 +332,11 @@ export function RampWidgetTemplate({
             {routesLoading ? (
               <ActivityIndicator color={accentColor} style={{ marginBottom: 16 }} />
             ) : countries.length === 0 ? (
-              <Text style={[styles.note, { color: colors.muted }]}>No ramp routes are available for this app yet.</Text>
+              <Text style={[styles.note, { color: colors.muted }]}>
+                {noChains
+                  ? 'This app has no chains enabled, so there is nothing to buy or sell yet.'
+                  : 'No ramp routes are available for this app yet.'}
+              </Text>
             ) : (
               <>
                 <Text style={[styles.label, { color: colors.text }]}>Country</Text>
@@ -393,10 +406,12 @@ export function RampWidgetTemplate({
                 key={i}
                 rejection={r}
                 accentColor={accentColor}
-                disabled={startingQuoteId != null || trustingAsset !== null}
+                disabled={startingQuoteId != null || trustingAsset !== null || creatingWallet}
                 trusting={trustKey(r) === trustingAsset}
+                creatingWallet={creatingWallet}
                 onVerify={onVerifyRoute}
                 onTrust={onTrustAsset}
+                onCreateWallet={onCreateWallet}
               />
             ))}
             {quotes.length === 0 && <Text style={[styles.note, { color: colors.muted }]}>{rampNoRouteText(rejected)}</Text>}
@@ -520,7 +535,7 @@ export function RampWidgetTemplate({
 }
 
 export function RampWidget({ onClose }: { onClose: () => void }) {
-  const { getClient, copyText, ramp: saved, setRamp: save, styles: pollarStyles, openCosignModal } = usePollar();
+  const { getClient, copyText, ramp: saved, setRamp: save, styles: pollarStyles, openCosignModal, appConfig } = usePollar();
   const { theme = 'light', accentColor = '#005DB4' } = pollarStyles;
   const client = getClient();
 
@@ -544,6 +559,10 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
   const [trustingAsset, setTrustingAsset] = useState<string | null>(null);
+  const [creatingWallet, setCreatingWallet] = useState(false);
+  // An app that leaves the custody to the user creates the wallet from the wallet menu, where the user picks it.
+  const custodyChoice = appConfig.application?.walletCustodyMode === 'USER_CHOICE';
+  const appChains = appConfig.application?.chains;
   // The step opened last: a modal that reports after it was closed or replaced is ignored.
   const verifyAttempt = useRef<RampQuoteRequirement | null>(null);
 
@@ -682,6 +701,25 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
       setErrorMsg(rampErrorMessage(error, `Could not add the ${asset.code} trustline. Please try again.`));
     } finally {
       setTrustingAsset(null);
+    }
+  }
+
+  /** Creates the user's wallet on the app's chains, then quotes again. */
+  async function handleCreateWallet() {
+    if (creatingWallet) return;
+    setCreatingWallet(true);
+    setErrorMsg(null);
+    try {
+      await client.createWallet();
+      await handleFindRoute();
+    } catch (error) {
+      setErrorMsg(
+        isPollarApiError(error) && error.code === 'SDK_WALLET_PROVISIONING_DISABLED'
+          ? 'This app does not create wallets.'
+          : rampErrorMessage(error, 'Could not create the wallet. Please try again.'),
+      );
+    } finally {
+      setCreatingWallet(false);
     }
   }
 
@@ -827,6 +865,9 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           onVerifyRoute={handleVerifyRoute}
           trustingAsset={trustingAsset}
           onTrustAsset={(asset) => void handleTrustAsset(asset)}
+          creatingWallet={creatingWallet}
+          onCreateWallet={custodyChoice ? undefined : () => void handleCreateWallet()}
+          noChains={Array.isArray(appChains) && appChains.length === 0}
           onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
           onContactContinue={() => {
             if (selected) void startOrder(selected);

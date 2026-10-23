@@ -152,6 +152,12 @@ interface RampWidgetTemplateProps {
   trustingAsset?: string | null;
   /** Adds the trustline a dropped route needs, then quotes again. */
   onTrustAsset?: (asset: { code: string; issuer: string }) => void;
+  /** The user's wallet is being created. */
+  creatingWallet?: boolean;
+  /** Creates the user's wallet a dropped route needs, then quotes again; absent, the row points to the wallet menu. */
+  onCreateWallet?: (() => void) | undefined;
+  /** The app serves no chain, so it has nothing to buy or sell. */
+  noChains?: boolean;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -211,6 +217,9 @@ export function RampWidgetTemplate({
   onVerifyRoute,
   trustingAsset = null,
   onTrustAsset,
+  creatingWallet = false,
+  onCreateWallet,
+  noChains = false,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -336,7 +345,11 @@ export function RampWidgetTemplate({
               <span>Loading routes…</span>
             </div>
           ) : countries.length === 0 ? (
-            <div className="pollar-modal-error">No ramp routes are available for this app yet.</div>
+            <div className="pollar-modal-error">
+              {noChains
+                ? 'This app has no chains enabled, so there is nothing to buy or sell yet.'
+                : 'No ramp routes are available for this app yet.'}
+            </div>
           ) : (
             <>
               <div className="pollar-ramp-field">
@@ -460,10 +473,12 @@ export function RampWidgetTemplate({
               <RejectedRouteDisplay
                 key={i}
                 rejection={r}
-                disabled={startingQuoteId != null || trustingAsset !== null}
+                disabled={startingQuoteId != null || trustingAsset !== null || creatingWallet}
                 trusting={trustKey(r) === trustingAsset}
+                creatingWallet={creatingWallet}
                 onVerify={onVerifyRoute}
                 onTrust={onTrustAsset}
+                onCreateWallet={onCreateWallet}
               />
             ))}
           </div>
