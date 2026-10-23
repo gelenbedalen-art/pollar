@@ -52,7 +52,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.75rem;
   font-weight: 400;
   color: var(--pollar-muted);
@@ -80,7 +80,7 @@
 }
 
 .pollar-hist-item-hash {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
 .pollar-hist-item-dot {

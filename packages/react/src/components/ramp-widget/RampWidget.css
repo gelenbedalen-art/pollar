@@ -353,7 +353,7 @@
   font-weight: 700;
   color: var(--pollar-text);
   letter-spacing: 0.03em;
-  font-family: monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
 /* Pollar-rendered QR. The SVG paints with `currentColor`, so setting the text
@@ -465,7 +465,7 @@
 }
 
 .pollar-ramp-leg-link {
-  font-family: monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.75rem;
   color: var(--pollar-accent);
 }

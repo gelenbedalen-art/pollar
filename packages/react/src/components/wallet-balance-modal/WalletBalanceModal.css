@@ -43,7 +43,7 @@
   border: 1px solid color-mix(in srgb, var(--pollar-btn-primary-fg) 22%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--pollar-btn-primary-fg) 14%, transparent);
-  font-family: monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.625rem;
   white-space: nowrap;
 }
@@ -155,7 +155,7 @@
 .pollar-bal-asset-secondary {
   overflow: hidden;
   color: var(--pollar-muted);
-  font-family: monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -200,7 +200,7 @@
 .pollar-bal-available {
   max-width: 11rem;
   overflow: hidden;
-  font-family: monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;

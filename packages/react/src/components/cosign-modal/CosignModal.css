@@ -27,7 +27,7 @@
 
 .pollar-cosign-tx-link {
   color: var(--pollar-accent);
-  font-family: 'Geist Mono', monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   text-decoration: none;
 }
 

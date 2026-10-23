@@ -194,7 +194,7 @@
 }
 
 .pollar-send-amount-input {
-  font-family: Geist, sans-serif;
+  font-family: inherit;
   font-size: 20px;
   font-style: normal;
   font-weight: 500;
@@ -223,7 +223,7 @@
 }
 
 .pollar-send-destination-input {
-  font-family: 'Geist Mono', monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
@@ -354,7 +354,7 @@
 }
 
 .pollar-send-notice-address {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.75rem;
   color: var(--pollar-muted);
   word-break: break-all;

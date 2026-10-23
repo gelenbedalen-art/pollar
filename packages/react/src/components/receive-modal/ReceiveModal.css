@@ -119,7 +119,7 @@
   min-width: 0;
   overflow: hidden;
   font-size: 0.75rem;
-  font-family: monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   color: var(--pollar-text);
   line-height: 1.25rem;
   text-overflow: ellipsis;
