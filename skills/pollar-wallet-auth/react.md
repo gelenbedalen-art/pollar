@@ -96,8 +96,9 @@ for send, receive, copy, balance, history, ramp, KYC, distribution rules, sessio
 The rest: `<SendModal>`, `<ReceiveModal>`, `<SwapModal>`, `<EarnModal>`, `<TxHistoryModal>`,
 `<WalletBalanceModal>`, `<EnabledAssetsModal>`, `<SessionsModal>`, `<DistributionRulesModal>`,
 `<KycModal>`, `<RampWidget>`, and the requirement steps `<RequirementFormModal>`, `<RegistryCheckModal>`
-and `<ProviderRegistrationModal>` (`<KycModal>` and the card flow open them). `<RampWidget>` runs a
-ramp on the v3 API: it lists routes, quotes them, asks for the quote's fields, creates the order, then
+and `<ProviderRegistrationModal>`. `<RampWidget>` runs a ramp on the v3 API: it lists routes, quotes
+them (a route waiting on a verification step opens that step from its row and quotes again when it is
+done), asks for the quote's fields, creates the order, then
 shows its `pendingAction` (a payment QR or bank details, Authorize for a signature, Approve for a
 co-sign, a verification link) and follows it with `pollRampOrder`. It also lists pending orders to
 resume. To sign a leg it lends the connected wallet as the Stellar (`assertRampStellarSigner`, then

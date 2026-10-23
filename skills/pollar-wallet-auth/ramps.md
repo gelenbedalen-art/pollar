@@ -60,6 +60,9 @@ A listed route is not a promise: a pair may still find no liquidity or hit a lim
 When no route can be quoted at all, `quoteRamp` throws a `PollarApiError` with code
 `SDK_RAMPS_NO_ROUTE` (422) and `body.rejected`. `rejected` (in the error body or next to `quotes`)
 says why each candidate dropped out: `failure.resolutionAction` is what the user can do about it.
+A route waiting on a verification step carries it as `requirement` (`RampQuoteRequirement`: KYC, a
+form, a registry check or a provider registration); `rampRequirementCopy(requirement)` gives the
+text and the button, and a `null` action means the step is under review or refused.
 
 | Quote field                                    | Use                                                                                           |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |

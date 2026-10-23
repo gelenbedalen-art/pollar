@@ -29,6 +29,12 @@
   lists the fields it needs (`rampQuoteFields`) and a refused payee answers
   400 before anything moves. The 0.11.x ramp methods are removed; the widgets
   are rebuilt on the new calls. See [UPGRADE.md](./UPGRADE.md#ramps-on-api-v3).
+- A route waiting on a verification step carries it as `requirement`
+  (`RampQuoteRequirement`); `rampRequirementCopy(requirement)` gives its text
+  and button. `<RampWidget>` opens the step (`<KycModal>`,
+  `<RequirementFormModal>`, `<RegistryCheckModal>` or
+  `<ProviderRegistrationModal>`) from the route's row and quotes again when it is
+  done.
 - With no route to offer, `rampNoRouteText(rejected)` gives the fix every
   rejected route shares (or a change of amount), and the widgets show it.
   `SDK_RAMPS_WALLET_NOT_READY` asks the user to approve the new wallet account
