@@ -2,13 +2,16 @@
 
 import type { CosignCustody } from '@pollar/core';
 import { useState } from 'react';
-import { LOGO_POLLAR } from '../../constants';
-import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
+import { LOGO_POLLAR_MARK_ON_DARK, LOGO_POLLAR_MARK_ON_LIGHT } from '../../constants';
+import { buildModalCssVars, readableTextOn, type ModalStyleOverrides } from '../modal-theme';
 import '../shared.css';
 import './WalletButton.css';
 
-function ButtonLogo() {
-  return <img src={LOGO_POLLAR} alt="Pollar" width={22} height={22} className="pollar-wallet-btn-logo" />;
+/** The Pollar mark that reads on the accent fill: white on a dark accent, the
+ *  blue one on a pale accent (where the label turns dark too). */
+function ButtonLogo({ accentColor }: { accentColor: string }) {
+  const src = readableTextOn(accentColor) === '#ffffff' ? LOGO_POLLAR_MARK_ON_DARK : LOGO_POLLAR_MARK_ON_LIGHT;
+  return <img src={src} alt="Pollar" width={22} height={22} className="pollar-wallet-btn-logo" />;
 }
 
 export interface WalletButtonTemplateProps {
@@ -223,7 +226,7 @@ export function WalletButtonTemplate({
   if (!walletAddress) {
     return (
       <button type="button" className="pollar-wallet-login-btn" style={cssVars} onClick={onLogin}>
-        <ButtonLogo />
+        <ButtonLogo accentColor={accentColor} />
         Login with Pollar
       </button>
     );

@@ -159,6 +159,10 @@ export function buildModalCssVars(
     vars['--pollar-brand-border'] = mix(ink, 14, surface);
     vars['--pollar-brand-muted'] = mix(ink, 62, surface);
     vars['--pollar-brand-input-bg'] = mix(ink, 4, surface);
+    // The Pollar marks and wordmarks follow the surface, not the theme name.
+    const darkSurface = readableTextOn(surface) === '#ffffff';
+    vars['--pollar-brand-logo-on-light-display'] = darkSurface ? 'none' : 'block';
+    vars['--pollar-brand-logo-on-dark-display'] = darkSurface ? 'block' : 'none';
   }
   if (variant === 'hero') {
     vars['--pollar-brand-modal-padding'] = '2rem';
