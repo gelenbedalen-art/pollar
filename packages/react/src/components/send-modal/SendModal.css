@@ -253,9 +253,9 @@
   padding: 0 0.5rem;
   border: 0;
   border-radius: 0.375rem;
-  background: var(--pollar-btn-secondary-bg, #eaf2fa);
+  background: var(--pollar-btn-secondary-bg, color-mix(in srgb, var(--pollar-accent) 10%, var(--pollar-bg)));
   box-shadow: none;
-  color: var(--pollar-accent);
+  color: var(--pollar-btn-secondary-fg, var(--pollar-accent));
   font: inherit;
   font-size: 0.75rem;
   font-weight: 700;
@@ -265,7 +265,11 @@
 }
 
 .pollar-send-inline-action:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--pollar-btn-secondary-bg, #eaf2fa) 82%, var(--pollar-accent));
+  background: color-mix(
+    in srgb,
+    var(--pollar-btn-secondary-bg, color-mix(in srgb, var(--pollar-accent) 10%, var(--pollar-bg))) 82%,
+    var(--pollar-accent)
+  );
   color: var(--pollar-btn-secondary-fg, var(--pollar-text));
 }
 
@@ -282,17 +286,12 @@
   transform: translateY(-50%);
 }
 
-html.dark .pollar-send-inline-action {
-  background: var(--pollar-btn-secondary-bg, #253b52);
-}
-
 .pollar-send-modal .pollar-modal-actions {
   margin-top: 0.25rem;
 }
 
 .pollar-send-modal .pollar-btn-primary {
   min-height: 48px;
-  border-radius: 999px;
   font-size: 0.9375rem;
 }
 

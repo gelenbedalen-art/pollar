@@ -8,18 +8,6 @@
   padding-bottom: 0.75rem;
 }
 
-html.dark .pollar-cosign-modal {
-  --pollar-bg: #1a1a1a !important;
-  --pollar-border: #374151 !important;
-  --pollar-text: #ffffff !important;
-  --pollar-muted: #9ca3af !important;
-  --pollar-input-bg: #374151 !important;
-  --pollar-error-bg: #2a1515 !important;
-  --pollar-error-border: #7f1d1d !important;
-  --pollar-error-text: #f87171 !important;
-  --pollar-success-text: #4ade80 !important;
-}
-
 .pollar-cosign-muted {
   color: var(--pollar-muted);
   font-size: 0.85rem;
@@ -153,7 +141,7 @@ html.dark .pollar-cosign-modal {
 .pollar-cosign-btn {
   flex: 1;
   padding: 0.65rem 0.75rem;
-  border-radius: var(--pollar-button-border-radius, 10px);
+  border-radius: var(--pollar-buttons-border-radius, 10px);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
@@ -166,12 +154,12 @@ html.dark .pollar-cosign-modal {
 }
 
 .pollar-cosign-btn-secondary {
-  background: transparent;
-  color: var(--pollar-text);
+  background: var(--pollar-btn-secondary-bg, transparent);
+  color: var(--pollar-btn-secondary-fg, var(--pollar-text));
 }
 
 .pollar-cosign-btn-primary {
   background: var(--pollar-accent);
   border-color: var(--pollar-accent);
-  color: var(--pollar-accent-text, #fff);
+  color: var(--pollar-btn-primary-fg, #fff);
 }

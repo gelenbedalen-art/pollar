@@ -9,21 +9,6 @@
   padding-bottom: 0.75rem;
 }
 
-/* The demo (and many host apps) expose the active theme through the existing
- * document-level `dark` class. Keep the modal variables in sync with that
- * mechanism as well as the provider's configured theme. */
-html.dark .pollar-sessions-modal {
-  --pollar-bg: #1a1a1a !important;
-  --pollar-border: #374151 !important;
-  --pollar-text: #ffffff !important;
-  --pollar-muted: #9ca3af !important;
-  --pollar-input-bg: #374151 !important;
-  --pollar-error-bg: #2a1515 !important;
-  --pollar-error-border: #7f1d1d !important;
-  --pollar-error-text: #f87171 !important;
-  --pollar-success-text: #4ade80 !important;
-}
-
 .pollar-sessions-list {
   display: flex;
   flex: 0 0 auto;

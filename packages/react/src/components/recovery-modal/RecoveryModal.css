@@ -94,7 +94,7 @@
   min-width: 0;
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--pollar-border);
-  border-radius: var(--pollar-button-border-radius, 8px);
+  border-radius: var(--pollar-input-border-radius, 8px);
   background: var(--pollar-input-bg, transparent);
   color: var(--pollar-text);
   font-size: 0.85rem;
@@ -103,9 +103,9 @@
 .pollar-recovery-btn {
   padding: 0.5rem 0.8rem;
   border: 1px solid var(--pollar-border);
-  border-radius: var(--pollar-button-border-radius, 8px);
-  background: transparent;
-  color: var(--pollar-text);
+  border-radius: var(--pollar-buttons-border-radius, 8px);
+  background: var(--pollar-btn-secondary-bg, transparent);
+  color: var(--pollar-btn-secondary-fg, var(--pollar-text));
   font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
@@ -119,11 +119,12 @@
 .pollar-recovery-btn-primary {
   border-color: var(--pollar-accent);
   background: var(--pollar-accent);
-  color: #fff;
+  color: var(--pollar-btn-primary-fg, #fff);
 }
 
 .pollar-recovery-btn-danger {
   border-color: var(--pollar-error-border, #fecaca);
+  background: transparent;
   color: var(--pollar-error-text, #b91c1c);
 }
 

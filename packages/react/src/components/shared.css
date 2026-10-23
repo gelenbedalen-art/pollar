@@ -19,7 +19,7 @@
 .pollar-overlay {
   position: fixed;
   inset: 0;
-  z-index: var(--pollar-overlay-z-index, 50);
+  z-index: var(--pollar-overlay-z-index);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -48,23 +48,61 @@
   overflow-y: auto;
 }
 
-/* Host-app dark mode support. Branding remains the source of truth when no
- * `html.dark` class is present; this override lets applications that already
- * toggle the standard dark class update every Pollar modal as well. The
- * `!important` declarations are intentional because the modal chrome is also
- * represented as inline CSS variables. */
-html.dark .pollar-modal-card {
-  --pollar-bg: #1a1a1a !important;
-  --pollar-border: #374151 !important;
-  --pollar-text: #ffffff !important;
-  --pollar-muted: #9ca3af !important;
-  --pollar-input-bg: #374151 !important;
-  --pollar-error-bg: #2a1515 !important;
-  --pollar-error-border: #7f1d1d !important;
-  --pollar-error-text: #f87171 !important;
-  --pollar-success-text: #4ade80 !important;
-  --pollar-logo-on-light-display: none !important;
-  --pollar-logo-on-dark-display: block !important;
+/* --- Theme variables -------------------------------------------------------------
+ * Every component reads the public `--pollar-*` variables. Each one resolves in
+ * three tiers, strongest first:
+ *   1. a host stylesheet that sets it on a Pollar root (or anything inside one);
+ *   2. the dashboard's Branding, written inline by `buildModalCssVars` under the
+ *      private `--pollar-brand-*` names;
+ *   3. the defaults below - the dark set when the host page has `html.dark` and
+ *      the Branding left the palette unpinned.
+ * Tier 1 wins because these rules sit inside `:where()` (zero specificity). The
+ * palette defaults repeat PALETTES in modal-theme.ts. A `--pollar-brand-*` with
+ * no fallback here is optional: unset, the public variable is invalid and each
+ * component's own `var()` fallback applies. */
+:where(.pollar-modal-card, .pollar-wallet-wrapper, .pollar-wallet-login-btn) {
+  --pollar-accent: var(--pollar-brand-accent, #005db4);
+  --pollar-btn-primary-fg: var(--pollar-brand-btn-primary-fg, #ffffff);
+  --pollar-btn-secondary-bg: var(--pollar-brand-btn-secondary-bg);
+  --pollar-btn-secondary-fg: var(--pollar-brand-btn-secondary-fg);
+  --pollar-bg: var(--pollar-brand-bg, #ffffff);
+  --pollar-border: var(--pollar-brand-border, #e5e7eb);
+  --pollar-text: var(--pollar-brand-text, #111827);
+  --pollar-muted: var(--pollar-brand-muted, #6b7280);
+  --pollar-input-bg: var(--pollar-brand-input-bg, #f9fafb);
+  --pollar-error-bg: var(--pollar-brand-error-bg, #fef2f2);
+  --pollar-error-border: var(--pollar-brand-error-border, #fecaca);
+  --pollar-error-text: var(--pollar-brand-error-text, #dc2626);
+  --pollar-success-text: var(--pollar-brand-success-text, #16a34a);
+  --pollar-logo-on-light-display: var(--pollar-brand-logo-on-light-display, block);
+  --pollar-logo-on-dark-display: var(--pollar-brand-logo-on-dark-display, none);
+  --pollar-modal-border-radius: var(--pollar-brand-modal-border-radius, 16px);
+  --pollar-buttons-border-radius: var(--pollar-brand-buttons-border-radius, 6px);
+  --pollar-buttons-height: 44px;
+  --pollar-input-height: 44px;
+  --pollar-input-border-radius: 0.5rem;
+  --pollar-card-border-radius: 10px;
+  --pollar-modal-padding: var(--pollar-brand-modal-padding);
+  --pollar-modal-heading-size: var(--pollar-brand-modal-heading-size);
+  --pollar-modal-subtitle-size: var(--pollar-brand-modal-subtitle-size);
+}
+
+:where(html.dark) :where(.pollar-modal-card, .pollar-wallet-wrapper, .pollar-wallet-login-btn) {
+  --pollar-bg: var(--pollar-brand-bg, #1a1a1a);
+  --pollar-border: var(--pollar-brand-border, #374151);
+  --pollar-text: var(--pollar-brand-text, #ffffff);
+  --pollar-muted: var(--pollar-brand-muted, #9ca3af);
+  --pollar-input-bg: var(--pollar-brand-input-bg, #374151);
+  --pollar-error-bg: var(--pollar-brand-error-bg, #2a1515);
+  --pollar-error-border: var(--pollar-brand-error-border, #7f1d1d);
+  --pollar-error-text: var(--pollar-brand-error-text, #f87171);
+  --pollar-success-text: var(--pollar-brand-success-text, #4ade80);
+  --pollar-logo-on-light-display: var(--pollar-brand-logo-on-light-display, none);
+  --pollar-logo-on-dark-display: var(--pollar-brand-logo-on-dark-display, block);
+}
+
+:where(.pollar-overlay) {
+  --pollar-overlay-z-index: var(--pollar-brand-overlay-z-index, 50);
 }
 
 /* --- Common input -------------------------------------------------------------- */

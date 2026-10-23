@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
 import { walletNotReadyReason } from '../../lib/wallet-provisioning';
 import { useChains } from '../../useChains';
+import { modalChrome } from '../modal-theme';
 import { WalletButtonTemplate } from './WalletButtonTemplate';
 import './WalletButton.css';
 
@@ -63,11 +64,7 @@ export function WalletButton() {
   // its user's separate Stellar wallet.
   const notReadyReason = walletNotReadyReason(wallet, primaryChain);
 
-  const { theme = 'light', accentColor = '#005DB4' } = styles;
-  const isDark = theme === 'dark';
-  const dropdownBg = isDark ? '#18181b' : '#fff';
-  const dropdownBorder = isDark ? '#3f3f46' : '#e4e4e7';
-  const itemColor = isDark ? '#fafafa' : '#18181b';
+  const { theme, accentColor, styleOverrides } = modalChrome(styles);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -185,12 +182,11 @@ export function WalletButton() {
   return (
     <WalletButtonTemplate
       walletAddress={walletAddress ?? null}
+      theme={theme}
       accentColor={accentColor}
+      styleOverrides={styleOverrides}
       open={open}
       copied={copied}
-      dropdownBg={dropdownBg}
-      dropdownBorder={dropdownBorder}
-      itemColor={itemColor}
       wrapperRef={wrapperRef}
       isInProgress={isInProgress}
       showCreateAccount={canCreateAccount}
