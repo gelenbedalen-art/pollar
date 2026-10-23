@@ -295,6 +295,8 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
   canSign: boolean;
   canApprove: boolean;
   scannable: RampScannable | null;
+  /** A QR payment that arrived without its code rendered: there is nothing to pay with, and the screen says so. */
+  codeMissing: boolean;
   details: Array<{ label: string; value: string }>;
   link: string | null;
   /** When the payment or signature must be done by; null when it does not lapse. */
@@ -308,6 +310,7 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
     canSign: false,
     canApprove: false,
     scannable: null,
+    codeMissing: false,
     details: [],
     link: null,
     expiresAt,
@@ -318,7 +321,8 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
     case 'FIAT_PAYMENT': {
       const instructions = action.instructions;
       const title = `Pay ${instructions.amount} ${instructions.currency}`;
-      if (instructions.kind === 'qr') return { ...base, title, scannable: instructions.scannable ?? null };
+      if (instructions.kind === 'qr')
+        return { ...base, title, scannable: instructions.scannable ?? null, codeMissing: !instructions.scannable };
       return {
         ...base,
         title,

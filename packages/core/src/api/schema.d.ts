@@ -14580,7 +14580,7 @@ export interface operations {
                                             payloadLabel: string | null;
                                             image: {
                                                 /** @enum {string} */
-                                                mediaType: "image/svg+xml" | "image/png";
+                                                mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                                 /** @enum {string} */
                                                 encoding: "utf8" | "base64";
                                                 data: string;
@@ -14790,7 +14790,7 @@ export interface operations {
                                         payloadLabel: string | null;
                                         image: {
                                             /** @enum {string} */
-                                            mediaType: "image/svg+xml" | "image/png";
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                             /** @enum {string} */
                                             encoding: "utf8" | "base64";
                                             data: string;
@@ -15036,7 +15036,7 @@ export interface operations {
                                         payloadLabel: string | null;
                                         image: {
                                             /** @enum {string} */
-                                            mediaType: "image/svg+xml" | "image/png";
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                             /** @enum {string} */
                                             encoding: "utf8" | "base64";
                                             data: string;
@@ -15245,7 +15245,7 @@ export interface operations {
                                         payloadLabel: string | null;
                                         image: {
                                             /** @enum {string} */
-                                            mediaType: "image/svg+xml" | "image/png";
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                             /** @enum {string} */
                                             encoding: "utf8" | "base64";
                                             data: string;
@@ -15476,7 +15476,7 @@ export interface operations {
                                         payloadLabel: string | null;
                                         image: {
                                             /** @enum {string} */
-                                            mediaType: "image/svg+xml" | "image/png";
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                             /** @enum {string} */
                                             encoding: "utf8" | "base64";
                                             data: string;

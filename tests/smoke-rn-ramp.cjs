@@ -385,8 +385,28 @@ const order = (pendingAction, patch = {}) => ({
     await unmount();
   }
 
+  // A QR payment whose code did not arrive rendered says so instead of an empty screen.
+  {
+    saved = {
+      direction: 'ONRAMP',
+      order: order({
+        kind: 'FIAT_PAYMENT',
+        actionId: 'pay',
+        legIndex: 0,
+        expiresAt: later(600),
+        instructions: { kind: 'qr', payload: '/9j/4AAQ', amount: '18', currency: 'BOB' },
+      }),
+    };
+    client.pollRampOrder = async () => new Promise(() => {});
+    texts = [];
+    unmount = await render(React.createElement(RampWidget, { onClose() {} }));
+    assert.match(shown(), /The payment code could not be shown/);
+    await unmount();
+    saved = null;
+  }
+
   console.log(
-    'React Native RampWidget v3: route, quote, details, order, QR, kept order, explicit signature, account approval resume and lapsed quotes passed',
+    'React Native RampWidget v3: route, quote, details, order, QR, kept order, explicit signature, account approval resume, lapsed quotes and a missing payment code passed',
   );
 })().catch((error) => {
   console.error(error);

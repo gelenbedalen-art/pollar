@@ -678,6 +678,11 @@ export function RampWidgetTemplate({
               </div>
             </div>
           )}
+          {!settled && view.codeMissing && (
+            <p className="pollar-ramp-payment-note" style={{ color: 'var(--pollar-error-text)' }}>
+              The payment code could not be shown. Refresh; if it still does not appear, contact this app's support.
+            </p>
+          )}
           {!settled && view.scannable?.payload && view.scannable.payloadLabel && (
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">{view.scannable.payloadLabel}</span>

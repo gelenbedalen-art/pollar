@@ -576,6 +576,11 @@ export function RampWidgetTemplate({
                 )}
               </View>
             )}
+            {!settled && view.codeMissing && (
+              <Text style={[styles.note, { color: colors.error }]}>
+                The payment code could not be shown. Refresh; if it still does not appear, contact this app's support.
+              </Text>
+            )}
             {!settled && scannable?.payload && scannable.payloadLabel && copyRow(scannable.payloadLabel, scannable.payload)}
             {!settled && view.details.map((d) => copyRow(d.label, d.value))}
 

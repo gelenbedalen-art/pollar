@@ -755,6 +755,42 @@ async function mount(client, application = {}) {
     second.client.destroy();
   }
 
+  // --- A QR payment whose code did not arrive rendered says so; a provider JPEG is drawn as a JPEG ---
+  {
+    const jpeg = '/9j/4AAQSkZJRgABAgAAAQABAAD';
+    const qrOnly = { ...qrAction, instructions: { kind: 'qr', payload: jpeg, amount: '18', currency: 'BOB' } };
+    const withJpeg = {
+      ...qrAction,
+      instructions: {
+        ...qrOnly.instructions,
+        scannable: {
+          kind: 'opaque',
+          payload: null,
+          payloadLabel: null,
+          image: { mediaType: 'image/jpeg', encoding: 'base64', data: jpeg, inlineSafe: false },
+        },
+      },
+    };
+    for (const action of [qrOnly, withJpeg]) {
+      const { client } = fixtureClient({
+        listRampOrders: async () => ({ orders: [order(action)], nextCursor: null }),
+        getRampOrder: async () => order(action),
+      });
+      const ui = await mount(client);
+      await ui.click(ui.button('Resume purchase'));
+      const img = ui.container.querySelector('img[alt="Payment QR"]');
+      if (action === qrOnly) {
+        assert.match(ui.container.textContent, /The payment code could not be shown/);
+        assert.equal(img, null);
+      } else {
+        assert.doesNotMatch(ui.container.textContent, /could not be shown/);
+        assert.equal(img?.getAttribute('src'), `data:image/jpeg;base64,${jpeg}`);
+      }
+      await ui.unmount();
+      client.destroy();
+    }
+  }
+
   // --- An app out of credits: the user is pointed to the app, never told about credits ---
   {
     const { client } = fixtureClient({
@@ -901,7 +937,7 @@ async function mount(client, application = {}) {
   }
 
   console.log(
-    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume, open orders, QR window, receive amount, approvals, retry, account approval resume, lapsed quotes and 402 passed.',
+    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume, open orders, QR window, receive amount, approvals, retry, account approval resume, lapsed quotes, missing payment code, JPEG QR and 402 passed.',
   );
 })().catch((error) => {
   console.error(error);

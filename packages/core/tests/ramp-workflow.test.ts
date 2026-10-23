@@ -78,6 +78,20 @@ test("a payment's window is part of how the action is shown", () => {
   assert.equal(describeRampAction({ state: 'processing', pendingAction: null } as never).expiresAt, null);
 });
 
+test('a QR payment without its rendered code says the code is missing; one with it does not', () => {
+  const pay = (instructions: Record<string, unknown>) => ({
+    state: 'awaiting_payment',
+    pendingAction: { kind: 'FIAT_PAYMENT', actionId: 'pay', legIndex: 0, expiresAt: null, instructions },
+  });
+  const qr = { kind: 'qr', payload: '/9j/4AAQ', amount: '18', currency: 'BOB' };
+  const image = { mediaType: 'image/jpeg', encoding: 'base64', data: '/9j/4AAQ', inlineSafe: false };
+  const scannable = { kind: 'opaque', payload: null, payloadLabel: null, image };
+  assert.equal(describeRampAction(pay(qr) as never).codeMissing, true);
+  assert.equal(describeRampAction(pay({ ...qr, scannable }) as never).codeMissing, false);
+  const bank = { kind: 'bank_transfer', amount: '18', currency: 'MXN', details: [], reference: null };
+  assert.equal(describeRampAction(pay(bank) as never).codeMissing, false, 'a bank transfer has no code to miss');
+});
+
 test('an expired provider order reads differently once the funds moved: the user tries again, nothing is lost', () => {
   const failure = {
     code: 'PROVIDER_ORDER_EXPIRED',
