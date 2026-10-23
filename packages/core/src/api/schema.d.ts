@@ -14587,6 +14587,7 @@ export interface operations {
                                                 inlineSafe: boolean;
                                             };
                                         };
+                                        link?: string | null;
                                     } | {
                                         /** @constant */
                                         kind: "bank_transfer";
@@ -14597,6 +14598,13 @@ export interface operations {
                                             value: string;
                                         }[];
                                         reference: string | null;
+                                        link?: string | null;
+                                    } | {
+                                        /** @constant */
+                                        kind: "hosted";
+                                        url: string;
+                                        amount: string;
+                                        currency: string;
                                     };
                                     expiresAt: string | null;
                                 } | {
@@ -14797,6 +14805,7 @@ export interface operations {
                                             inlineSafe: boolean;
                                         };
                                     };
+                                    link?: string | null;
                                 } | {
                                     /** @constant */
                                     kind: "bank_transfer";
@@ -14807,6 +14816,13 @@ export interface operations {
                                         value: string;
                                     }[];
                                     reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
                                 };
                                 expiresAt: string | null;
                             } | {
@@ -15043,6 +15059,7 @@ export interface operations {
                                             inlineSafe: boolean;
                                         };
                                     };
+                                    link?: string | null;
                                 } | {
                                     /** @constant */
                                     kind: "bank_transfer";
@@ -15053,6 +15070,13 @@ export interface operations {
                                         value: string;
                                     }[];
                                     reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
                                 };
                                 expiresAt: string | null;
                             } | {
@@ -15252,6 +15276,7 @@ export interface operations {
                                             inlineSafe: boolean;
                                         };
                                     };
+                                    link?: string | null;
                                 } | {
                                     /** @constant */
                                     kind: "bank_transfer";
@@ -15262,6 +15287,13 @@ export interface operations {
                                         value: string;
                                     }[];
                                     reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
                                 };
                                 expiresAt: string | null;
                             } | {
@@ -15483,6 +15515,7 @@ export interface operations {
                                             inlineSafe: boolean;
                                         };
                                     };
+                                    link?: string | null;
                                 } | {
                                     /** @constant */
                                     kind: "bank_transfer";
@@ -15493,6 +15526,13 @@ export interface operations {
                                         value: string;
                                     }[];
                                     reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
                                 };
                                 expiresAt: string | null;
                             } | {

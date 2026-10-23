@@ -727,11 +727,13 @@ export function RampWidgetTemplate({
               target="_blank"
               rel="noopener noreferrer"
             >
-              Complete verification
+              {view.linkLabel}
             </a>
           )}
           {!settled && order.pendingAction?.kind === 'KYC' && !view.link && (
-            <p className="pollar-ramp-payment-note">The provider is reviewing your details. This updates on its own.</p>
+            <p className="pollar-ramp-payment-note">
+              {view.note ?? 'The provider is reviewing your details. This updates on its own.'}
+            </p>
           )}
           {pollTrouble && !settled && <p className="pollar-ramp-payment-note">Having trouble reaching the server. Retrying…</p>}
           {errorMsg && <p className="pollar-ramp-field-error">{errorMsg}</p>}

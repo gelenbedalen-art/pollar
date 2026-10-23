@@ -92,6 +92,58 @@ test('a QR payment without its rendered code says the code is missing; one with 
   assert.equal(describeRampAction(pay(bank) as never).codeMissing, false, 'a bank transfer has no code to miss');
 });
 
+test("a payment's own page is offered beside its code or account, and is the payment when it is all there is", () => {
+  const pay = (instructions: Record<string, unknown>, expiresAt: string | null = null) => ({
+    state: 'awaiting_payment',
+    pendingAction: { kind: 'FIAT_PAYMENT', actionId: 'pay', legIndex: 0, expiresAt, instructions },
+  });
+  const page = 'https://pay.example/o/1';
+  const qr = describeRampAction(pay({ kind: 'qr', payload: 'x', amount: '18', currency: 'BOB', link: page }) as never);
+  assert.deepEqual([qr.link, qr.linkLabel, qr.codeMissing], [page, 'Open payment page', false], 'the page is a way to pay');
+  const bank = describeRampAction(
+    pay({ kind: 'bank_transfer', amount: '1000', currency: 'MXN', details: [], reference: null, link: page }) as never,
+  );
+  assert.deepEqual([bank.link, bank.linkLabel], [page, 'Open status page']);
+  const hosted = describeRampAction(pay({ kind: 'hosted', url: page, amount: '18', currency: 'BOB' }) as never);
+  assert.deepEqual([hosted.title, hosted.link, hosted.linkLabel], ['Pay 18 BOB', page, 'Pay on the provider page']);
+  const unsafe = describeRampAction(
+    pay({ kind: 'hosted', url: 'javascript:alert(1)', amount: '18', currency: 'BOB' }) as never,
+  );
+  assert.deepEqual([unsafe.link, unsafe.codeMissing], [null, true], 'a page that is not https is never opened');
+});
+
+test('a payment past its window shows neither its code, its account nor its page', () => {
+  const image = { mediaType: 'image/png', encoding: 'base64', data: 'iVBORw0KGgo', inlineSafe: false };
+  const scannable = { kind: 'opaque', payload: null, payloadLabel: null, image };
+  const view = describeRampAction({
+    state: 'awaiting_payment',
+    pendingAction: {
+      kind: 'FIAT_PAYMENT',
+      actionId: 'pay',
+      legIndex: 0,
+      expiresAt: new Date(Date.now() - 1000).toISOString(),
+      instructions: { kind: 'qr', payload: 'x', amount: '18', currency: 'BOB', scannable, link: 'https://pay.example/o/1' },
+    },
+  } as never);
+  assert.deepEqual([view.paymentClosed, view.scannable, view.link, view.codeMissing], [true, null, null, false]);
+});
+
+test('a verification with nothing to open says what the provider asks for, only for the steps still on the user', () => {
+  const kyc = (steps: unknown, url: string | null = null) =>
+    describeRampAction({
+      state: 'awaiting_payment',
+      pendingAction: { kind: 'KYC', actionId: 'k', legIndex: 0, steps, url },
+    } as never);
+  const abroad = kyc([
+    { stepId: 'abroad-kyc', status: 'required', url: null, instructions: 'Complete verification directly with Abroad.' },
+  ]);
+  assert.deepEqual([abroad.link, abroad.note], [null, 'Complete verification directly with Abroad.']);
+  assert.equal(kyc([{ status: 'awaiting_provider', instructions: 'We are reviewing.' }]).note, null, 'waiting is not a task');
+  assert.equal(kyc([{ purpose: 'verification' }]).note, null);
+  const hosted = kyc([], 'https://kyc.example/start');
+  assert.deepEqual([hosted.linkLabel, hosted.note], ['Complete verification', null]);
+});
+
 test('an expired provider order reads differently once the funds moved: the user tries again, nothing is lost', () => {
   const failure = {
     code: 'PROVIDER_ORDER_EXPIRED',

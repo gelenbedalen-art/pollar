@@ -385,6 +385,29 @@ const order = (pendingAction, patch = {}) => ({
     await unmount();
   }
 
+  // A verification with nothing to open says what the provider asks for.
+  {
+    saved = {
+      direction: 'ONRAMP',
+      order: order({
+        kind: 'KYC',
+        actionId: 'kyc',
+        legIndex: 0,
+        url: null,
+        steps: [
+          { stepId: 'abroad-kyc', status: 'required', url: null, instructions: 'Complete verification directly with Abroad.' },
+        ],
+      }),
+    };
+    client.pollRampOrder = async () => new Promise(() => {});
+    texts = [];
+    unmount = await render(React.createElement(RampWidget, { onClose() {} }));
+    assert.match(shown(), /Complete verification directly with Abroad\./);
+    assert.doesNotMatch(shown(), /reviewing your details/);
+    await unmount();
+    saved = null;
+  }
+
   // A QR payment whose code did not arrive rendered says so instead of an empty screen.
   {
     saved = {
@@ -406,7 +429,7 @@ const order = (pendingAction, patch = {}) => ({
   }
 
   console.log(
-    'React Native RampWidget v3: route, quote, details, order, QR, kept order, explicit signature, account approval resume, lapsed quotes and a missing payment code passed',
+    'React Native RampWidget v3: route, quote, details, order, QR, kept order, explicit signature, account approval resume, lapsed quotes, a provider KYC note and a missing payment code passed',
   );
 })().catch((error) => {
   console.error(error);

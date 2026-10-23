@@ -589,10 +589,10 @@ export function RampWidgetTemplate({
               <Text style={[styles.note, { color: colors.muted }]}>Preparing a new signature request…</Text>
             )}
             {!settled && view.canApprove && primary('Approve on this device', onApprove)}
-            {!settled && view.link && primary('Complete verification', () => void Linking.openURL(view.link!))}
+            {!settled && view.link && primary(view.linkLabel ?? 'Open', () => void Linking.openURL(view.link!))}
             {!settled && order.pendingAction?.kind === 'KYC' && !view.link && (
               <Text style={[styles.note, { color: colors.muted }]}>
-                The provider is reviewing your details. This updates on its own.
+                {view.note ?? 'The provider is reviewing your details. This updates on its own.'}
               </Text>
             )}
             {pollTrouble && !settled && (

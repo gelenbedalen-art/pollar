@@ -288,6 +288,18 @@ export function rampNoRouteText(rejected: Array<Pick<RampQuoteRejection, 'failur
     : 'No route can take this amount right now. Try another amount.';
 }
 
+/** What the provider says to do for the verification steps still on the user, joined; null when none says. */
+function kycNote(steps: unknown): string | null {
+  if (!Array.isArray(steps)) return null;
+  const said = steps
+    .filter((step): step is { status?: unknown; instructions: string } => {
+      const s = step as { status?: unknown; instructions?: unknown } | null;
+      return !!s && s.status === 'required' && typeof s.instructions === 'string' && s.instructions.trim() !== '';
+    })
+    .map((step) => step.instructions.trim());
+  return said.length ? said.join(' ') : null;
+}
+
 /** The action as a screen shows it; platforms supply the controls, links and QR rendering. */
 export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'state'>): {
   action: RampPendingAction | null;
@@ -299,6 +311,12 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
   codeMissing: boolean;
   details: Array<{ label: string; value: string }>;
   link: string | null;
+  /** What the button that opens `link` says; null when there is no link. */
+  linkLabel: string | null;
+  /** The provider's own words on what the user does next, for a step with nothing to open. */
+  note: string | null;
+  /** A payment whose window has closed: its code, details and page are no longer shown. */
+  paymentClosed: boolean;
   /** When the payment or signature must be done by; null when it does not lapse. */
   expiresAt: string | null;
 } {
@@ -311,8 +329,11 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
     canApprove: false,
     scannable: null,
     codeMissing: false,
-    details: [],
-    link: null,
+    details: [] as Array<{ label: string; value: string }>,
+    link: null as string | null,
+    linkLabel: null as string | null,
+    note: null as string | null,
+    paymentClosed: false,
     expiresAt,
   };
   if (order.state === 'completed') return { ...base, title: 'Transfer completed' };
@@ -321,11 +342,26 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
     case 'FIAT_PAYMENT': {
       const instructions = action.instructions;
       const title = `Pay ${instructions.amount} ${instructions.currency}`;
+      // Past its window a code or account would take money the order no longer waits for.
+      if (expiresAt && Date.parse(expiresAt) <= Date.now()) return { ...base, title, paymentClosed: true };
+      if (instructions.kind === 'hosted') {
+        const link = safeRampUrl(instructions.url);
+        return { ...base, title, link, linkLabel: link ? 'Pay on the provider page' : null, codeMissing: !link };
+      }
+      const link = instructions.link ? safeRampUrl(instructions.link) : null;
+      const page = { link, linkLabel: link ? (instructions.kind === 'qr' ? 'Open payment page' : 'Open status page') : null };
       if (instructions.kind === 'qr')
-        return { ...base, title, scannable: instructions.scannable ?? null, codeMissing: !instructions.scannable };
+        return {
+          ...base,
+          title,
+          ...page,
+          scannable: instructions.scannable ?? null,
+          codeMissing: !instructions.scannable && !link,
+        };
       return {
         ...base,
         title,
+        ...page,
         details: [
           ...instructions.details,
           ...(instructions.reference ? [{ label: 'Reference', value: instructions.reference }] : []),
@@ -336,12 +372,16 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
       return { ...base, title: 'Authorize your transfer', canSign: Date.parse(action.expiresAt) > Date.now() };
     case 'COSIGN_APPROVAL':
       return { ...base, title: 'Approve on your device', canApprove: true };
-    case 'KYC':
+    case 'KYC': {
+      const link = action.url ? safeRampUrl(action.url) : null;
       return {
         ...base,
         title: 'Complete verification',
-        link: action.url ? safeRampUrl(action.url) : null,
+        link,
+        linkLabel: link ? 'Complete verification' : null,
+        note: link ? null : kycNote(action.steps),
       };
+    }
     default:
       return base;
   }

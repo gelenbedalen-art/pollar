@@ -791,6 +791,50 @@ async function mount(client, application = {}) {
     }
   }
 
+  // --- A verification with nothing to open says what the provider asks; a closed window hides the QR; a page to pay is a link ---
+  {
+    const abroadKyc = {
+      kind: 'KYC',
+      actionId: 'kyc',
+      legIndex: 0,
+      url: null,
+      steps: [
+        { stepId: 'abroad-kyc', status: 'required', url: null, instructions: 'Complete verification directly with Abroad.' },
+      ],
+    };
+    const closedQr = { ...qrAction, expiresAt: later(-60) };
+    const hosted = {
+      kind: 'FIAT_PAYMENT',
+      actionId: 'pay',
+      legIndex: 0,
+      expiresAt: later(600),
+      instructions: { kind: 'hosted', url: 'https://pay.example/o/1', amount: '18', currency: 'BOB' },
+    };
+    for (const action of [abroadKyc, closedQr, hosted]) {
+      const { client } = fixtureClient({
+        listRampOrders: async () => ({ orders: [order(action)], nextCursor: null }),
+        getRampOrder: async () => order(action),
+      });
+      const ui = await mount(client);
+      await ui.click(ui.button('Resume purchase'));
+      const text = ui.container.textContent;
+      if (action === abroadKyc) {
+        assert.match(text, /Complete verification directly with Abroad\./);
+        assert.doesNotMatch(text, /reviewing your details/);
+      } else if (action === closedQr) {
+        assert.match(text, /payment window has closed/);
+        assert.equal(ui.container.querySelector('#fixture-qr'), null, 'a closed window shows no QR');
+      } else {
+        const link = ui.container.querySelector('a.pollar-ramp-hosted-link');
+        assert.equal(link?.getAttribute('href'), 'https://pay.example/o/1');
+        assert.equal(link?.textContent.trim(), 'Pay on the provider page');
+        assert.doesNotMatch(text, /Complete verification|could not be shown/);
+      }
+      await ui.unmount();
+      client.destroy();
+    }
+  }
+
   // --- An app out of credits: the user is pointed to the app, never told about credits ---
   {
     const { client } = fixtureClient({
@@ -937,7 +981,7 @@ async function mount(client, application = {}) {
   }
 
   console.log(
-    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume, open orders, QR window, receive amount, approvals, retry, account approval resume, lapsed quotes, missing payment code, JPEG QR and 402 passed.',
+    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume, open orders, QR window, receive amount, approvals, retry, account approval resume, lapsed quotes, missing payment code, JPEG QR, provider KYC note, closed QR, hosted payment and 402 passed.',
   );
 })().catch((error) => {
   console.error(error);
