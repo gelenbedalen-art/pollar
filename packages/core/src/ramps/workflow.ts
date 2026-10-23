@@ -99,11 +99,43 @@ export function rampLegTitle(leg: Pick<RampOrderLeg, 'kind' | 'from' | 'to'>): s
   return `Send to ${leg.to.kind === 'asset' ? (CHAIN_NAME[leg.to.chain] ?? leg.to.chain) : nodeName(leg.to)}`;
 }
 
-/** The step a leg is on, as a short status for a progress list. */
+// So an invalid address never round-trips to the provider, which rejects it with a generic VALIDATION_ERROR.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * A field a quote asks for is complete when it is filled and, for an email,
+ * well-formed. An optional field may stay blank, but what is typed must be well-formed.
+ */
+export function rampFieldValid(field: Pick<RampField, 'type' | 'optional'>, raw: string | undefined): boolean {
+  const value = (raw ?? '').trim();
+  if (!value) return field.optional === true;
+  if (field.type === 'email') return EMAIL_RE.test(value);
+  return true;
+}
+
+/**
+ * The step a leg is on, as a short status for a progress list. A leg that is
+ * retrying on its own carries its last failure but is still running: only a
+ * leg that stopped (held, failed, cancelled) is failed.
+ */
 export function rampLegStatus(leg: Pick<RampOrderLeg, 'status' | 'failure'>): 'pending' | 'active' | 'done' | 'failed' {
   if (leg.status === 'COMPLETED') return 'done';
-  if (leg.failure || ['HELD', 'FAILED', 'CANCELLED'].includes(leg.status)) return 'failed';
+  if (['HELD', 'FAILED', 'CANCELLED'].includes(leg.status)) return 'failed';
   return leg.status === 'PENDING' ? 'pending' : 'active';
+}
+
+/** What the user ends with: the last leg's output, as received or else as planned. */
+export function rampOrderReceive(order: Pick<RampOrder, 'legs'>): { amount: string; unit: string } | null {
+  const last = order.legs[order.legs.length - 1];
+  if (!last) return null;
+  const amount = last.amountOutActual ?? last.amountOutPlanned;
+  const unit = last.to.kind === 'fiat' ? last.to.currency : last.to.code;
+  return amount ? { amount, unit } : null;
+}
+
+/** The order no longer moves on its own: final, or held until someone resolves it (no next read suggested). */
+export function rampOrderStopped(order: Pick<RampOrder, 'state' | 'nextPollAfter'>): boolean {
+  return ['completed', 'failed', 'refunded'].includes(order.state) || order.nextPollAfter === null;
 }
 
 /** What the user is asked to do about a failure, by its `resolutionAction`. */
@@ -207,9 +239,21 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
   scannable: RampScannable | null;
   details: Array<{ label: string; value: string }>;
   link: string | null;
+  /** When the payment or signature must be done by; null when it does not lapse. */
+  expiresAt: string | null;
 } {
   const action = order.pendingAction;
-  const base = { action, title: 'Processing', canSign: false, canApprove: false, scannable: null, details: [], link: null };
+  const expiresAt = action && 'expiresAt' in action && typeof action.expiresAt === 'string' ? action.expiresAt : null;
+  const base = {
+    action,
+    title: 'Processing',
+    canSign: false,
+    canApprove: false,
+    scannable: null,
+    details: [],
+    link: null,
+    expiresAt,
+  };
   if (order.state === 'completed') return { ...base, title: 'Transfer completed' };
   if (!action) return base;
   switch (action.kind) {

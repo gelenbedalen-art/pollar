@@ -132,6 +132,13 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
   const [trustingAsset, setTrustingAsset] = useState<string | null>(null);
   const [creatingWallet, setCreatingWallet] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  // A read of the order failed and polling keeps trying; cleared by the next good read.
+  const [pollTrouble, setPollTrouble] = useState(false);
+  // Bumped to start following the order again (after a retry or refresh of one that had stopped).
+  const [pollKey, setPollKey] = useState(0);
+  // The approval the user was last prompted for, so each new one prompts once.
+  const promptedApproval = useRef<string | null>(null);
   // An app that leaves the custody to the user creates the wallet from the wallet menu, where the user picks it.
   const custodyChoice = appConfig.application?.walletCustodyMode === 'USER_CHOICE';
   const appChains = appConfig.application?.chains;
@@ -168,7 +175,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
 
   async function loadPendingOrders() {
     try {
-      const page = await client.listRampOrders({ pending: 'true', limit: 5 });
+      // Every order not final yet: one already paid and moving on its own is still the user's to follow.
+      const page = await client.listRampOrders({ open: 'true', limit: 5 });
       setPendingOrders(page.orders);
     } catch {
       setPendingOrders([]);
@@ -190,9 +198,31 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   useEffect(() => {
     if (step !== 'status' || !orderId) return;
     const controller = new AbortController();
-    client.pollRampOrder(orderId, { signal: controller.signal, onUpdate: setOrder }).catch(() => {});
+    client
+      .pollRampOrder(orderId, {
+        signal: controller.signal,
+        onUpdate: (next) => {
+          setOrder(next);
+          setPollTrouble(false);
+        },
+        onError: () => setPollTrouble(true),
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setErrorMsg(rampErrorMessage(error, 'This operation could not be read.'));
+      });
     return () => controller.abort();
-  }, [client, step, orderId]);
+  }, [client, step, orderId, pollKey]);
+
+  // A co-signed step of the order waits on the user's device: bring its request up the moment it appears.
+  const approval = order?.pendingAction?.kind === 'COSIGN_APPROVAL' ? order.pendingAction.actionId : null;
+  useEffect(() => {
+    if (!approval || promptedApproval.current === approval) return;
+    promptedApproval.current = approval;
+    void client.cosign
+      .pending()
+      .catch(() => undefined)
+      .then(() => openCosignModal());
+  }, [approval, client, openCosignModal]);
 
   function handleDirectionChange(next: RampDirection) {
     setDirection(next);
@@ -318,6 +348,12 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       setStep('status');
     } catch (error) {
       setErrorMsg(rampErrorMessage(error, 'Could not start the operation. Please try again.'));
+      // The route's wallet on another chain waits on the user's approval: bring that request up.
+      if (isPollarApiError(error) && error.code === 'SDK_RAMPS_WALLET_NOT_READY')
+        void client.cosign
+          .pending()
+          .catch(() => undefined)
+          .then(() => openCosignModal());
       // A refused detail is fixed on the form; an expired quote needs a new one.
       if (isPollarApiError(error) && error.code === 'VALIDATION_ERROR' && rampQuoteFields(quote).length) setStep('contact');
       else setStep('select_route');
@@ -372,12 +408,29 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     setStep(step === 'contact' ? 'select_route' : 'input');
   }
 
+  /** Runs the user's held order again, then follows it. */
+  async function handleRetryOrder() {
+    if (!order || retrying) return;
+    setRetrying(true);
+    setErrorMsg(null);
+    try {
+      setOrder(await client.retryRampOrder(order.id));
+      setPollKey((key) => key + 1);
+    } catch (error) {
+      setErrorMsg(rampErrorMessage(error, 'Could not try again. Please try again.'));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   async function handleRefresh() {
     if (refreshing) return;
     setRefreshing(true);
     try {
-      if (step === 'status' && order) setOrder(await client.getRampOrder(order.id));
-      else if (step === 'select_route') await handleFindRoute();
+      if (step === 'status' && order) {
+        setOrder(await client.getRampOrder(order.id));
+        setPollKey((key) => key + 1);
+      } else if (step === 'select_route') await handleFindRoute();
       else {
         await loadRoutes(direction);
         await loadPendingOrders();
@@ -489,6 +542,9 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         }}
         onSign={() => void handleSign()}
         onApprove={openCosignModal}
+        retrying={retrying}
+        onRetryOrder={() => void handleRetryOrder()}
+        pollTrouble={pollTrouble}
         onResumeOrder={(id) => void handleResumeOrder(id)}
         onNewOrder={handleNewOrder}
         onBack={handleBack}

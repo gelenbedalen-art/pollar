@@ -133,7 +133,10 @@ const order = (patch) => ({
         : answer({ success: false, code: 'VALIDATION_ERROR', message: 'name is required' }, 400);
     if (url.pathname === '/v3/ramps/orders') return answer({ orders: [order({})], nextCursor: null });
     if (url.pathname === '/v3/ramps/orders/o1/legs/1/signature') return answer(order({ state: 'processing' }));
-    if (url.pathname === '/v3/ramps/orders/o1') return answer(reads.length > 1 ? reads.shift() : reads[0]);
+    if (url.pathname === '/v3/ramps/orders/o1') {
+      const next = reads.length > 1 ? reads.shift() : reads[0];
+      return next?.failWith ? answer({ success: false, code: next.failWith }, next.status) : answer(next);
+    }
     return answer({ success: false, code: 'NOT_FOUND' }, 404);
   };
 
@@ -329,6 +332,14 @@ const order = (patch) => ({
   const settled = await client.pollRampOrder('o1', { onUpdate: (o) => seen.push(o.state) });
   assert.equal(settled.state, 'completed');
   assert.deepEqual(seen, ['awaiting_payment', 'processing', 'completed']);
+  // A read the API fails (a deploy's 502) is reported and read again; only a vanished order ends it.
+  reads = [order({}), { failWith: 'GATEWAY_ERROR', status: 502 }, order({ state: 'completed', nextPollAfter: null })];
+  const pollErrors = [];
+  const recovered = await client.pollRampOrder('o1', { onError: (e) => pollErrors.push(e.code) });
+  assert.equal(recovered.state, 'completed');
+  assert.deepEqual(pollErrors, ['GATEWAY_ERROR']);
+  reads = [{ failWith: 'SDK_RAMPS_TX_NOT_FOUND', status: 404 }];
+  await assert.rejects(client.pollRampOrder('o1'), (e) => e.code === 'SDK_RAMPS_TX_NOT_FOUND');
   const controller = new AbortController();
   reads = [order({ nextPollAfter: later(30) })];
   const stopped = client.pollRampOrder('o1', { signal: controller.signal });
@@ -336,7 +347,7 @@ const order = (patch) => ({
   await assert.rejects(stopped, (error) => error.name === 'AbortError');
 
   client.destroy();
-  console.log('Ramp client v3: paths, payee errors, helpers, leg signing and polling passed.');
+  console.log('Ramp client v3: paths, payee errors, helpers, leg signing, polling and polling through errors passed.');
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

@@ -97,7 +97,10 @@ export { getEarnProviders, getEarnOpportunities, getEarnPosition, buildEarnTx } 
 export {
   describeRampAction,
   rampCountries,
+  rampFieldValid,
   rampLegStatus,
+  rampOrderReceive,
+  rampOrderStopped,
   rampLegTitle,
   rampNoRouteText,
   rampQuoteFields,

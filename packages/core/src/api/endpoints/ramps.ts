@@ -69,6 +69,16 @@ export async function getRampOrder(api: PollarApiClient, id: string): Promise<Ra
   return data.content;
 }
 
+/**
+ * POST /ramps/orders/{id}/retry: runs a held order again from where it stopped,
+ * when the user is the one who resolves it (an approval to give again).
+ */
+export async function retryRampOrder(api: PollarApiClient, id: string): Promise<RampOrder> {
+  const { data, error } = await api.POST('/ramps/orders/{id}/retry', { params: { path: { id } } });
+  if (!data?.content || error) throw rampApiError(error, 'Failed to retry the ramp order');
+  return data.content;
+}
+
 /** GET /ramps/orders: the user's orders, newest first; `pending: 'true'` keeps the ones waiting on the user. */
 export async function listRampOrders(api: PollarApiClient, query: Partial<RampOrdersQuery> = {}): Promise<RampOrdersPage> {
   const { data, error } = await api.GET('/ramps/orders', { params: { query: query as RampOrdersQuery } });
@@ -112,31 +122,46 @@ export function isRampOrderSettled(order: RampOrder): boolean {
   return FINAL_STATES.includes(order.state) || order.nextPollAfter === null;
 }
 
+/** The longest wait between reads while the API keeps failing. */
+const POLL_BACKOFF_MAX_MS = 60_000;
+
 /**
  * Reads the order at the pace the server suggests (`nextPollAfter`) until `until`
- * holds (by default, until it settles). `onUpdate` sees every read. Transport
- * errors retry after the last suggested wait; API errors are thrown.
+ * holds (by default, until it settles). `onUpdate` sees every read. A failed read
+ * (the network, a 5xx while the API deploys, a 401 while the session renews) is
+ * reported to `onError` and read again after a second, each wait twice the last up to a minute;
+ * only an order that no longer exists for this user ends the polling, thrown.
  */
 export async function pollRampOrder(
   api: PollarApiClient,
   id: string,
-  opts: { signal?: AbortSignal; onUpdate?: (order: RampOrder) => void; until?: (order: RampOrder) => boolean } = {},
+  opts: {
+    signal?: AbortSignal;
+    onUpdate?: (order: RampOrder) => void;
+    onError?: (error: unknown) => void;
+    until?: (order: RampOrder) => boolean;
+  } = {},
 ): Promise<RampOrder> {
   const until = opts.until ?? isRampOrderSettled;
   let waitMs = 5_000;
+  let failedWaitMs = 0;
   for (;;) {
     throwIfAborted(opts.signal);
     let order: RampOrder | null = null;
     try {
       order = await getRampOrder(api, id);
     } catch (error) {
-      if (error instanceof PollarApiError) throw error;
+      if (error instanceof PollarApiError && error.code === 'SDK_RAMPS_TX_NOT_FOUND') throw error;
+      opts.onError?.(error);
     }
     if (order) {
+      failedWaitMs = 0;
       opts.onUpdate?.(order);
       if (until(order) || isRampOrderSettled(order)) return order;
       waitMs = Math.max(1_000, Date.parse(order.nextPollAfter ?? '') - Date.now() || 5_000);
+    } else {
+      failedWaitMs = Math.min(POLL_BACKOFF_MAX_MS, failedWaitMs ? failedWaitMs * 2 : 1_000);
     }
-    await delay(waitMs, opts.signal);
+    await delay(order ? waitMs : failedWaitMs, opts.signal);
   }
 }

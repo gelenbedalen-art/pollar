@@ -33,7 +33,10 @@ import {
   rampCountries,
   rampLegStatus,
   rampLegTitle,
+  rampFieldValid,
   rampNoRouteText,
+  rampOrderReceive,
+  rampOrderStopped,
   rampQuoteFields,
   rampRailLabel,
   rampResolutionText,
@@ -174,6 +177,12 @@ export interface RampWidgetTemplateProps {
   onCreateWallet?: (() => void) | undefined;
   /** The app serves no chain, so it has nothing to buy or sell. */
   noChains?: boolean;
+  /** A held order the user resolves is being run again. */
+  retrying?: boolean;
+  /** Runs the user's held order again; absent, a held order only says what happened. */
+  onRetryOrder?: (() => void) | undefined;
+  /** Reading the order keeps failing and polling is retrying. */
+  pollTrouble?: boolean;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -222,6 +231,9 @@ export function RampWidgetTemplate({
   creatingWallet = false,
   onCreateWallet,
   noChains = false,
+  retrying = false,
+  onRetryOrder,
+  pollTrouble = false,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -245,7 +257,10 @@ export function RampWidgetTemplate({
   const onramp = direction === 'ONRAMP';
   const view = order ? describeRampAction(order) : null;
   const settled = order ? ['completed', 'failed', 'refunded'].includes(order.state) : false;
-  const missingField = fields.some((f) => !f.optional && !(fieldValues[f.key] ?? '').trim());
+  // Held (no next read) or final: the order no longer moves on its own.
+  const stopped = order ? rampOrderStopped(order) : false;
+  const receive = order ? rampOrderReceive(order) : null;
+  const missingField = fields.some((f) => !rampFieldValid(f, fieldValues[f.key]));
   const canFind = !!amount && Number(amount) > 0 && !!fiat && !!asset && !isLoading;
 
   const primary = (label: string, onPress: () => void, disabled = false) => (
@@ -485,11 +500,25 @@ export function RampWidgetTemplate({
               );
             })}
 
+            {receive &&
+              copyRow(order.state === 'completed' ? 'You received' : 'You receive', `${receive.amount} ${receive.unit}`)}
             {order.failure && (
               <>
                 <Text style={[styles.note, { color: colors.text }]}>{rampResolutionText(order.failure)}</Text>
                 {copyRow('Order', order.id)}
+                {stopped &&
+                  !settled &&
+                  order.failure.resolutionOwner === 'END_USER' &&
+                  onRetryOrder &&
+                  primary(retrying ? 'Trying again…' : 'Try again', onRetryOrder, retrying)}
               </>
+            )}
+            {!settled && view.action?.kind === 'FIAT_PAYMENT' && view.expiresAt && (
+              <Text style={[styles.note, { color: colors.muted }]}>
+                {Date.parse(view.expiresAt) > Date.now()
+                  ? `Pay before ${new Date(view.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+                  : 'This payment window has closed. If you have not paid, start a new operation.'}
+              </Text>
             )}
 
             {!settled && scannable && (
@@ -511,12 +540,18 @@ export function RampWidgetTemplate({
             {!settled && view.details.map((d) => copyRow(d.label, d.value))}
 
             {!settled && view.canSign && primary(signing ? 'Waiting for your wallet…' : 'Authorize', onSign, signing)}
+            {!settled && view.action?.kind === 'SIGNATURE' && !view.canSign && (
+              <Text style={[styles.note, { color: colors.muted }]}>Preparing a new signature request…</Text>
+            )}
             {!settled && view.canApprove && primary('Approve on this device', onApprove)}
             {!settled && view.link && primary('Complete verification', () => void Linking.openURL(view.link!))}
             {!settled && order.pendingAction?.kind === 'KYC' && !view.link && (
               <Text style={[styles.note, { color: colors.muted }]}>
                 The provider is reviewing your details. This updates on its own.
               </Text>
+            )}
+            {pollTrouble && !settled && (
+              <Text style={[styles.note, { color: colors.muted }]}>Having trouble reaching the server. Retrying…</Text>
             )}
             {errorLine}
             {secondary('Start another operation', onNewOrder)}
@@ -561,6 +596,13 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
   const [trustingAsset, setTrustingAsset] = useState<string | null>(null);
   const [creatingWallet, setCreatingWallet] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  // A read of the order failed and polling keeps trying; cleared by the next good read.
+  const [pollTrouble, setPollTrouble] = useState(false);
+  // Bumped to start following the order again (after a retry of one that had stopped).
+  const [pollKey, setPollKey] = useState(0);
+  // The approval the user was last prompted for, so each new one prompts once.
+  const promptedApproval = useRef<string | null>(null);
   // An app that leaves the custody to the user creates the wallet from the wallet menu, where the user picks it.
   const custodyChoice = appConfig.application?.walletCustodyMode === 'USER_CHOICE';
   const appChains = appConfig.application?.chains;
@@ -611,7 +653,8 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let active = true;
     client
-      .listRampOrders({ pending: 'true', limit: 5 })
+      // Every order not final yet: one already paid and moving on its own is still the user's to follow.
+      .listRampOrders({ open: 'true', limit: 5 })
       .then((page) => {
         if (active) setPendingOrders(page.orders);
       })
@@ -626,10 +669,47 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (step !== 'status' || !orderId) return;
     const controller = new AbortController();
-    client.pollRampOrder(orderId, { signal: controller.signal, onUpdate: setOrder }).catch(() => {});
+    client
+      .pollRampOrder(orderId, {
+        signal: controller.signal,
+        onUpdate: (next) => {
+          setOrder(next);
+          setPollTrouble(false);
+        },
+        onError: () => setPollTrouble(true),
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setErrorMsg(rampErrorMessage(error, 'This operation could not be read.'));
+      });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, step, orderId]);
+  }, [client, step, orderId, pollKey]);
+
+  // A co-signed step of the order waits on the user's device: bring its request up the moment it appears.
+  const approval = order?.pendingAction?.kind === 'COSIGN_APPROVAL' ? order.pendingAction.actionId : null;
+  useEffect(() => {
+    if (!approval || promptedApproval.current === approval) return;
+    promptedApproval.current = approval;
+    void client.cosign
+      .pending()
+      .catch(() => undefined)
+      .then(() => openCosignModal());
+  }, [approval, client, openCosignModal]);
+
+  /** Runs the user's held order again, then follows it. */
+  async function handleRetryOrder() {
+    if (!order || retrying) return;
+    setRetrying(true);
+    setErrorMsg(null);
+    try {
+      setOrder(await client.retryRampOrder(order.id));
+      setPollKey((key) => key + 1);
+    } catch (error) {
+      setErrorMsg(rampErrorMessage(error, 'Could not try again. Please try again.'));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function handleFindRoute() {
     if (!fiat || !asset) return;
@@ -746,6 +826,12 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
       setStep('status');
     } catch (error) {
       setErrorMsg(rampErrorMessage(error, 'Could not start the operation. Please try again.'));
+      // The route's wallet on another chain waits on the user's approval: bring that request up.
+      if (isPollarApiError(error) && error.code === 'SDK_RAMPS_WALLET_NOT_READY')
+        void client.cosign
+          .pending()
+          .catch(() => undefined)
+          .then(() => openCosignModal());
       // A refused detail is fixed on the form; an expired quote needs a new one.
       if (isPollarApiError(error) && error.code === 'VALIDATION_ERROR' && rampQuoteFields(quote).length) setStep('contact');
       else setStep('select_route');
@@ -869,6 +955,9 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           creatingWallet={creatingWallet}
           onCreateWallet={custodyChoice ? undefined : () => void handleCreateWallet()}
           noChains={Array.isArray(appChains) && appChains.length === 0}
+          retrying={retrying}
+          onRetryOrder={() => void handleRetryOrder()}
+          pollTrouble={pollTrouble}
           onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
           onContactContinue={() => {
             if (selected) void startOrder(selected);

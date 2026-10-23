@@ -49,6 +49,7 @@ import {
 import {
   createRampOrder,
   getRampOrder,
+  retryRampOrder,
   getRampRoutes,
   listRampOrders,
   pollRampOrder,
@@ -4514,15 +4515,32 @@ export class PollarClient {
     return getRampOrder(this._api, id);
   }
 
-  /** The user's orders, newest first; `pending: 'true'` keeps the ones waiting on the user. */
+  /** Runs the user's held order again from where it stopped (their failure to resolve, e.g. an approval). */
+  retryRampOrder(id: string): Promise<RampOrder> {
+    return retryRampOrder(this._api, id);
+  }
+
+  /**
+   * The user's orders, newest first; `pending: 'true'` keeps the ones waiting on the
+   * user, `open: 'true'` every one not final yet (what a client resumes).
+   */
   listRampOrders(query: Partial<RampOrdersQuery> = {}): Promise<RampOrdersPage> {
     return listRampOrders(this._api, query);
   }
 
-  /** Reads the order at the pace the server suggests until it settles (or `until` holds). */
+  /**
+   * Reads the order at the pace the server suggests until it settles (or `until`
+   * holds). A failed read goes to `onError` and is read again; only an order that
+   * no longer exists for this user ends it.
+   */
   pollRampOrder(
     id: string,
-    opts?: { signal?: AbortSignal; onUpdate?: (order: RampOrder) => void; until?: (order: RampOrder) => boolean },
+    opts?: {
+      signal?: AbortSignal;
+      onUpdate?: (order: RampOrder) => void;
+      onError?: (error: unknown) => void;
+      until?: (order: RampOrder) => boolean;
+    },
   ): Promise<RampOrder> {
     return pollRampOrder(this._api, id, opts);
   }

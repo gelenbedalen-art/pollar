@@ -550,6 +550,109 @@ async function mount(client, application = {}) {
     client.destroy();
   }
 
+  // --- Resume lists every open order; the QR says until when, and what the user receives ---
+  {
+    const listQueries = [];
+    const paying = order({ ...qrAction, expiresAt: later(600) });
+    const { client } = fixtureClient({
+      listRampOrders: async (query) => {
+        listQueries.push(query);
+        return { orders: [paying], nextCursor: null };
+      },
+      getRampOrder: async () => paying,
+    });
+    const ui = await mount(client);
+    assert.deepEqual(listQueries[0], { open: 'true', limit: 5 }, 'resume lists every order not final yet');
+    await ui.click(ui.button('Resume purchase'));
+    assert.match(ui.container.textContent, /Pay before/);
+    assert.match(ui.container.textContent, /You receive14.2 USDC/);
+    await ui.unmount();
+    client.destroy();
+  }
+
+  // --- A leg retrying on its own is in progress, not failed ---
+  {
+    const retryingLeg = order(null, {
+      state: 'processing',
+      legs: [
+        {
+          ...order(null).legs[0],
+          status: 'ACTIVE',
+          failure: { code: 'RPC_UNAVAILABLE', retryable: true, resolutionOwner: 'POLLAR', resolutionAction: 'automatic_retry' },
+        },
+      ],
+    });
+    const { client } = fixtureClient({
+      listRampOrders: async () => ({ orders: [retryingLeg], nextCursor: null }),
+      getRampOrder: async () => retryingLeg,
+    });
+    const ui = await mount(client);
+    await ui.click(ui.button('Resume purchase'));
+    assert.equal(ui.container.querySelector('.pollar-ramp-leg')?.getAttribute('data-status'), 'active');
+    await ui.unmount();
+    client.destroy();
+  }
+
+  // --- A co-signed step brings its approval up; a held order the user resolves is tried again ---
+  {
+    const approval = order(
+      { kind: 'COSIGN_APPROVAL', actionId: 'approve-1', legIndex: 0, cosignRequestId: 'req-9', summary: 'Swap' },
+      { state: 'processing' },
+    );
+    const held = order(null, {
+      state: 'processing',
+      nextPollAfter: null,
+      failure: {
+        code: 'COSIGN_REQUEST_EXPIRED',
+        legIndex: 0,
+        retryable: false,
+        resolutionOwner: 'END_USER',
+        resolutionAction: 'approve_again',
+      },
+    });
+    let current = approval;
+    const { client, calls } = fixtureClient({
+      listRampOrders: async () => ({ orders: [current], nextCursor: null }),
+      getRampOrder: async () => current,
+      retryRampOrder: async (id) => {
+        calls.push(['retryRampOrder', id]);
+        current = approval;
+        return approval;
+      },
+    });
+    client.cosign.pending = async () => {
+      calls.push(['cosign.pending']);
+      return [];
+    };
+    const ui = await mount(client);
+    await ui.click(ui.button('Resume purchase'));
+    assert.ok(
+      calls.some(([name]) => name === 'cosign.pending'),
+      'the new approval refreshed the co-sign requests',
+    );
+    await ui.unmount();
+    client.destroy();
+
+    current = held;
+    const second = fixtureClient({
+      listRampOrders: async () => ({ orders: [current], nextCursor: null }),
+      getRampOrder: async () => current,
+      retryRampOrder: async (id) => {
+        second.calls.push(['retryRampOrder', id]);
+        current = approval;
+        return approval;
+      },
+    });
+    second.client.cosign.pending = async () => [];
+    const heldUi = await mount(second.client);
+    await heldUi.click(heldUi.button('Resume purchase'));
+    assert.doesNotMatch(heldUi.container.textContent, /keeps going/, 'a held order does not claim to keep going');
+    await heldUi.click(heldUi.button('Try again'));
+    assert.deepEqual(second.calls.at(-1), ['retryRampOrder', 'order-0001']);
+    await heldUi.unmount();
+    second.client.destroy();
+  }
+
   // --- An app out of credits: the user is pointed to the app, never told about credits ---
   {
     const { client } = fixtureClient({
@@ -567,7 +670,7 @@ async function mount(client, application = {}) {
   }
 
   console.log(
-    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume and 402 passed.',
+    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume, open orders, QR window, receive amount, approvals, retry and 402 passed.',
   );
 })().catch((error) => {
   console.error(error);

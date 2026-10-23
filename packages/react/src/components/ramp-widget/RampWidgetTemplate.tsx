@@ -16,7 +16,10 @@ import {
   describeRampAction,
   rampLegStatus,
   rampLegTitle,
+  rampFieldValid,
   rampNoRouteText,
+  rampOrderReceive,
+  rampOrderStopped,
   rampRailLabel,
   rampResolutionText,
   rampTrustlineAsset,
@@ -27,22 +30,6 @@ import { CopyButton } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
 export type RampStep = 'input' | 'loading_quote' | 'select_route' | 'contact' | 'status' | 'error';
-
-// Basic client-side email check so an invalid address never round-trips to the
-// provider (which rejects it with a generic VALIDATION_ERROR).
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/**
- * A collected field is complete when it's non-empty and (for email) well-formed.
- * An `optional` field is complete while blank, but still has to be well-formed
- * once something is typed into it.
- */
-function isFieldValid(spec: RampField, raw: string | undefined): boolean {
-  const value = (raw ?? '').trim();
-  if (!value) return spec.optional === true;
-  if (spec.type === 'email') return EMAIL_RE.test(value);
-  return true;
-}
 
 /**
  * The `src` for a scannable that is not inline-safe. `encoding` and `inlineSafe`
@@ -158,6 +145,12 @@ interface RampWidgetTemplateProps {
   onCreateWallet?: (() => void) | undefined;
   /** The app serves no chain, so it has nothing to buy or sell. */
   noChains?: boolean;
+  /** A held order the user resolves is being run again. */
+  retrying?: boolean;
+  /** Runs the user's held order again; absent, a held order only says what happened. */
+  onRetryOrder?: (() => void) | undefined;
+  /** Reading the order keeps failing and polling is retrying. */
+  pollTrouble?: boolean;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -220,6 +213,9 @@ export function RampWidgetTemplate({
   creatingWallet = false,
   onCreateWallet,
   noChains = false,
+  retrying = false,
+  onRetryOrder,
+  pollTrouble = false,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -236,6 +232,10 @@ export function RampWidgetTemplate({
   const sendUnit = onramp ? fiat?.currency : asset?.code;
   const view = order ? describeRampAction(order) : null;
   const settled = order ? ['completed', 'failed', 'refunded'].includes(order.state) : false;
+  // Held (no next read) or final: the order no longer moves on its own.
+  const stopped = order ? rampOrderStopped(order) : false;
+  const receive = order ? rampOrderReceive(order) : null;
+  const payBy = view?.action?.kind === 'FIAT_PAYMENT' && view.expiresAt ? Date.parse(view.expiresAt) : null;
 
   const stepTitle: Record<RampStep, string> = {
     input: onramp ? 'Buy crypto' : 'Sell crypto',
@@ -532,7 +532,7 @@ export function RampWidgetTemplate({
                 />
               )}
               {f.hint && <span className="pollar-ramp-field-hint">{f.hint}</span>}
-              {f.type === 'email' && (fieldValues[f.key] ?? '').trim() !== '' && !isFieldValid(f, fieldValues[f.key]) && (
+              {f.type === 'email' && (fieldValues[f.key] ?? '').trim() !== '' && !rampFieldValid(f, fieldValues[f.key]) && (
                 <span className="pollar-ramp-field-error">Enter a valid email address.</span>
               )}
             </div>
@@ -546,7 +546,7 @@ export function RampWidgetTemplate({
             <button
               type="button"
               className="pollar-btn-primary"
-              disabled={fields.some((f) => !isFieldValid(f, fieldValues[f.key])) || isLoading}
+              disabled={fields.some((f) => !rampFieldValid(f, fieldValues[f.key])) || isLoading}
               onClick={onContactContinue}
             >
               {isLoading ? (
@@ -590,10 +590,30 @@ export function RampWidgetTemplate({
             })}
           </ol>
 
+          {receive && (
+            <div className="pollar-ramp-payment-field">
+              <span className="pollar-ramp-payment-label">{order.state === 'completed' ? 'You received' : 'You receive'}</span>
+              <div className="pollar-ramp-payment-value">
+                {receive.amount} {receive.unit}
+              </div>
+            </div>
+          )}
+
           {order.failure && (
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">What to do</span>
               <p className="pollar-ramp-payment-note">{rampResolutionText(order.failure)}</p>
+              {stopped && !settled && order.failure.resolutionOwner === 'END_USER' && onRetryOrder && (
+                <button type="button" className="pollar-btn-primary" disabled={retrying} onClick={onRetryOrder}>
+                  {retrying ? (
+                    <>
+                      <span className="pollar-spinner pollar-spinner-sm" /> Trying again…
+                    </>
+                  ) : (
+                    'Try again'
+                  )}
+                </button>
+              )}
               <div className="pollar-ramp-payment-value" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <code style={{ flex: 1, wordBreak: 'break-all' }}>Order {order.id}</code>
                 <CopyButton value={order.id} label="Copy order id" />
@@ -601,6 +621,13 @@ export function RampWidgetTemplate({
             </div>
           )}
 
+          {!settled && payBy !== null && (
+            <p className="pollar-ramp-payment-note">
+              {payBy > Date.now()
+                ? `Pay before ${new Date(payBy).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+                : 'This payment window has closed. If you have not paid, start a new operation.'}
+            </p>
+          )}
           {!settled && view.scannable && (
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">Payment QR</span>
@@ -650,6 +677,9 @@ export function RampWidgetTemplate({
               {signing ? 'Waiting for your wallet…' : 'Authorize'}
             </button>
           )}
+          {!settled && view.action?.kind === 'SIGNATURE' && !view.canSign && (
+            <p className="pollar-ramp-payment-note">Preparing a new signature request…</p>
+          )}
           {!settled && view.canApprove && (
             <button type="button" className="pollar-btn-primary" onClick={onApprove}>
               Approve on this device
@@ -668,13 +698,14 @@ export function RampWidgetTemplate({
           {!settled && order.pendingAction?.kind === 'KYC' && !view.link && (
             <p className="pollar-ramp-payment-note">The provider is reviewing your details. This updates on its own.</p>
           )}
+          {pollTrouble && !settled && <p className="pollar-ramp-payment-note">Having trouble reaching the server. Retrying…</p>}
           {errorMsg && <p className="pollar-ramp-field-error">{errorMsg}</p>}
 
           <div className="pollar-ramp-explore">
             <button type="button" className="pollar-btn-secondary" onClick={onNewOrder}>
               Start another operation
             </button>
-            {!settled && <p className="pollar-ramp-payment-note">This one keeps going; you can resume it later.</p>}
+            {!stopped && <p className="pollar-ramp-payment-note">This one keeps going; you can resume it later.</p>}
           </div>
         </div>
       )}
