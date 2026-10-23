@@ -198,8 +198,10 @@ private.
 
 Every co-signed transaction now asks the user for itself, ramp steps included;
 a ramp no longer groups its steps under one approval, and the device no longer
-votes a later step on a stored consent. Wallet setup the device recognizes
-(account creation, trustlines, a new chain) is still approved without a prompt.
+votes a later step on a stored consent. Wallet setup (account creation,
+trustlines, a new chain) asks the user too: `<CosignModal>` opens for it, and a
+headless app approves it through `client.cosign.approve(request)` from a user
+action.
 
 `cosignGroupOf`, `cosignStepKeyOf`, `stepInGroup` and the `CosignGroup` type are
 no longer exported, and the cosign modal no longer lists a group's steps.

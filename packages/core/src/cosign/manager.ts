@@ -45,14 +45,6 @@ export interface CosignManagerDeps {
   networkPassphrase: () => string;
   /** Every request the manager learns about or resolves, for the client's store. */
   onRequest: (request: CosignRequest) => void;
-  /**
-   * Whether a request Pollar opened on its own may be approved here without a
-   * prompt. The client answers from its confirmation policy and the setup
-   * recognizer; absent, nothing is approved without the user.
-   */
-  autoApprove?: (request: CosignRequest) => boolean;
-  /** Tell the store a request is being settled by the client itself, so no prompt opens for it. */
-  markAutoHandled?: (id: string, handled: boolean) => void;
   /** The passkey ceremony recovery uses; injected by the runtime layer. */
   recoveryPasskey?: RecoveryPasskeyCeremony;
 }
@@ -148,19 +140,14 @@ export class CosignManager {
   }
 
   /**
-   * The requests waiting for the user. Requests Pollar opened on its own that
-   * the device recognizes as setup of this wallet (its account creation, a
-   * trustline, an account on a new chain) are approved here without a prompt
-   * when the client's policy allows it, as a custodial wallet performs them
-   * silently; a completed one may open the next (trustlines come one at a
-   * time), so the list is read again until nothing is left to settle. What
-   * remains needs a decision and is what the store shows.
+   * The requests waiting for the user, handed to the store as well. Every one
+   * needs the user's vote, the wallet's own setup (account creation, a
+   * trustline, an account on a new chain) included: nothing Pollar opens is
+   * approved without them.
    */
   async pending(): Promise<CosignRequest[]> {
-    // One read at a time. The provider and a modal both ask on mount (twice
-    // each under React's strict mode), and two concurrent reads would each
-    // vote on the same setup request; the later refresh then hands the store
-    // a pending copy of a request the first vote already completed.
+    // One read at a time: the provider and a modal both ask on mount (twice
+    // each under React's strict mode).
     if (!this._pendingRead) {
       this._pendingRead = this.readPending().finally(() => {
         this._pendingRead = null;
@@ -172,30 +159,9 @@ export class CosignManager {
   private _pendingRead: Promise<CosignRequest[]> | null = null;
 
   private async readPending(): Promise<CosignRequest[]> {
-    let remaining: CosignRequest[] = [];
-    for (let round = 0; round < 6; round++) {
-      const { requests } = content(await this.deps.api.GET('/cosign/requests'), 'SDK_COSIGN_REQUEST_NOT_FOUND');
-      const auto = requests.filter((r) => r.status === 'PENDING' && this.deps.autoApprove?.(r) === true);
-      remaining = requests.filter((r) => !auto.includes(r));
-      for (const r of remaining) this.deps.onRequest(r);
-      if (auto.length === 0) break;
-      for (const r of auto) {
-        this.deps.markAutoHandled?.(r.id, true);
-        try {
-          await this.approve(r);
-        } catch (err) {
-          // Verification failed or Turnkey did not answer: the request stays
-          // pending and is shown, with its reason, instead of being voted on.
-          this.deps.logger.warn('[PollarClient] a setup request could not be approved automatically', err);
-          this.deps.markAutoHandled?.(r.id, false);
-          remaining.push(r);
-          this.deps.onRequest(r);
-        } finally {
-          this.deps.markAutoHandled?.(r.id, false);
-        }
-      }
-    }
-    return remaining;
+    const { requests } = content(await this.deps.api.GET('/cosign/requests'), 'SDK_COSIGN_REQUEST_NOT_FOUND');
+    for (const r of requests) this.deps.onRequest(r);
+    return requests;
   }
 
   /** One request; `sync` asks sdk-api to re-read the activity from Turnkey first. */
@@ -396,8 +362,31 @@ export class CosignManager {
     if (request.activityId) return this.get(request.id, { sync: true });
     const verification = await this.verify(request);
     if (!verification.ok) throw new PollarApiError('SDK_COSIGN_VERIFICATION_FAILED', { verification });
-    const res = await this.relay(verification.proposal.path, verification.proposal.body, { requestId: request.id });
+    let res: CosignRelayContent;
+    try {
+      res = await this.relay(verification.proposal.path, verification.proposal.body, { requestId: request.id });
+    } catch (err) {
+      // Proposed in the meantime (this client's own setup pass, another tab):
+      // the vote already happened, so its outcome is read back, not reported as a failure.
+      if (err instanceof PollarApiError && err.code === 'SDK_COSIGN_REQUEST_NOT_PENDING') {
+        return this.get(request.id, { sync: true });
+      }
+      throw err;
+    }
     return res.request ?? (await this.get(request.id, { sync: true }));
+  }
+
+  /**
+   * Read a proposed request back until Turnkey settles it. Still pending after
+   * a few reads, it is returned as is; `get(id, { sync: true })` reads it later.
+   */
+  async settle(request: CosignRequest): Promise<CosignRequest> {
+    let current = request;
+    for (let i = 0; i < 10 && current.status === 'PENDING'; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      current = await this.get(current.id, { sync: true });
+    }
+    return current;
   }
 
   /** Vote no. Final: a rejected request can never be approved. */

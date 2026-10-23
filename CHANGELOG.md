@@ -52,10 +52,18 @@
   saved ramp state. Native route choices follow the theme and show selection.
 - Co-signed approvals are one per transaction: the approval groups of 0.11.5
   (one confirmation for a ramp's swap or bridge steps, later steps voted on a
-  stored consent) are removed. Recognized wallet setup is still approved
-  without a prompt. `cosignGroupOf`, `cosignStepKeyOf`, `stepInGroup` and
-  `CosignGroup` are no longer exported. See
+  stored consent) are removed. `cosignGroupOf`, `cosignStepKeyOf`,
+  `stepInGroup` and `CosignGroup` are no longer exported. See
   [UPGRADE.md](./UPGRADE.md#co-sign-approval-groups-removed).
+- Nothing on a co-signed wallet is approved without the user: its setup
+  (account creation, trustlines, an account on a new chain) is a request the
+  user votes on like any other. `recognizedSetupRequest` still tells setup
+  apart, for an app that labels it.
+- Approving a co-sign request that was proposed meanwhile (another tab, a late
+  copy in the store) returns its outcome instead of failing with
+  `SDK_COSIGN_REQUEST_NOT_PENDING`, and a copy older than what the client saw
+  no longer reopens the prompt. `client.cosign.settle(request)` reads a proposed
+  request back until Turnkey settles it.
 - `@pollar/core/ramps` contract version 2, additive: `actor` and
   `wallet.signingMode` in the user context, `prebuiltPayload` and `expiresAt`
   (the order's deposit window) on a payment,

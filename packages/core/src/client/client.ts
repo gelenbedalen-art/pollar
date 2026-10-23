@@ -66,7 +66,7 @@ import type {
   RecoveryPasskeyCeremony,
   TxErrorPhase,
 } from '../types';
-import { autoApprovesCosignRequest } from '../cosign/recognize';
+import { isStaleCosignCopy } from '../cosign/stale';
 import { defaultKeyManager } from '../keys/factory';
 import type { KeyManager } from '../keys/types';
 import { hashApiKey } from '../lib/api-key-hash';
@@ -541,6 +541,8 @@ export class PollarClient {
   private readonly _autoHandling = new Set<string>();
   /** Requests already seen in a final state: a pending copy arriving later is stale, never a reopening. */
   private readonly _settledCosign = new Set<string>();
+  /** Requests already seen with their Turnkey activity: a copy from before the proposal is stale. */
+  private readonly _proposedCosign = new Set<string>();
   private readonly _confirmations = new Map<string, PendingConfirmation>();
   private readonly _confirmationListeners = new Set<(pending: PendingConfirmation[]) => void>();
   private _loginController: AbortController | null = null;
@@ -669,16 +671,6 @@ export class PollarClient {
       networkPassphrase: () => this._networkPassphrase(),
       onRequest: (request) => this._noteCosignRequest(request),
       ...(config.recoveryPasskey ? { recoveryPasskey: config.recoveryPasskey } : {}),
-      // Setup Pollar opens on its own (account creation, trustlines, a new
-      // chain) is approved without a prompt only when the device can read it
-      // and it names this wallet; a custodial wallet does the same setup
-      // silently. Under `cosignManual` the app votes on everything itself.
-      // Anything else, a ramp step included, asks the user for itself.
-      autoApprove: (request) => autoApprovesCosignRequest(request, { manual: this._cosignManual }),
-      markAutoHandled: (id, handled) => {
-        if (handled) this._autoHandling.add(id);
-        else this._autoHandling.delete(id);
-      },
     });
 
     // Stellar SEP ownership-proof namespace. Thin object over the private
@@ -3395,11 +3387,7 @@ export class PollarClient {
     if (this._cosignManual) return { status: 'cosign_pending', request, ...(buildData && { buildData }) };
     this._autoHandling.add(request.id);
     try {
-      let resolved = await this.cosign.approve(request);
-      for (let i = 0; i < 10 && resolved.status === 'PENDING'; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        resolved = await this.cosign.get(request.id, { sync: true });
-      }
+      const resolved = await this.cosign.settle(await this.cosign.approve(request));
       return await this._outcomeOfCosign(resolved, ctx);
     } catch (err) {
       const code = err instanceof PollarApiError ? err.code : undefined;
@@ -3470,6 +3458,8 @@ export class PollarClient {
    * (atomic flows) or ended it.
    */
   private _noteCosignRequest(request: CosignRequest): void {
+    if (isStaleCosignCopy(request, { settled: this._settledCosign, proposed: this._proposedCosign })) return;
+    if (request.activityId) this._proposedCosign.add(request.id);
     if (request.status !== 'PENDING') {
       // An approved derivation added a wallet on a new chain; the session
       // learns of it from the server, not from the request.
@@ -3477,7 +3467,7 @@ export class PollarClient {
         void this.refreshWalletState();
       }
       this._settledCosign.add(request.id);
-    } else if (this._settledCosign.has(request.id)) return;
+    }
     const pending = this._cosignState.pending.filter((r) => r.id !== request.id);
     if (request.status === 'PENDING' && !this._autoHandling.has(request.id)) pending.push(request);
     const lastResolved = request.status !== 'PENDING' ? request : this._cosignState.lastResolved;
@@ -5544,11 +5534,10 @@ export class PollarClient {
     // Nobody is left to answer a prompt once the session is gone; the signing
     // calls waiting on one end as declined instead of hanging.
     if (next.step === 'idle') for (const c of [...this._confirmations.values()]) c.reject();
-    // A co-signed wallet may have setup waiting for this device (its account
-    // creation, a trustline the app enabled): read the list once the session
-    // is in place so recognized setup is approved without a prompt. Anything
-    // else reaches the store, and the UI, as usual. Custodial wallets get an
-    // empty list back.
+    // A co-signed wallet may have setup waiting for the user's vote (its
+    // account creation, a trustline the app enabled): read the list once the
+    // session is in place so the store, and the UI, show it. Custodial wallets
+    // get an empty list back.
     if (
       !wasAuthenticated &&
       next.step === 'authenticated' &&
