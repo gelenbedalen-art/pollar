@@ -159,6 +159,9 @@
 }
 
 .pollar-kyc-provider-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   font-size: 0.75rem;
   color: var(--pollar-muted);
   text-align: right;

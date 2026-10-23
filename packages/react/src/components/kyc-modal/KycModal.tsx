@@ -56,6 +56,9 @@ export function KycModal({
   const [reviewReason, setReviewReason] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Apart from `isLoading`: a list that reloads mid-open must not clear the open's spinner.
+  const [startingProviderId, setStartingProviderId] = useState<string | null>(null);
+  const [directOpen, setDirectOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // One key per option for this modal: a retried start returns the vendor session
   // already opened instead of creating (and billing) another one.
@@ -95,7 +98,7 @@ export function KycModal({
     starting.current = true;
     setSelectedProvider(provider);
     setError(null);
-    setIsLoading(true);
+    setStartingProviderId(provider.id);
     const key = (idempotencyKeys.current[provider.id] ??= newIdempotencyKey());
     try {
       const result = await client.resolveKyc(
@@ -135,7 +138,7 @@ export function KycModal({
       setStep('select_provider');
     } finally {
       starting.current = false;
-      setIsLoading(false);
+      setStartingProviderId(null);
     }
   }
 
@@ -160,6 +163,7 @@ export function KycModal({
     void loadProviders().then((list) => {
       if (!providerId || autoOpened.current) return;
       autoOpened.current = true;
+      setDirectOpen(true);
       const target = list.find((p) => p.id === providerId);
       // The option a gate or a step names was chosen by the backend for this user: the
       // country this list was filtered by must not hide it behind "no providers".
@@ -216,6 +220,8 @@ export function KycModal({
         reviewReason={reviewReason}
         processing={processing}
         isLoading={isLoading}
+        startingProviderId={startingProviderId}
+        directOpen={directOpen}
         error={error}
         onSelectProvider={handleSelectProvider}
         onDoneVerifying={handleDoneVerifying}
