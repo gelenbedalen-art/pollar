@@ -42,13 +42,39 @@
   `onVerify` and `onTrust` handlers of `RejectedRouteDisplay` and the matching
   `RampWidgetTemplate` props are optional: without one the row describes the
   fix and offers no button.
-- A route waiting on the user's wallet (`resolutionAction: 'create_wallet'`)
-  creates it from the route's row with `createWallet()` and quotes again; an app
-  in `USER_CHOICE` custody points to the wallet menu instead, where the user
-  picks the custody. `rampResolutionText` covers `create_wallet`, and the
-  `onCreateWallet` / `creatingWallet` props of `RejectedRouteDisplay` and
-  `RampWidgetTemplate` are optional. An app with no chains enabled says so
-  (`noChains`) instead of showing an empty route list.
+- A route waiting on a wallet offers the fix from its row.
+  `rampWalletStep(rejection)` names the step and its button: create the wallet
+  (`create_wallet`), set one up on a chain the route passes through
+  (`set_up_wallet`, the chain in `failure.detail`), or move a wallet Pollar
+  still holds to the app's custody (`migrate_custody`).
+  `client.runRampWalletStep(step, custody?)` runs it with `createWallet`,
+  `setUpRampWallet(chain, custody?)` (a Turnkey wallet with this device as its
+  first credential) or `cosign.migrateWallets`, and reports `recoveryRequired`
+  when the Turnkey wallet it leaves needs a recovery method before it signs; the
+  widgets open the recovery modal then, and quote again otherwise. Under
+  `USER_CHOICE`, creating the wallet stays in the wallet menu, and setting one up
+  or moving it offers one button per custody. `RejectedRouteDisplay` and
+  `RampWidgetTemplate` take `onWalletStep`, `walletBusy` and `custodyChoice`
+  (`onCreateWallet` and `creatingWallet` in `0.12.0-rc.2`). An app with no
+  chains enabled says so (`noChains`) instead of showing an empty route list.
+- Following an order survives the network: `pollRampOrder` reports a failed
+  read to `onError` and reads again (1 second, doubling up to 60), ending only
+  when the order is gone (`SDK_RAMPS_TX_NOT_FOUND`).
+  `listRampOrders({ open: 'true' })` lists every order not final yet, so an
+  order already paid is resumed too. `client.retryRampOrder(id)` runs a held
+  order again when the user is the one who resolves it.
+  `rampOrderReceive(order)` gives what the user receives, `rampOrderStopped`
+  tells an order that no longer moves on its own, and
+  `rampOrderResolutionText(order)` the text for its failure (a held order whose
+  provider order lapsed says its funds are safe and a retry places a new one).
+  `describeRampAction` returns the action's `expiresAt`. The widgets show the
+  payment window and the amount, open the approval of each co-signed step,
+  offer Try again on a held order, and drop the Authorize button the moment a
+  signature lapses.
+- A provider field can carry a `pattern` (`RampAdapterField.pattern`, a
+  regular expression the whole value must match). `rampFieldValid` checks it,
+  and `rampFieldError(field, value)` says what is wrong with a filled-in value;
+  the widgets show it under the field. React Native checks email fields too.
 - `setTrustline` on a co-signed wallet settles the request its device approves
   (the 202 `SDK_COSIGN_PENDING`) like any co-signed send, and answers
   `cosign_pending` under `cosignManual`. A failed `TrustlineOutcome` carries
