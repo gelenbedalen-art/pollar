@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import type { RampQuote, RampQuoteRejection } from '@pollar/core';
-import { rampLegTitle, rampResolutionText } from '@pollar/core';
+import type { RampQuote, RampQuoteRejection, RampQuoteRequirement } from '@pollar/core';
+import { rampLegTitle, rampRequirementCopy, rampResolutionText } from '@pollar/core';
 
 interface RouteDisplayProps {
   quote: RampQuote;
@@ -42,14 +42,36 @@ export function RouteDisplay({ quote, best = false, disabled = false, onSelect }
   );
 }
 
-/** A route that was planned and dropped, and what the user can do about it. */
-export function RejectedRouteDisplay({ rejection }: { rejection: RampQuoteRejection }) {
+/** A route that was planned and dropped, and what the user can do about it: a verification step opens from its button. */
+export function RejectedRouteDisplay({
+  rejection,
+  accentColor = '#005DB4',
+  disabled = false,
+  onVerify,
+}: {
+  rejection: RampQuoteRejection;
+  accentColor?: string;
+  /** A route is starting, so a step cannot be opened meanwhile. */
+  disabled?: boolean;
+  onVerify: (requirement: RampQuoteRequirement) => void;
+}) {
+  const requirement = rejection.requirement;
+  const copy = requirement ? rampRequirementCopy(requirement) : null;
   return (
-    <View style={[styles.card, { opacity: 0.6 }]}>
+    <View style={[styles.card, !copy?.action && { opacity: 0.6 }]}>
       <View style={styles.left}>
         <Text style={styles.provider}>{rejection.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</Text>
-        <Text style={styles.meta}>{rampResolutionText(rejection.failure)}</Text>
+        <Text style={styles.meta}>{copy ? copy.message : rampResolutionText(rejection.failure)}</Text>
       </View>
+      {requirement && copy?.action && (
+        <TouchableOpacity
+          style={[styles.verify, { borderColor: accentColor, opacity: disabled ? 0.5 : 1 }]}
+          disabled={disabled}
+          onPress={() => onVerify(requirement)}
+        >
+          <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>{copy.action}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -92,6 +114,13 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     paddingHorizontal: 8,
     paddingVertical: 2,
+  },
+  verify: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginLeft: 8,
   },
   badgeText: {
     fontSize: 10,

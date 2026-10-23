@@ -8,6 +8,7 @@ import type {
   RampOrder,
   RampQuote,
   RampQuoteRejection,
+  RampQuoteRequirement,
   RampScannable,
   StellarNetwork,
 } from '@pollar/core';
@@ -144,6 +145,8 @@ interface RampWidgetTemplateProps {
   onAmountChange: (value: string) => void;
   onFindRoute: () => void;
   onSelectQuote: (quote: RampQuote) => void;
+  /** Opens the verification step a dropped route waits on. */
+  onVerifyRoute: (requirement: RampQuoteRequirement) => void;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -194,6 +197,7 @@ export function RampWidgetTemplate({
   onAmountChange,
   onFindRoute,
   onSelectQuote,
+  onVerifyRoute,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -440,7 +444,7 @@ export function RampWidgetTemplate({
               />
             ))}
             {rejected.map((r, i) => (
-              <RejectedRouteDisplay key={i} rejection={r} />
+              <RejectedRouteDisplay key={i} rejection={r} disabled={startingQuoteId != null} onVerify={onVerifyRoute} />
             ))}
           </div>
           {quotes.length === 0 && <p className="pollar-ramp-payment-note">{rampNoRouteText(rejected)}</p>}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import type {
   RampOrder,
   RampQuote,
   RampQuoteRejection,
+  RampQuoteRequirement,
   RampRoute,
 } from '@pollar/core';
 import {
@@ -41,6 +42,10 @@ import { usePollar } from '../../context';
 import { PollarOverlay } from '../commons';
 import { formLanguage } from '../requirement-form-modal/form-fields';
 import { RejectedRouteDisplay, RouteDisplay } from './RouteDisplay';
+import { KycModal } from '../kyc-modal/KycModal';
+import { RequirementFormModal } from '../requirement-form-modal/RequirementFormModal';
+import { RegistryCheckModal } from '../registry-check-modal/RegistryCheckModal';
+import { ProviderRegistrationModal } from '../provider-registration-modal/ProviderRegistrationModal';
 
 export type RampStep = 'input' | 'loading_quote' | 'select_route' | 'contact' | 'status' | 'error';
 
@@ -149,6 +154,8 @@ export interface RampWidgetTemplateProps {
   onAmountChange: (value: string) => void;
   onFindRoute: () => void;
   onSelectQuote: (quote: RampQuote) => void;
+  /** Opens the verification step a dropped route waits on. */
+  onVerifyRoute: (requirement: RampQuoteRequirement) => void;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -191,6 +198,7 @@ export function RampWidgetTemplate({
   onAmountChange,
   onFindRoute,
   onSelectQuote,
+  onVerifyRoute,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -368,7 +376,13 @@ export function RampWidgetTemplate({
               />
             ))}
             {rejected.map((r, i) => (
-              <RejectedRouteDisplay key={i} rejection={r} />
+              <RejectedRouteDisplay
+                key={i}
+                rejection={r}
+                accentColor={accentColor}
+                disabled={startingQuoteId != null}
+                onVerify={onVerifyRoute}
+              />
             ))}
             {quotes.length === 0 && <Text style={[styles.note, { color: colors.muted }]}>{rampNoRouteText(rejected)}</Text>}
             {startingQuoteId && <ActivityIndicator color={accentColor} />}
@@ -513,6 +527,9 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
   const [signing, setSigning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
+  // The step opened last: a modal that reports after it was closed or replaced is ignored.
+  const verifyAttempt = useRef<RampQuoteRequirement | null>(null);
 
   // The provider keeps the order so closing and reopening the widget lands back on it.
   const setOrder = (next: RampOrder | null) => {
@@ -609,6 +626,24 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     }
   }
 
+  function handleVerifyRoute(requirement: RampQuoteRequirement) {
+    setErrorMsg(null);
+    verifyAttempt.current = requirement;
+    setVerifying(requirement);
+  }
+
+  function closeVerification() {
+    verifyAttempt.current = null;
+    setVerifying(null);
+  }
+
+  /** A completed step can unlock its route: quote again with the same amount. */
+  function verificationDone(requirement: RampQuoteRequirement) {
+    if (verifyAttempt.current !== requirement) return;
+    closeVerification();
+    void handleFindRoute();
+  }
+
   function handleSelectQuote(quote: RampQuote) {
     setSelected(quote);
     setErrorMsg(null);
@@ -670,6 +705,38 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // The step replaces the widget while it is open; the widget keeps what was entered.
+  if (verifying) {
+    const progress = { position: verifying.completed + 1, total: verifying.total };
+    const done = () => verificationDone(verifying);
+    if (verifying.type === 'FORM')
+      return (
+        <RequirementFormModal formId={verifying.optionId} progress={progress} onClose={closeVerification} onSubmitted={done} />
+      );
+    if (verifying.type === 'REGISTRY_CHECK')
+      return (
+        <RegistryCheckModal optionId={verifying.optionId} progress={progress} onClose={closeVerification} onApproved={done} />
+      );
+    if (verifying.type === 'PROVIDER_REGISTRATION')
+      return (
+        <ProviderRegistrationModal
+          corridorId={verifying.corridorId}
+          progress={progress}
+          onClose={closeVerification}
+          onRegistered={done}
+        />
+      );
+    return (
+      <KycModal
+        country={country}
+        corridorId={verifying.corridorId}
+        providerId={verifying.optionId}
+        onClose={closeVerification}
+        onApproved={done}
+      />
+    );
+  }
+
   return (
     <PollarOverlay onCancel={onClose}>
       <View style={styles.modalWrapper}>
@@ -716,6 +783,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           }}
           onFindRoute={() => void handleFindRoute()}
           onSelectQuote={handleSelectQuote}
+          onVerifyRoute={handleVerifyRoute}
           onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
           onContactContinue={() => {
             if (selected) void startOrder(selected);

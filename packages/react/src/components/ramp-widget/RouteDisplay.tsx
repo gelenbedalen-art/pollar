@@ -1,7 +1,7 @@
 'use client';
 
-import type { RampQuote, RampQuoteRejection } from '@pollar/core';
-import { rampLegTitle, rampResolutionText } from '@pollar/core';
+import type { RampQuote, RampQuoteRejection, RampQuoteRequirement } from '@pollar/core';
+import { rampLegTitle, rampRequirementCopy, rampResolutionText } from '@pollar/core';
 
 interface RouteDisplayProps {
   quote: RampQuote;
@@ -72,14 +72,42 @@ export function RouteDisplay({ quote, best = false, busy = false, disabled = fal
   );
 }
 
-/** A route that was planned and dropped, and what the user can do about it. */
-export function RejectedRouteDisplay({ rejection }: { rejection: RampQuoteRejection }) {
+/** A route that was planned and dropped, and what the user can do about it: a verification step opens from its button. */
+export function RejectedRouteDisplay({
+  rejection,
+  disabled = false,
+  onVerify,
+}: {
+  rejection: RampQuoteRejection;
+  /** A route is starting, so a step cannot be opened meanwhile. */
+  disabled?: boolean;
+  onVerify: (requirement: RampQuoteRequirement) => void;
+}) {
+  const requirement = rejection.requirement;
+  const copy = requirement ? rampRequirementCopy(requirement) : null;
   return (
-    <div className="pollar-ramp-route-card" data-locked data-disabled>
+    <div
+      className="pollar-ramp-route-card"
+      data-locked
+      data-kyc-status={requirement?.status}
+      data-disabled={!copy?.action || disabled || undefined}
+    >
       <div className="pollar-ramp-route-left">
         <span className="pollar-ramp-route-provider">{rejection.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</span>
-        <span className="pollar-ramp-route-meta">{rampResolutionText(rejection.failure)}</span>
+        <span className="pollar-ramp-route-meta">{copy ? copy.message : rampResolutionText(rejection.failure)}</span>
       </div>
+      {requirement && copy?.action && (
+        <div className="pollar-ramp-route-right">
+          <button
+            type="button"
+            className="pollar-btn-secondary pollar-ramp-route-verify"
+            disabled={disabled}
+            onClick={() => onVerify(requirement)}
+          >
+            {copy.action}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

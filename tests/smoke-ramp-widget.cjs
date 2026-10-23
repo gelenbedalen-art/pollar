@@ -354,6 +354,53 @@ async function mount(client) {
     client.destroy();
   }
 
+  // --- A route waiting on a verification step opens the step from its button ---
+  {
+    const registration = {
+      position: 1,
+      completed: 0,
+      total: 1,
+      type: 'PROVIDER_REGISTRATION',
+      optionId: 'stereum',
+      status: 'none',
+      corridorId: 'corridor-bob-usdc',
+    };
+    const locked = {
+      legs: [{ index: 0, kind: 'PROVIDER_ONRAMP', from: bob, to: usdc }],
+      failure: {
+        code: 'PROVIDER_VERIFICATION_REQUIRED',
+        legIndex: 0,
+        retryable: false,
+        resolutionOwner: 'END_USER',
+        resolutionAction: 'complete_verification',
+      },
+      requirement: registration,
+    };
+    const { client, calls } = fixtureClient({
+      quoteRamp: async (body) => {
+        calls.push(['quoteRamp', body]);
+        throw new PollarApiError('SDK_RAMPS_NO_ROUTE', { code: 'SDK_RAMPS_NO_ROUTE', rejected: [locked] });
+      },
+      getProviderRegistration: async (corridorId) => {
+        calls.push(['getProviderRegistration', corridorId]);
+        return { status: 'none', fields: [] };
+      },
+    });
+    const ui = await mount(client);
+    await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+    await ui.click(ui.button('Find best route'));
+    assert.match(ui.container.textContent, /Register with the provider to see this route/);
+    await ui.click(ui.button('Continue'));
+    assert.deepEqual(calls.at(-1), ['getProviderRegistration', 'corridor-bob-usdc']);
+    assert.equal(ui.container.querySelector('.pollar-ramp-route-card'), null, 'the step replaces the widget');
+    // Closing the step returns to the routes as they were.
+    await ui.click(ui.container.querySelector('.pollar-modal-close'));
+    assert.match(ui.container.textContent, /Register with the provider to see this route/);
+    assert.equal(calls.filter(([name]) => name === 'quoteRamp').length, 1, 'closing does not quote again');
+    await ui.unmount();
+    client.destroy();
+  }
+
   // --- An app out of credits: the user is pointed to the app, never told about credits ---
   {
     const { client } = fixtureClient({
@@ -370,7 +417,9 @@ async function mount(client) {
     client.destroy();
   }
 
-  console.log('Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, resume and 402 passed.');
+  console.log(
+    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, resume and 402 passed.',
+  );
 })().catch((error) => {
   console.error(error);
   process.exit(1);

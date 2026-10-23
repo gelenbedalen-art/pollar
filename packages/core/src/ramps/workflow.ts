@@ -9,6 +9,7 @@ import type {
   RampPendingAction,
   RampQuote,
   RampQuoteRejection,
+  RampQuoteRequirement,
   RampRoute,
   RampScannable,
   RampSignatureAction,
@@ -126,6 +127,41 @@ const RESOLUTION: Record<string, string> = {
 /** The text for a failure's `resolutionAction`; anything unknown asks the user to contact support. */
 export function rampResolutionText(failure: Pick<RampFailure, 'resolutionAction'>): string {
   return RESOLUTION[failure.resolutionAction] ?? RESOLUTION.contact_pollar!;
+}
+
+/**
+ * What a route held back by a verification step says, and the button that opens
+ * the step. A step under review or refused has nothing the user can do from the
+ * widget, so it offers no button.
+ */
+export function rampRequirementCopy(requirement: Pick<RampQuoteRequirement, 'type' | 'status' | 'reviewReason'>): {
+  message: string;
+  action: string | null;
+} {
+  if (requirement.type === 'FORM') return { message: 'Answer a few questions to see this route', action: 'Continue' };
+  if (requirement.type === 'PROVIDER_REGISTRATION')
+    return { message: 'Register with the provider to see this route', action: 'Continue' };
+  if (requirement.type === 'REGISTRY_CHECK')
+    return requirement.status === 'pending'
+      ? { message: 'Your details are under review', action: null }
+      : { message: 'Confirm your details to see this route', action: 'Confirm' };
+  switch (requirement.status) {
+    case 'expired':
+      return { message: 'Your verification expired', action: 'Verify again' };
+    case 'pending':
+      if (!requirement.reviewReason) return { message: 'Verification in progress', action: 'Continue' };
+      return {
+        message:
+          requirement.reviewReason === 'DUPLICATE_DOCUMENT'
+            ? 'This document is already linked to another account, so our team is reviewing it.'
+            : 'Your verification is under review',
+        action: null,
+      };
+    case 'rejected':
+      return { message: 'Verification was not approved', action: null };
+    default:
+      return { message: 'Verify your identity to see this route', action: 'Verify' };
+  }
 }
 
 /** Why no route was offered: the fix every rejected route shares, else a change of amount. */

@@ -1959,7 +1959,7 @@ export interface paths {
         put?: never;
         /**
          * Create a ramp order
-         * @description Turns a quote into an order and runs its first leg at once, so the answer carries the first `pendingAction` (a QR to pay, a signature). `payee` carries a value for each of the quote's `requiredFields`; a missing or wrong one answers 400 before anything moves. The same quote always answers the same order: retrying a request that timed out is safe.
+         * @description Turns a quote into an order and runs its first leg at once, so the answer carries the first `pendingAction` (a QR to pay, a signature). `payee` carries a value for each of the quote's `requiredFields`; a missing or wrong one answers 400 before anything moves. The same quote always answers the same order: retrying a request that timed out is safe. A route through a chain the app does not show creates the user's wallet there first; when that wallet waits for the user's approval it answers 422 `SDK_RAMPS_WALLET_NOT_READY`, and the order is retried once it is approved.
          */
         post: operations["postRampsOrders"];
         delete?: never;
@@ -14307,6 +14307,18 @@ export interface operations {
                                     resolutionAction: string;
                                     detail?: string;
                                 };
+                                requirement?: {
+                                    corridorId: string;
+                                    position: number;
+                                    completed: number;
+                                    total: number;
+                                    /** @enum {string} */
+                                    type: "KYC" | "FORM" | "REGISTRY_CHECK" | "PROVIDER_REGISTRATION";
+                                    optionId: string;
+                                    /** @enum {string} */
+                                    status: "none" | "pending" | "rejected" | "expired";
+                                    reviewReason?: string;
+                                };
                             }[];
                         };
                     };
@@ -14790,6 +14802,21 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unprocessable */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

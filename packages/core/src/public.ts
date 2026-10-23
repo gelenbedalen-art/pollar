@@ -102,6 +102,7 @@ export {
   rampNoRouteText,
   rampQuoteFields,
   rampRailLabel,
+  rampRequirementCopy,
   rampResolutionText,
 } from './ramps/workflow';
 export type { RampSigningHandler } from './ramps/workflow';

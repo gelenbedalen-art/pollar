@@ -1229,6 +1229,8 @@ export type RampQuoteLeg = RampQuote['legs'][number];
 export type RampField = RampQuoteLeg['requiredFields'][number];
 /** A route that was planned and dropped, with why (`failure.resolutionAction`). */
 export type RampQuoteRejection = RampQuotesResponse['rejected'][number];
+/** The verification step a dropped route waits on: complete it (KYC, form, registry check, registration), then quote again. */
+export type RampQuoteRequirement = NonNullable<RampQuoteRejection['requirement']>;
 
 export type RampOrderRequest = NonNullable<pollarPaths['/ramps/orders']['post']['requestBody']>['content']['application/json'];
 /** An order with every leg, what it waits for (`pendingAction`) and when to read it again (`nextPollAfter`). */

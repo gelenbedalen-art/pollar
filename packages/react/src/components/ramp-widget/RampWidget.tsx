@@ -6,17 +6,22 @@ import type {
   RampOrder,
   RampQuote,
   RampQuoteRejection,
+  RampQuoteRequirement,
   RampRoute,
   RampSigningHandler,
 } from '@pollar/core';
 import { appUnavailableMessage, assertRampStellarSigner, isPollarApiError, rampCountries, rampQuoteFields } from '@pollar/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePollar } from '../../context';
 import type { RampStep } from './RampWidgetTemplate';
 import { assetKey, fiatKey, RampWidgetTemplate } from './RampWidgetTemplate';
 import '../shared.css';
 import './RampWidget.css';
 import { modalChrome } from '../modal-theme';
+import { KycModal } from '../kyc-modal/KycModal';
+import { RequirementFormModal } from '../requirement-form-modal/RequirementFormModal';
+import { RegistryCheckModal } from '../registry-check-modal/RegistryCheckModal';
+import { ProviderRegistrationModal } from '../provider-registration-modal/ProviderRegistrationModal';
 
 interface RampWidgetProps {
   onClose: () => void;
@@ -117,6 +122,9 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [signing, setSigning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
+  // The step opened last: a modal that reports after it was closed or replaced is ignored.
+  const verifyAttempt = useRef<RampQuoteRequirement | null>(null);
 
   const countries = useMemo(() => rampCountries(routes), [routes]);
   const fiats = countries.find((c) => c.country === country)?.fiats ?? [];
@@ -208,6 +216,24 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       setErrorMsg(rampErrorMessage(error, 'Could not find a route. Please try again.'));
       setStep('error');
     }
+  }
+
+  function handleVerifyRoute(requirement: RampQuoteRequirement) {
+    setErrorMsg(null);
+    verifyAttempt.current = requirement;
+    setVerifying(requirement);
+  }
+
+  function closeVerification() {
+    verifyAttempt.current = null;
+    setVerifying(null);
+  }
+
+  /** A completed step can unlock its route: quote again with the same amount. */
+  function verificationDone(requirement: RampQuoteRequirement) {
+    if (verifyAttempt.current !== requirement) return;
+    closeVerification();
+    void handleFindRoute();
   }
 
   function handleSelectQuote(quote: RampQuote) {
@@ -320,6 +346,34 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   };
   const label = stepLabel[step];
 
+  // The step replaces the widget while it is open; the widget keeps what was entered.
+  if (verifying) {
+    const progress = { progress: { position: verifying.completed + 1, total: verifying.total } };
+    const done = () => verificationDone(verifying);
+    if (verifying.type === 'FORM')
+      return <RequirementFormModal formId={verifying.optionId} {...progress} onClose={closeVerification} onSubmitted={done} />;
+    if (verifying.type === 'REGISTRY_CHECK')
+      return <RegistryCheckModal optionId={verifying.optionId} {...progress} onClose={closeVerification} onApproved={done} />;
+    if (verifying.type === 'PROVIDER_REGISTRATION')
+      return (
+        <ProviderRegistrationModal
+          corridorId={verifying.corridorId}
+          {...progress}
+          onClose={closeVerification}
+          onRegistered={done}
+        />
+      );
+    return (
+      <KycModal
+        country={country}
+        corridorId={verifying.corridorId}
+        providerId={verifying.optionId}
+        onClose={closeVerification}
+        onApproved={done}
+      />
+    );
+  }
+
   return (
     <div className="pollar-overlay" style={overlayStyle} onClick={onClose}>
       <RampWidgetTemplate
@@ -367,6 +421,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         }}
         onFindRoute={() => void handleFindRoute()}
         onSelectQuote={handleSelectQuote}
+        onVerifyRoute={handleVerifyRoute}
         onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
         onContactContinue={() => {
           if (selected) void startOrder(selected);
