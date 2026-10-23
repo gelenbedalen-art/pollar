@@ -2967,6 +2967,8 @@ export class PollarClient {
         details: 'signTx is not supported for smart (passkey) wallets; use signAndSubmitTx.',
       };
     }
+    // Before the prompt: a user with no wallet is never asked to sign.
+    if (!this._walletAdapter && !this._session?.wallet?.address) return this._walletRequired();
     const buildData = this._currentBuildData();
     if (confirm) {
       const answer = await this._confirm({ kind: 'sign', network: 'STELLAR', unsignedXdr, ...(buildData && { buildData }) });
@@ -3763,6 +3765,7 @@ export class PollarClient {
       this._setTransactionState({ step: 'error', phase: 'signing', details: 'missing unsigned transaction' });
       return { status: 'error', details: 'missing unsigned transaction' };
     }
+    if (!this._walletAdapter && !this._session?.wallet?.address) return this._walletRequired();
 
     const confirmBuild = this._currentBuildData();
     const answer = await this._confirm({

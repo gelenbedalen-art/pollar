@@ -247,6 +247,12 @@ function request(overrides = {}) {
     calls.push(`${method} ${url.pathname}`);
     const json = (status, body) =>
       new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    // The app's dashboard signs without asking; section 6 sets 'prompt' in code, the stricter policy.
+    if (url.pathname === '/v3/applications/config')
+      return json(200, {
+        success: true,
+        content: { application: { signConfirmation: { mode: 'AUTO', windowSeconds: 0, maxUsd: '0' } } },
+      });
     if (url.pathname === '/v3/auth/session/resume')
       return json(200, {
         success: true,
@@ -650,14 +656,9 @@ function request(overrides = {}) {
   rejectCalls = 0;
   client.destroy();
 
-  // 5. Default policy: the device settles its own vote, so a co-signed wallet
-  // answers the way a custodial one does.
-  approvedRequest = request({
-    status: 'APPROVED',
-    signedXdr: ONE_SIG_XDR,
-    submit: { hash: 'abc123', status: 'SUCCESS' },
-    resolvedAt: new Date().toISOString(),
-  });
+  // 5. The dashboard signs without asking: the device settles its own vote on
+  // a signature, so a co-signed wallet answers the way a custodial one does.
+  // Wallet setup is not a signature the app made: the user votes on it.
   const CREATE_HASH = await sdk.stellarTransactionHashHex(CREATE_XDR, TESTNET);
   const setupRequest = request({
     id: 'req-setup',
@@ -673,10 +674,22 @@ function request(overrides = {}) {
   const approvesBeforeLogin = approveCalls;
   const auto = await makeClient({});
   const autoPending = [];
-  auto.onCosignStateChange((s) => autoPending.push(s.pending.length));
-  const settledAtLogin = await waitFor(() => approveCalls > approvesBeforeLogin);
-  check('login reads the pending requests and approves recognized setup without a prompt', settledAtLogin);
-  check('the setup request never reached the pending list', Math.max(...autoPending) === 0, autoPending);
+  auto.onCosignStateChange((s) => autoPending.push(s.pending.map((r) => r.id)));
+  const setupListed = await waitFor(() => auto.getCosignState().pending.some((r) => r.id === 'req-setup'));
+  check('login lists the setup request for the user', setupListed, autoPending);
+  check('the setup request is not approved without the user', approveCalls === approvesBeforeLogin);
+  approvedRequest = request({
+    id: 'req-setup',
+    fingerprint: 'fp-setup',
+    status: 'APPROVED',
+    intent: 'account_create',
+    operation: 'create_account',
+    resolvedAt: new Date().toISOString(),
+  });
+  pendingList = [];
+  await auto.cosign.approve(setupRequest);
+  check('the user approves the setup request', approveCalls === approvesBeforeLogin + 1);
+  check('the approved setup request leaves the pending list', auto.getCosignState().pending.length === 0);
   pendingList = [request()];
   await auto.cosign.pending();
   check(
@@ -695,6 +708,7 @@ function request(overrides = {}) {
     signedXdr: ONE_SIG_XDR,
     resolvedAt: new Date().toISOString(),
   });
+  autoPending.length = 0;
   const autoSign = await auto.signTx(UNSIGNED_XDR);
   check(
     'signTx on a co-signed wallet returns signed, as a custodial one does',
@@ -708,7 +722,8 @@ function request(overrides = {}) {
   );
   check(
     'the settled request never reached the pending list',
-    Math.max(...autoPending) <= 1 && auto.getCosignState().pending.length === 0,
+    autoPending.every((ids) => ids.length <= 1) && auto.getCosignState().pending.length === 0,
+    autoPending,
   );
   approvedRequest = request({
     status: 'APPROVED',
@@ -720,7 +735,7 @@ function request(overrides = {}) {
   check('signAndSubmitTx returns success with the hash', autoSend.status === 'success' && autoSend.hash === 'abc123', autoSend);
   check('the tx state ended in success', autoStates[autoStates.length - 1] === 'success');
 
-  // Two reads at once (provider + modal, or strict mode) must vote once.
+  // Two reads at once (provider + modal, or strict mode) list the request once and vote on nothing.
   const setupRequest2 = request({
     id: 'req-setup-2',
     fingerprint: 'fp-setup-2',
@@ -734,14 +749,34 @@ function request(overrides = {}) {
   pendingList = [setupRequest2];
   const approvesBeforeConcurrent = approveCalls;
   await Promise.all([auto.cosign.pending(), auto.cosign.pending(), auto.cosign.pending()]);
-  check('three concurrent pending() reads vote once on the same setup request', approveCalls === approvesBeforeConcurrent + 1);
-  check('nothing is left pending after the concurrent reads', auto.getCosignState().pending.length === 0);
+  check('three concurrent pending() reads vote on nothing', approveCalls === approvesBeforeConcurrent);
+  check(
+    'the setup request is listed once after the concurrent reads',
+    auto.getCosignState().pending.filter((r) => r.id === 'req-setup-2').length === 1,
+  );
+  approvedRequest = request({
+    id: 'req-setup-2',
+    fingerprint: 'fp-setup-2',
+    status: 'APPROVED',
+    intent: 'account_create',
+    operation: 'create_account',
+    resolvedAt: new Date().toISOString(),
+  });
+  pendingList = [];
+  await auto.cosign.approve(setupRequest2);
+  check('nothing is left pending once the user approves it', auto.getCosignState().pending.length === 0);
   // A pending copy of a request already seen final (a late refresh, a stale
   // list) must not reopen the prompt.
   pendingList = [request({ id: 'req-setup-2', fingerprint: 'fp-setup-2' })];
   await auto.cosign.pending();
   check('a stale pending copy of a settled request never reaches the store', auto.getCosignState().pending.length === 0);
   pendingList = [];
+  approvedRequest = request({
+    status: 'APPROVED',
+    signedXdr: ONE_SIG_XDR,
+    submit: { hash: 'abc123', status: 'SUCCESS' },
+    resolvedAt: new Date().toISOString(),
+  });
 
   // sdk-api claims a hash the transaction does not have.
   signingRequest = (overrides) => request({ payloadHash: 'ff'.repeat(32), ...overrides });
