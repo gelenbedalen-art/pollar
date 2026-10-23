@@ -7,6 +7,7 @@ import {
   rampOrderReceive,
   rampOrderResolutionText,
   rampOrderStopped,
+  rampWalletStep,
 } from '../src/ramps/workflow';
 
 const usdc = { kind: 'asset' as const, code: 'USDC', identifier: 'GA5Z', chain: 'STELLAR' as const };
@@ -77,4 +78,20 @@ test('an expired provider order reads differently once the funds moved: the user
     rampOrderResolutionText({ failure: other, legs: [{ status: 'HELD' }] } as never),
     rampOrderResolutionText({ failure: other, legs: [{ status: 'FAILED' }] } as never),
   );
+});
+
+test('a dropped route that needs a wallet names the step and, to set one up, its chain', () => {
+  const failure = (resolutionAction: string, detail?: string) =>
+    ({ failure: { code: 'X', legIndex: 0, retryable: false, resolutionOwner: 'END_USER', resolutionAction, detail } }) as never;
+  assert.deepEqual(rampWalletStep(failure('set_up_wallet', 'POLYGON')), {
+    action: 'set_up_wallet',
+    chain: 'POLYGON',
+    label: 'Set up wallet',
+    busyLabel: 'Setting up…',
+  });
+  assert.equal(rampWalletStep(failure('set_up_wallet', 'STELLAR')), null, 'never a Stellar wallet');
+  assert.equal(rampWalletStep(failure('set_up_wallet')), null);
+  assert.equal(rampWalletStep(failure('migrate_custody'))!.label, 'Move wallet');
+  assert.equal(rampWalletStep(failure('create_wallet'))!.label, 'Create wallet');
+  assert.equal(rampWalletStep(failure('add_trustline')), null);
 });

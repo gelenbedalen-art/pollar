@@ -9,6 +9,8 @@ import type {
   RampQuoteRequest,
   RampQuotesResponse,
   RampRoutesResponse,
+  RampWalletSetup,
+  RampWalletSetupChain,
 } from '../../types';
 import { PollarApiError } from '../../types';
 import { isRecord, stringField } from '../error-fields';
@@ -76,6 +78,20 @@ export async function getRampOrder(api: PollarApiClient, id: string): Promise<Ra
 export async function retryRampOrder(api: PollarApiClient, id: string): Promise<RampOrder> {
   const { data, error } = await api.POST('/ramps/orders/{id}/retry', { params: { path: { id } } });
   if (!data?.content || error) throw rampApiError(error, 'Failed to retry the ramp order');
+  return data.content;
+}
+
+/**
+ * POST /ramps/wallets/{chain}: sets up the user's wallet on a chain a route passes
+ * through, with `devicePublicKey` as its Turnkey wallet's first credential.
+ */
+export async function setUpRampWallet(
+  api: PollarApiClient,
+  chain: RampWalletSetupChain,
+  body: { devicePublicKey: string; custody?: 'COSIGNED' | 'SELF_CUSTODY' },
+): Promise<RampWalletSetup> {
+  const { data, error } = await api.POST('/ramps/wallets/{chain}', { params: { path: { chain } }, body });
+  if (!data?.content || error) throw rampApiError(error, 'Failed to set up the wallet');
   return data.content;
 }
 

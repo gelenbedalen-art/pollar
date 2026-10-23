@@ -1,4 +1,4 @@
-import { RampSigningRegistry, type RampSigningHandler } from '../ramps/workflow';
+import { RampSigningRegistry, type RampSigningHandler, type RampWalletStep } from '../ramps/workflow';
 import type {
   RampChain,
   RampDirection,
@@ -9,6 +9,8 @@ import type {
   RampQuoteRequest,
   RampQuotesResponse,
   RampRoutesResponse,
+  RampWalletSetup,
+  RampWalletSetupChain,
 } from '../types';
 import { createApiClient, fetchWithTimeout, isRetryableTransportError, PollarApiClient } from '../api/client';
 import { claimDistributionRule, listDistributionRules } from '../api/endpoints/distribution';
@@ -50,6 +52,7 @@ import {
   createRampOrder,
   getRampOrder,
   retryRampOrder,
+  setUpRampWallet,
   getRampRoutes,
   listRampOrders,
   pollRampOrder,
@@ -4518,6 +4521,39 @@ export class PollarClient {
   /** Runs the user's held order again from where it stopped (their failure to resolve, e.g. an approval). */
   retryRampOrder(id: string): Promise<RampOrder> {
     return retryRampOrder(this._api, id);
+  }
+
+  /**
+   * Sets up the user's wallet on a chain a dropped route passes through
+   * (`set_up_wallet`, the chain in the failure's `detail`): a Turnkey wallet with
+   * this device as its first credential, in the app's custody. `custody` is the
+   * user's pick when the app leaves it to them. Like any new Turnkey wallet, it
+   * signs once it has a recovery method (`recoveryConfigured`); then quote again.
+   */
+  async setUpRampWallet(chain: RampWalletSetupChain, custody?: CosignCustody): Promise<RampWalletSetup> {
+    const devicePublicKey = await this.cosign.publicKeyHex();
+    const wallet = await setUpRampWallet(this._api, chain, { devicePublicKey, ...(custody ? { custody } : {}) });
+    await this.cosign
+      .inspectQuorum()
+      .catch((err: unknown) => this._log.warn('[PollarClient] could not read the quorum of the new wallet', err));
+    return wallet;
+  }
+
+  /**
+   * Runs the wallet step a dropped route asks for (`rampWalletStep`): creates the
+   * wallet on the app's chains, sets one up on the route's chain, or moves the
+   * wallets Pollar still holds to the app's custody. `custody` is the user's pick
+   * when the app leaves it to them. `recoveryRequired` when the Turnkey wallet it
+   * leaves needs a recovery method before it signs: the route quotes, but its
+   * steps would wait on it.
+   */
+  async runRampWalletStep(step: RampWalletStep, custody?: CosignCustody): Promise<{ recoveryRequired: boolean }> {
+    if (step.action === 'create_wallet') await this.createWallet(custody ? { custody } : undefined);
+    else if (step.action === 'set_up_wallet' && step.chain) await this.setUpRampWallet(step.chain, custody);
+    else if (step.action === 'migrate_custody') await this.cosign.migrateWallets(custody);
+    else throw new PollarApiError('VALIDATION_ERROR', { reason: `no wallet step ${step.action}` });
+    const recovery = await this.cosign.recovery.status().catch(() => null);
+    return { recoveryRequired: !!recovery?.required && !recovery.configured };
   }
 
   /**

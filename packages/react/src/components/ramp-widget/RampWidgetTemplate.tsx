@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  CosignCustody,
   RampAsset,
   RampDirection,
   RampField,
@@ -10,6 +11,7 @@ import type {
   RampQuoteRejection,
   RampQuoteRequirement,
   RampScannable,
+  RampWalletStep,
   StellarNetwork,
 } from '@pollar/core';
 import {
@@ -139,10 +141,15 @@ interface RampWidgetTemplateProps {
   trustingAsset?: string | null;
   /** Adds the trustline a dropped route needs, then quotes again. */
   onTrustAsset?: (asset: { code: string; issuer: string }) => void;
-  /** The user's wallet is being created. */
-  creatingWallet?: boolean;
-  /** Creates the user's wallet a dropped route needs, then quotes again; absent, the row points to the wallet menu. */
-  onCreateWallet?: (() => void) | undefined;
+  /** The dropped route (its index in `rejected`) whose wallet step is running; null when none is. */
+  walletBusy?: number | null;
+  /** The app leaves the custody to the user: a wallet set up or moved from a row asks which. */
+  custodyChoice?: boolean;
+  /**
+   * Runs the wallet step a dropped route asks for (create, set up or move the wallet),
+   * then quotes again; absent, the row only says what the user needs.
+   */
+  onWalletStep?: ((step: RampWalletStep, index: number, custody?: CosignCustody) => void) | undefined;
   /** The app serves no chain, so it has nothing to buy or sell. */
   noChains?: boolean;
   /** A held order the user resolves is being run again. */
@@ -210,8 +217,9 @@ export function RampWidgetTemplate({
   onVerifyRoute,
   trustingAsset = null,
   onTrustAsset,
-  creatingWallet = false,
-  onCreateWallet,
+  walletBusy = null,
+  custodyChoice = false,
+  onWalletStep,
   noChains = false,
   retrying = false,
   onRetryOrder,
@@ -473,12 +481,13 @@ export function RampWidgetTemplate({
               <RejectedRouteDisplay
                 key={i}
                 rejection={r}
-                disabled={startingQuoteId != null || trustingAsset !== null || creatingWallet}
+                disabled={startingQuoteId != null || trustingAsset !== null || walletBusy !== null}
                 trusting={trustKey(r) === trustingAsset}
-                creatingWallet={creatingWallet}
+                walletBusy={walletBusy === i}
+                custodyChoice={custodyChoice}
                 onVerify={onVerifyRoute}
                 onTrust={onTrustAsset}
-                onCreateWallet={onCreateWallet}
+                onWalletStep={onWalletStep && ((step, custody) => onWalletStep(step, i, custody))}
               />
             ))}
           </div>

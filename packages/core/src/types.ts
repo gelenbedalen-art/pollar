@@ -1250,6 +1250,11 @@ export type RampScannable = NonNullable<Extract<RampFiatInstructions, { kind: 'q
 export type RampFailure = NonNullable<RampOrder['failure']>;
 export type RampOrdersQuery = NonNullable<pollarPaths['/ramps/orders']['get']['parameters']['query']>;
 export type RampOrdersPage = RampsGet<'/ramps/orders'>;
+/** A chain a route passes through where the user's device sets up their wallet (`set_up_wallet`). */
+export type RampWalletSetupChain = pollarPaths['/ramps/wallets/{chain}']['post']['parameters']['path']['chain'];
+/** The wallet the device set up; it signs once `recoveryConfigured`. */
+export type RampWalletSetup =
+  pollarPaths['/ramps/wallets/{chain}']['post']['responses'][200]['content']['application/json']['content'];
 /** The order lifecycle; `completed`, `failed` and `refunded` are final. */
 export type RampOrderState = NonNullable<RampOrdersQuery['state']>;
 

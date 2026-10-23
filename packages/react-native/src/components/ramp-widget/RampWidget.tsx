@@ -13,9 +13,11 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import { SvgXml } from 'react-native-svg';
 import type {
+  CosignCustody,
   PollarClient,
   RampAsset,
   RampSigningHandler,
+  RampWalletStep,
   RampDirection,
   RampField,
   RampFiat,
@@ -171,10 +173,15 @@ export interface RampWidgetTemplateProps {
   trustingAsset?: string | null;
   /** Adds the trustline a dropped route needs, then quotes again. */
   onTrustAsset?: (asset: { code: string; issuer: string }) => void;
-  /** The user's wallet is being created. */
-  creatingWallet?: boolean;
-  /** Creates the user's wallet a dropped route needs, then quotes again; absent, the row points to the wallet menu. */
-  onCreateWallet?: (() => void) | undefined;
+  /** The dropped route (its index in `rejected`) whose wallet step is running; null when none is. */
+  walletBusy?: number | null;
+  /** The app leaves the custody to the user: a wallet set up or moved from a row asks which. */
+  custodyChoice?: boolean;
+  /**
+   * Runs the wallet step a dropped route asks for (create, set up or move the wallet),
+   * then quotes again; absent, the row only says what the user needs.
+   */
+  onWalletStep?: ((step: RampWalletStep, index: number, custody?: CosignCustody) => void) | undefined;
   /** The app serves no chain, so it has nothing to buy or sell. */
   noChains?: boolean;
   /** A held order the user resolves is being run again. */
@@ -228,8 +235,9 @@ export function RampWidgetTemplate({
   onVerifyRoute,
   trustingAsset = null,
   onTrustAsset,
-  creatingWallet = false,
-  onCreateWallet,
+  walletBusy = null,
+  custodyChoice = false,
+  onWalletStep,
   noChains = false,
   retrying = false,
   onRetryOrder,
@@ -422,12 +430,13 @@ export function RampWidgetTemplate({
                 key={i}
                 rejection={r}
                 accentColor={accentColor}
-                disabled={startingQuoteId != null || trustingAsset !== null || creatingWallet}
+                disabled={startingQuoteId != null || trustingAsset !== null || walletBusy !== null}
                 trusting={trustKey(r) === trustingAsset}
-                creatingWallet={creatingWallet}
+                walletBusy={walletBusy === i}
+                custodyChoice={custodyChoice}
                 onVerify={onVerifyRoute}
                 onTrust={onTrustAsset}
-                onCreateWallet={onCreateWallet}
+                onWalletStep={onWalletStep && ((step, custody) => onWalletStep(step, i, custody))}
               />
             ))}
             {quotes.length === 0 && <Text style={[styles.note, { color: colors.muted }]}>{rampNoRouteText(rejected)}</Text>}
@@ -571,7 +580,16 @@ export function RampWidgetTemplate({
 }
 
 export function RampWidget({ onClose }: { onClose: () => void }) {
-  const { getClient, copyText, ramp: saved, setRamp: save, styles: pollarStyles, openCosignModal, appConfig } = usePollar();
+  const {
+    getClient,
+    copyText,
+    ramp: saved,
+    setRamp: save,
+    styles: pollarStyles,
+    openCosignModal,
+    openRecoveryModal,
+    appConfig,
+  } = usePollar();
   const { theme = 'light', accentColor = '#005DB4' } = pollarStyles;
   const client = getClient();
 
@@ -595,7 +613,8 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
   const [trustingAsset, setTrustingAsset] = useState<string | null>(null);
-  const [creatingWallet, setCreatingWallet] = useState(false);
+  // The dropped route (its index) whose wallet step is running.
+  const [walletBusy, setWalletBusy] = useState<number | null>(null);
   const [retrying, setRetrying] = useState(false);
   // A read of the order failed and polling keeps trying; cleared by the next good read.
   const [pollTrouble, setPollTrouble] = useState(false);
@@ -603,7 +622,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   const [pollKey, setPollKey] = useState(0);
   // The approval the user was last prompted for, so each new one prompts once.
   const promptedApproval = useRef<string | null>(null);
-  // An app that leaves the custody to the user creates the wallet from the wallet menu, where the user picks it.
+  // An app that leaves the custody to the user: the user picks it for each wallet step.
   const custodyChoice = appConfig.application?.walletCustodyMode === 'USER_CHOICE';
   const appChains = appConfig.application?.chains;
   // The step opened last: a modal that reports after it was closed or replaced is ignored.
@@ -785,22 +804,37 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     }
   }
 
-  /** Creates the user's wallet on the app's chains, then quotes again. */
-  async function handleCreateWallet() {
-    if (creatingWallet) return;
-    setCreatingWallet(true);
+  /**
+   * Runs the wallet step a dropped route asks for (create, set up or move the wallet),
+   * then quotes again. A new Turnkey wallet first gets a recovery method: it signs
+   * nothing until it has one.
+   */
+  async function handleWalletStep(walletStep: RampWalletStep, index: number, custody?: CosignCustody) {
+    if (walletBusy !== null) return;
+    setWalletBusy(index);
     setErrorMsg(null);
     try {
-      await client.createWallet();
+      const { recoveryRequired } = await client.runRampWalletStep(walletStep, custody);
+      if (recoveryRequired) {
+        setErrorMsg('Add a way to recover your wallet, then find the route again.');
+        openRecoveryModal();
+        return;
+      }
       await handleFindRoute();
     } catch (error) {
+      const code = isPollarApiError(error) ? error.code : null;
+      if (code === 'SDK_RAMPS_WALLET_NOT_READY') {
+        setErrorMsg('Approve the new account, then find the route again.');
+        openCosignModal();
+        return;
+      }
       setErrorMsg(
-        isPollarApiError(error) && error.code === 'SDK_WALLET_PROVISIONING_DISABLED'
+        code === 'SDK_WALLET_PROVISIONING_DISABLED'
           ? 'This app does not create wallets.'
-          : rampErrorMessage(error, 'Could not create the wallet. Please try again.'),
+          : rampErrorMessage(error, 'Could not prepare the wallet. Please try again.'),
       );
     } finally {
-      setCreatingWallet(false);
+      setWalletBusy(null);
     }
   }
 
@@ -952,8 +986,9 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           onVerifyRoute={handleVerifyRoute}
           trustingAsset={trustingAsset}
           onTrustAsset={(asset) => void handleTrustAsset(asset)}
-          creatingWallet={creatingWallet}
-          onCreateWallet={custodyChoice ? undefined : () => void handleCreateWallet()}
+          walletBusy={walletBusy}
+          custodyChoice={custodyChoice}
+          onWalletStep={(walletStep, index, custody) => void handleWalletStep(walletStep, index, custody)}
           noChains={Array.isArray(appChains) && appChains.length === 0}
           retrying={retrying}
           onRetryOrder={() => void handleRetryOrder()}

@@ -13,6 +13,7 @@ import type {
   RampRoute,
   RampScannable,
   RampSignatureAction,
+  RampWalletSetupChain,
 } from '../types';
 
 /**
@@ -149,6 +150,8 @@ const RESOLUTION: Record<string, string> = {
   correct_input: 'Some details were not accepted. Check them and start again.',
   link_wallet: 'This route needs a wallet on another network.',
   create_wallet: 'You need a wallet to receive this. Create one to continue.',
+  set_up_wallet: 'This route runs through another network. Set up your wallet there to continue.',
+  migrate_custody: "Your wallet is still held by Pollar alone. Move it to your app's secure wallet to continue.",
   add_trustline: 'Your Stellar wallet must trust USDC to receive it. Add the USDC trustline and try again.',
   sign_again: 'The signature expired. Sign the step again.',
   start_again: 'This transfer could not go through. Start a new one; nothing was charged.',
@@ -160,6 +163,27 @@ const RESOLUTION: Record<string, string> = {
 /** The text for a failure's `resolutionAction`; anything unknown asks the user to contact support. */
 export function rampResolutionText(failure: Pick<RampFailure, 'resolutionAction'>): string {
   return RESOLUTION[failure.resolutionAction] ?? RESOLUTION.contact_pollar!;
+}
+
+/** A wallet step a dropped route asks for, and the button that runs it (`PollarClient.runRampWalletStep`). */
+export interface RampWalletStep {
+  action: 'create_wallet' | 'set_up_wallet' | 'migrate_custody';
+  /** The chain to set the wallet up on, for `set_up_wallet`. */
+  chain: RampWalletSetupChain | null;
+  label: string;
+  busyLabel: string;
+}
+
+/** The wallet step a dropped route asks the user for; null when it drops for another reason. */
+export function rampWalletStep(rejection: Pick<RampQuoteRejection, 'failure'>): RampWalletStep | null {
+  const { resolutionAction, detail } = rejection.failure;
+  if (resolutionAction === 'create_wallet')
+    return { action: resolutionAction, chain: null, label: 'Create wallet', busyLabel: 'Creating…' };
+  if (resolutionAction === 'set_up_wallet' && (detail === 'POLYGON' || detail === 'SOLANA'))
+    return { action: resolutionAction, chain: detail, label: 'Set up wallet', busyLabel: 'Setting up…' };
+  if (resolutionAction === 'migrate_custody')
+    return { action: resolutionAction, chain: null, label: 'Move wallet', busyLabel: 'Moving…' };
+  return null;
 }
 
 /** What a held order asks instead, where it differs: its funds moved and wait where they are. */

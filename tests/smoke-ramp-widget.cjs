@@ -130,6 +130,8 @@ function fixtureClient(overrides = {}) {
   };
   client.getWallet = () => wallet;
   client.getWallets = () => [wallet];
+  // A wallet the user holds outside Turnkey: nothing to recover.
+  client.cosign.recovery.status = async () => ({ required: false, configured: false });
   const calls = [];
   Object.assign(client, {
     getRampRoutes: async (direction) => {
@@ -539,6 +541,87 @@ async function mount(client, application = {}) {
       await ui.unmount();
       client.destroy();
     }
+  }
+
+  // --- A route through a chain the user has no wallet on: set it up from the row, recovery first ---
+  {
+    const railless = (resolutionAction, code, detail) => ({
+      legs: [{ index: 0, kind: 'PROVIDER_ONRAMP', from: bob, to: usdc }],
+      failure: { code, legIndex: 0, retryable: false, resolutionOwner: 'END_USER', resolutionAction, detail },
+    });
+    for (const [custody, recovered] of [
+      ['COSIGNED', false],
+      ['COSIGNED', true],
+      ['USER_CHOICE', true],
+    ]) {
+      let ready = false;
+      const { client, calls } = fixtureClient({
+        quoteRamp: async (body) => {
+          calls.push(['quoteRamp', body]);
+          if (ready) return { quotes: [quote], rejected: [] };
+          throw new PollarApiError('SDK_RAMPS_NO_ROUTE', {
+            code: 'SDK_RAMPS_NO_ROUTE',
+            rejected: [railless('set_up_wallet', 'WALLET_SETUP_REQUIRED', 'POLYGON')],
+          });
+        },
+        setUpRampWallet: async (chain, pick) => {
+          calls.push(['setUpRampWallet', chain, pick]);
+          ready = true;
+          return { chain, address: '0xrail', custody: pick ?? 'COSIGNED', recoveryConfigured: recovered };
+        },
+      });
+      client.cosign.recovery.status = async () => ({ required: true, configured: recovered });
+      const ui = await mount(client, { walletCustodyMode: custody });
+      await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+      await ui.click(ui.button('Find best route'));
+      assert.match(ui.container.textContent, /Set up your wallet there to continue/);
+      if (custody === 'USER_CHOICE') {
+        assert.equal(ui.button('Set up wallet ('), ui.button('Set up wallet (co-signed)'), 'one button per custody');
+        await ui.click(ui.button('Set up wallet (self-custody)'));
+      } else {
+        await ui.click(ui.button('Set up wallet'));
+      }
+      const setUp = calls.find(([name]) => name === 'setUpRampWallet');
+      assert.deepEqual(setUp, ['setUpRampWallet', 'POLYGON', custody === 'USER_CHOICE' ? 'SELF_CUSTODY' : undefined]);
+      if (recovered) {
+        assert.equal(calls.filter(([name]) => name === 'quoteRamp').length, 2, 'quoted again once the wallet exists');
+      } else {
+        assert.match(ui.container.textContent, /Add a way to recover your wallet/);
+        assert.equal(calls.filter(([name]) => name === 'quoteRamp').length, 1, 'no quote until it can sign');
+      }
+      await ui.unmount();
+      client.destroy();
+    }
+
+    // A wallet Pollar still holds is moved to the app's custody from its row.
+    let moved = false;
+    const { client, calls } = fixtureClient({
+      quoteRamp: async (body) => {
+        calls.push(['quoteRamp', body]);
+        if (moved) return { quotes: [quote], rejected: [] };
+        throw new PollarApiError('SDK_RAMPS_NO_ROUTE', {
+          code: 'SDK_RAMPS_NO_ROUTE',
+          rejected: [railless('migrate_custody', 'WALLET_CUSTODY_MIGRATION_REQUIRED')],
+        });
+      },
+    });
+    client.cosign.migrateWallets = async (pick) => {
+      calls.push(['migrateWallets', pick]);
+      moved = true;
+      return { required: false, wallets: [] };
+    };
+    client.cosign.recovery.status = async () => ({ required: true, configured: true });
+    const ui = await mount(client, { walletCustodyMode: 'COSIGNED' });
+    await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+    await ui.click(ui.button('Find best route'));
+    assert.match(ui.container.textContent, /still held by Pollar alone/);
+    await ui.click(ui.button('Move wallet'));
+    assert.deepEqual(
+      calls.filter(([name]) => name !== 'getRampRoutes').map(([name]) => name),
+      ['quoteRamp', 'migrateWallets', 'quoteRamp'],
+    );
+    await ui.unmount();
+    client.destroy();
   }
 
   // --- An app with no chain says so instead of an empty list ---

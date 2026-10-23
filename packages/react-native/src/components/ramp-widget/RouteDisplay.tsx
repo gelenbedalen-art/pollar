@@ -1,7 +1,9 @@
 import React from 'react';
 import { ActivityIndicator, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import type { RampQuote, RampQuoteRejection, RampQuoteRequirement } from '@pollar/core';
-import { rampLegTitle, rampRequirementCopy, rampResolutionText, rampTrustlineAsset } from '@pollar/core';
+import type { CosignCustody, RampQuote, RampQuoteRejection, RampQuoteRequirement, RampWalletStep } from '@pollar/core';
+import { rampLegTitle, rampRequirementCopy, rampResolutionText, rampTrustlineAsset, rampWalletStep } from '@pollar/core';
+
+const CUSTODY_LABEL: Record<CosignCustody, string> = { COSIGNED: 'co-signed', SELF_CUSTODY: 'self-custody' };
 
 interface RouteDisplayProps {
   quote: RampQuote;
@@ -51,10 +53,11 @@ export function RejectedRouteDisplay({
   accentColor = '#005DB4',
   disabled = false,
   trusting = false,
-  creatingWallet = false,
+  walletBusy = false,
+  custodyChoice = false,
   onVerify,
   onTrust,
-  onCreateWallet,
+  onWalletStep,
 }: {
   rejection: RampQuoteRejection;
   accentColor?: string;
@@ -62,28 +65,35 @@ export function RejectedRouteDisplay({
   disabled?: boolean;
   /** This row's trustline is being added. */
   trusting?: boolean;
-  /** The user's wallet is being created. */
-  creatingWallet?: boolean;
+  /** The wallet step this route asks for is running. */
+  walletBusy?: boolean;
+  /** The app leaves the custody to the user: a wallet set up or moved here asks which. */
+  custodyChoice?: boolean;
   /** Without it, a verification step is described but offers no button. */
   onVerify?: ((requirement: RampQuoteRequirement) => void) | undefined;
   /** Without it, a missing trustline is described but offers no button. */
   onTrust?: ((asset: { code: string; issuer: string }) => void) | undefined;
-  /** Without it (an app that leaves the custody to the user), the wallet is created from the wallet menu. */
-  onCreateWallet?: (() => void) | undefined;
+  /**
+   * Runs the wallet step the route asks for (`rampWalletStep`: create, set up or move
+   * the wallet), with the user's custody pick when `custodyChoice`. An app that leaves
+   * the custody to the user creates the wallet from the wallet menu instead.
+   */
+  onWalletStep?: ((step: RampWalletStep, custody?: CosignCustody) => void) | undefined;
 }) {
   const requirement = rejection.requirement;
   const copy = requirement ? rampRequirementCopy(requirement) : null;
   const trustAsset = !requirement && onTrust ? rampTrustlineAsset(rejection) : null;
-  const toCreate = rejection.failure.resolutionAction === 'create_wallet';
+  const step = !requirement ? rampWalletStep(rejection) : null;
+  const fromMenu = step?.action === 'create_wallet' && custodyChoice;
+  const walletStep = onWalletStep && !fromMenu ? step : null;
+  const picks: Array<CosignCustody | undefined> = custodyChoice ? ['COSIGNED', 'SELF_CUSTODY'] : [undefined];
   const meta = copy
     ? copy.message
-    : toCreate && !onCreateWallet
+    : fromMenu
       ? 'You need a wallet to receive this. Create it from the wallet menu, then find the route again.'
       : rampResolutionText(rejection.failure);
   return (
-    <View
-      style={[styles.card, !(copy?.action && onVerify) && !trustAsset && !(toCreate && onCreateWallet) && { opacity: 0.6 }]}
-    >
+    <View style={[styles.card, !(copy?.action && onVerify) && !trustAsset && !walletStep && { opacity: 0.6 }]}>
       <View style={styles.left}>
         <Text style={styles.provider}>{rejection.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</Text>
         <Text style={styles.meta}>{meta}</Text>
@@ -105,23 +115,29 @@ export function RejectedRouteDisplay({
           )}
         </TouchableOpacity>
       )}
-      {toCreate && onCreateWallet && (
-        <TouchableOpacity
-          style={[styles.verify, { borderColor: accentColor, opacity: disabled && !creatingWallet ? 0.5 : 1 }]}
-          disabled={disabled}
-          accessibilityState={{ busy: creatingWallet, disabled }}
-          onPress={onCreateWallet}
-        >
-          {creatingWallet ? (
+      {walletStep &&
+        (walletBusy ? (
+          <View style={[styles.verify, { borderColor: accentColor }]} accessibilityState={{ busy: true }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <ActivityIndicator size="small" color={accentColor} />
-              <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>Creating…</Text>
+              <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>{walletStep.busyLabel}</Text>
             </View>
-          ) : (
-            <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>Create wallet</Text>
-          )}
-        </TouchableOpacity>
-      )}
+          </View>
+        ) : (
+          picks.map((custody) => (
+            <TouchableOpacity
+              key={custody ?? 'app'}
+              style={[styles.verify, { borderColor: accentColor, opacity: disabled ? 0.5 : 1 }]}
+              disabled={disabled}
+              accessibilityState={{ disabled }}
+              onPress={() => onWalletStep!(walletStep, custody)}
+            >
+              <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>
+                {custody ? `${walletStep.label} (${CUSTODY_LABEL[custody]})` : walletStep.label}
+              </Text>
+            </TouchableOpacity>
+          ))
+        ))}
       {requirement && copy?.action && onVerify && (
         <TouchableOpacity
           style={[styles.verify, { borderColor: accentColor, opacity: disabled ? 0.5 : 1 }]}

@@ -2028,6 +2028,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ramps/wallets/{chain}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set up my wallet on a chain a route passes through
+         * @description For a quote rejected with `set_up_wallet` (the chain is the failure's `detail`): creates my Turnkey wallet with this device as its first credential, holding only that chain's account, in the app's custody (`custody` is required when the app leaves it to me). A user who already has a Turnkey wallet gets the account derived in it, a request they approve (422 SDK_RAMPS_WALLET_NOT_READY until then). The wallet signs once it has a recovery method (`recoveryConfigured`). Then quote again.
+         */
+        post: operations["postRampsWalletsByChain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -15552,6 +15572,124 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postRampsWalletsByChain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chain: "POLYGON" | "SOLANA";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    devicePublicKey: string;
+                    /** @enum {string} */
+                    custody?: "COSIGNED" | "SELF_CUSTODY";
+                };
+            };
+        };
+        responses: {
+            /** @description The wallet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_RAMPS_WALLET_SET_UP";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            /** @enum {string} */
+                            chain: "POLYGON" | "SOLANA";
+                            address: string;
+                            /** @enum {string} */
+                            custody: "COSIGNED" | "SELF_CUSTODY";
+                            recoveryConfigured: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unprocessable */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
