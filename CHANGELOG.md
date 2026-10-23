@@ -18,6 +18,13 @@
   are rebuilt on the new calls. See [UPGRADE.md](./UPGRADE.md#ramps-on-api-v3).
 - Ramp chains stay a closed `RampChain` catalog (`STELLAR`, `POLYGON`,
   `SOLANA`) and amounts stay exact strings.
+- Ramp rails add `BANK_TRANSFER`, `CASH`, `CARD` and `HOSTED` to `SPEI`,
+  `PIX`, `PSE`, `ACH`, `BREB` and `QR`, in `RampAdapterRail` and in the v3
+  types (`fiat.rail` is now that enum). `HOSTED` means the user picks the
+  method inside the provider's flow (SEP-24 anchors such as Anclap).
+  `rampRailLabel(rail, { language, provider })` gives the text to show, in
+  English or Spanish, and returns an unknown rail as it came; the ramp widgets
+  use it. See [UPGRADE.md](./UPGRADE.md#ramp-rails).
 - `registerRampSigningHandler` signs a leg for every chain/encoding pair; core
   has no built-in ramp signer and no Stellar library.
   `assertRampStellarSigner(action, address)` reads a Stellar ramp XDR's sources

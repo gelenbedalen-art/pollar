@@ -135,6 +135,21 @@ backend enum migration and an updated SDK contract. Provider, asset and payload
 encoding registration stays extensible within these three chains. Exact amount
 strings retain their precision and formatting.
 
+### Ramp rails
+
+`RampAdapterRail` and the v3 `fiat.rail` are the enum `SPEI`, `PIX`, `PSE`,
+`ACH`, `BREB`, `QR`, `BANK_TRANSFER`, `CASH`, `CARD`, `HOSTED`. `BANK_TRANSFER`
+is a domestic transfer to an account number, `CASH` a payment at a cash point,
+`CARD` a card, and `HOSTED` a route whose method the user picks inside the
+provider's own flow: Pollar does not know it in advance, so there are no
+payment details to show before the provider's page opens.
+
+A `switch` or `Record` over `RampAdapterRail` or `RampFiat['rail']` that is
+exhaustive stops compiling until it handles the four new values. Code that
+shows a rail can use `rampRailLabel(rail, { language: 'es', provider })`, which
+keeps the named schemes as they are, labels the generic ones, and returns any
+rail it does not know unchanged.
+
 ### Ramp signing
 
 Every chain/encoding pair, including `STELLAR`/`xdr`, requires an explicitly
