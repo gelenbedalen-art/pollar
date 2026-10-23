@@ -180,6 +180,16 @@ export function rampTrustlineAsset(rejection: Pick<RampQuoteRejection, 'legs' | 
   return { code: to.code, issuer: to.identifier };
 }
 
+/** What a refused `setTrustline` tells the user, by the API's code; never the raw detail, which can carry an address. */
+export function rampTrustlineErrorText(outcome: { code?: string }, assetCode: string): string {
+  if (outcome.code === 'TX_LOW_RESERVE')
+    return `Your wallet needs about 0.5 XLM to add the ${assetCode} trustline. Add XLM, then try again.`;
+  if (outcome.code === 'TX_EXTERNAL_WALLET_SERVER_SIGN')
+    return `Your wallet adds the ${assetCode} trustline itself. Add it from your wallet, then find the route again.`;
+  if (outcome.code?.startsWith('SDK_COSIGN_')) return `The ${assetCode} trustline was not approved. Try again.`;
+  return `Could not add the ${assetCode} trustline. Please try again.`;
+}
+
 /** Why no route was offered: the fix every rejected route shares, else a change of amount. */
 export function rampNoRouteText(rejected: Array<Pick<RampQuoteRejection, 'failure'>>): string {
   const actions = [...new Set(rejected.map((r) => r.failure.resolutionAction))];

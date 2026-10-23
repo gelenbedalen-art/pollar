@@ -857,7 +857,7 @@ export type TrustlineOutcome =
   | { status: 'success'; hash?: string }
   | { status: 'pending'; hash?: string }
   | { status: 'cosign_pending'; request: CosignRequest; buildData?: TxBuildContent }
-  | { status: 'error'; details?: string };
+  | { status: 'error'; details?: string; code?: string };
 
 export const AUTH_ERROR_CODES = {
   SESSION_CREATE_FAILED: 'SESSION_CREATE_FAILED',

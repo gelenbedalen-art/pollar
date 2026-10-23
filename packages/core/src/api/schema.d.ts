@@ -278,7 +278,7 @@ export interface paths {
         put?: never;
         /**
          * Enable or remove a trustline for an enabled asset
-         * @description Establishes (no limit) or removes (limit '0') a trustline on the authenticated user's embedded wallet. When the asset is app-configured and sponsoring is on, the app wallets pay the reserve + fee; otherwise the server self-pays with the user's own wallet. Either way it submits server-side and returns the refreshed enabled-asset list. The wallet and network are derived from the session.
+         * @description Establishes (no limit) or removes (limit '0') a trustline on the authenticated user's embedded wallet. When the asset is app-configured and sponsoring is on, the app wallets pay the reserve + fee; otherwise the server self-pays with the user's own wallet. Either way it submits server-side and returns the refreshed enabled-asset list. A co-signed wallet answers 202 with the request its device approves; the trustline is submitted once approved. A wallet the user signs for (external) builds it with POST /wallet/assets/trustline/build instead. The wallet and network are derived from the session.
          */
         post: operations["postWalletAssetsTrustline"];
         delete?: never;
@@ -4060,6 +4060,64 @@ export interface operations {
                                 enabledInApp: boolean;
                                 sponsored?: boolean;
                             }[];
+                        };
+                    };
+                };
+            };
+            /** @description Co-signed wallet: the request the user approves on their device */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_PENDING";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            pendingSignature: {
+                                /** @constant */
+                                kind: "cosign";
+                                request: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
+                                    /** @enum {string} */
+                                    network: "STELLAR" | "POLYGON" | "SOLANA";
+                                    /** @enum {string} */
+                                    status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                    subOrgId: string;
+                                    activityId: string | null;
+                                    fingerprint: string | null;
+                                    signWith: string;
+                                    account?: string;
+                                    unsignedPayload: string;
+                                    payloadHash: string;
+                                    refreshable: boolean;
+                                    /** @enum {string} */
+                                    intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
+                                    operation?: string;
+                                    summary?: string;
+                                    details?: {
+                                        [key: string]: unknown;
+                                    };
+                                    stepKey?: string;
+                                    signedXdr?: string;
+                                    submit?: {
+                                        hash: string;
+                                        /** @enum {string} */
+                                        status: "PENDING" | "SUCCESS" | "FAILED";
+                                        resultCode?: string;
+                                        message?: string;
+                                    };
+                                    txRecordId?: string;
+                                    failureReason?: string;
+                                    expiresAt: string;
+                                    createdAt: string;
+                                    resolvedAt: string | null;
+                                };
+                            };
                         };
                     };
                 };

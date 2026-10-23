@@ -279,6 +279,14 @@ function request(overrides = {}) {
         content: { pendingSignature: { kind: 'cosign', request: signingRequest() } },
       });
     }
+    // A co-signed wallet's trustline is the request its device approves, never a custodial signature.
+    if (url.pathname === '/v3/wallet/assets/trustline') {
+      return json(202, {
+        success: true,
+        code: 'SDK_COSIGN_PENDING',
+        content: { pendingSignature: { kind: 'cosign', request: signingRequest() } },
+      });
+    }
     if (url.pathname === '/v3/cosign/requests')
       return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { requests: pendingList } });
     if (url.pathname === '/v3/cosign/devices') {
@@ -429,6 +437,13 @@ function request(overrides = {}) {
 
   const sendOutcome = await client.signAndSubmitTx(UNSIGNED_XDR);
   check('signAndSubmitTx answers cosign_pending too', sendOutcome.status === 'cosign_pending');
+
+  const trustOutcome = await client.setTrustline({ code: 'USDC', issuer: SOURCE });
+  check(
+    'setTrustline on a co-signed wallet answers cosign_pending with the request, not a success',
+    trustOutcome.status === 'cosign_pending' && trustOutcome.request.id === 'req-1',
+    trustOutcome,
+  );
 
   const relaysBeforeVerify = calls.filter((c) => c === 'POST /v3/cosign/relay').length;
   const verification = await client.cosign.verify(request());

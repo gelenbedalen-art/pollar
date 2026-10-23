@@ -10,7 +10,14 @@ import type {
   RampRoute,
   RampSigningHandler,
 } from '@pollar/core';
-import { appUnavailableMessage, assertRampStellarSigner, isPollarApiError, rampCountries, rampQuoteFields } from '@pollar/core';
+import {
+  appUnavailableMessage,
+  assertRampStellarSigner,
+  isPollarApiError,
+  rampCountries,
+  rampQuoteFields,
+  rampTrustlineErrorText,
+} from '@pollar/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePollar } from '../../context';
 import type { RampStep } from './RampWidgetTemplate';
@@ -249,7 +256,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     try {
       const outcome = await client.setTrustline(asset);
       if (outcome.status === 'error') {
-        setErrorMsg(outcome.details ?? `Could not add the ${asset.code} trustline. Please try again.`);
+        setErrorMsg(rampTrustlineErrorText(outcome, asset.code));
         return;
       }
       if (outcome.status === 'cosign_pending') {

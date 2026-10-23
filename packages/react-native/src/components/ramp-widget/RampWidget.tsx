@@ -38,6 +38,7 @@ import {
   rampRailLabel,
   rampResolutionText,
   rampTrustlineAsset,
+  rampTrustlineErrorText,
 } from '@pollar/core';
 import { usePollar } from '../../context';
 import { PollarOverlay } from '../commons';
@@ -687,7 +688,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     try {
       const outcome = await client.setTrustline(asset);
       if (outcome.status === 'error') {
-        setErrorMsg(outcome.details ?? `Could not add the ${asset.code} trustline. Please try again.`);
+        setErrorMsg(rampTrustlineErrorText(outcome, asset.code));
         return;
       }
       if (outcome.status === 'cosign_pending') {

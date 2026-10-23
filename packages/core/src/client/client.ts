@@ -2536,8 +2536,10 @@ export class PollarClient {
    * mirroring the opt-out on the payment / swap / contract fee-bump surfaces. The
    * route is by wallet type, and each server endpoint sponsors-or-self-pays:
    *  - **Embedded** (internal wallet, no adapter) -> one call to
-   *    `/wallet/assets/trustline`: the server holds the trustor key and either
-   *    sponsors or self-pays, then submits, returning the refreshed asset list.
+   *    `/wallet/assets/trustline`: the server signs the way the wallet's signer
+   *    allows. A custodial wallet is sponsored or self-paid and submitted there,
+   *    returning the refreshed asset list; a co-signed one answers with the
+   *    request its device approves, settled like any other co-signed send.
    *  - **External/adapter** -> `/wallet/assets/trustline/build` returns a
    *    `changeTrust` XDR (sponsor-signed when covered, or a plain self-pay one
    *    otherwise); the user's own wallet adds the trustor signature and submits.
@@ -2600,7 +2602,12 @@ export class PollarClient {
         const { data, error } = await this._api.POST('/wallet/assets/trustline', {
           body: { code: asset.code, issuer: asset.issuer, ...(limit !== undefined && { limit }) },
         });
-        if (!error && data?.success) {
+        // Read before success: the 202 a co-signed wallet answers is a 2xx too.
+        const pendingRequest = this._cosignPendingOf(data);
+        if (pendingRequest) {
+          return this._settleCosign(pendingRequest, { intent: 'sign_and_send', phase: 'signing-submitting' });
+        }
+        if (!error && data?.code === 'SDK_WALLET_TRUSTLINE') {
           if (data.content) {
             // Bump the assets generation so a refreshAssets() that was in flight
             // can't clobber this post-trustline (fresher) snapshot.
@@ -2609,8 +2616,7 @@ export class PollarClient {
           }
           return { status: 'success' };
         }
-        const details = apiErrorFields(error).details ?? apiErrorFields(error).code;
-        return { status: 'error', ...(details && { details }) };
+        return this._trustlineError(error);
       } catch (err) {
         const details = err instanceof Error ? err.message : undefined;
         return { status: 'error', ...(details && { details }) };
@@ -2627,10 +2633,7 @@ export class PollarClient {
       });
       // Sponsor-signed when the app covers it, plain self-pay otherwise; sign + submit either.
       const xdr = data?.content?.sponsorSignedXdr ?? data?.content?.unsignedXdr;
-      if (error || !data?.success || !xdr) {
-        const details = apiErrorFields(error).details ?? apiErrorFields(error).code;
-        return { status: 'error', ...(details && { details }) };
-      }
+      if (error || !data?.success || !xdr) return this._trustlineError(error);
       const signed = await this._signTx(xdr, undefined, false);
       if (signed.status === 'error') {
         return { status: 'error', ...(signed.details && { details: signed.details }) };
@@ -2641,6 +2644,13 @@ export class PollarClient {
       const details = err instanceof Error ? err.message : undefined;
       return { status: 'error', ...(details && { details }) };
     }
+  }
+
+  /** A refused trustline call, with the API's code so a UI can say what to do about it. */
+  private _trustlineError(error: unknown): TrustlineOutcome {
+    const fields = apiErrorFields(error);
+    const details = fields.details ?? fields.message ?? fields.code;
+    return { status: 'error', ...(details && { details }), ...(fields.code && { code: fields.code }) };
   }
 
   /**

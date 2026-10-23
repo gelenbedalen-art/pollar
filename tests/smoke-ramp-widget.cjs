@@ -454,6 +454,38 @@ async function mount(client, application = {}) {
     client.destroy();
   }
 
+  // --- A trustline the wallet cannot pay for says so in words, never with the raw detail ---
+  {
+    const untrusted = {
+      legs: [{ index: 0, kind: 'PROVIDER_ONRAMP', from: bob, to: usdc }],
+      failure: {
+        code: 'WALLET_TRUSTLINE_MISSING',
+        legIndex: 0,
+        retryable: false,
+        resolutionOwner: 'END_USER',
+        resolutionAction: 'add_trustline',
+      },
+    };
+    const { client } = fixtureClient({
+      quoteRamp: async () => {
+        throw new PollarApiError('SDK_RAMPS_NO_ROUTE', { code: 'SDK_RAMPS_NO_ROUTE', rejected: [untrusted] });
+      },
+      setTrustline: async () => ({
+        status: 'error',
+        code: 'TX_LOW_RESERVE',
+        details: 'Insufficient XLM: fund GBQSHLR3BE3WOB7KL4YYAKDTTIOLONDDOEGL3B2TAAXDCLKZUTZN4JTT with about 0.5 more XLM',
+      }),
+    });
+    const ui = await mount(client);
+    await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+    await ui.click(ui.button('Find best route'));
+    await ui.click(ui.button('Add USDC trustline'));
+    assert.match(ui.container.textContent, /needs about 0.5 XLM to add the USDC trustline/);
+    assert.doesNotMatch(ui.container.textContent, /GBQSHLR3/, 'no address in the message');
+    await ui.unmount();
+    client.destroy();
+  }
+
   // --- A user without a wallet creates it from the route's row, and the route is quoted again ---
   {
     const walletless = {
