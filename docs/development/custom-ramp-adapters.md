@@ -6,7 +6,7 @@ Applications use this path:
 
 `@pollar/core/ramps` exports the server adapter contract and registration factory. A provider package implements this contract and is installed in Pollar's backend. The backend owns configuration, credentials, application/user scope, persisted quotes, the seven-state lifecycle, durable operations and reconciliation. Applications keep using the existing `PollarClient` methods.
 
-These APIs are source changes pending SDK/backend review and release. They do not publish packages or deploy/enable a real provider.
+These APIs ship in `@pollar/core` 0.12.0 as the `@pollar/core/ramps` subpath. Registering an adapter does not enable a real provider for an app; that is backend configuration.
 
 ## Implement a server adapter
 

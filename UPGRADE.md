@@ -219,8 +219,8 @@ consents under 0.11.5 drops them on its first start with this version.
 
 sdk-api no longer opens the Turnkey activity of a co-signed request: the device
 reads the unsigned payload, builds the Turnkey request from the values it
-checked and proposes it, and Pollar's approver votes second. This needs an
-sdk-api with the device-proposes relay. An app that uses the built-in
+checked and proposes it, and Pollar's approver votes second. The hosted sdk-api
+serves this relay. An app that uses the built-in
 `<CosignModal>` or `client.cosign.approve(request)` changes nothing. Code that
 drives the verification itself:
 
