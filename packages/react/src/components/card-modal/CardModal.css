@@ -140,7 +140,7 @@
 }
 
 .pollar-card-tx-amount[data-direction='credit'] {
-  color: #15803d;
+  color: var(--pollar-success-text);
 }
 
 /* --- Forms ---------------------------------------------------------------------- */

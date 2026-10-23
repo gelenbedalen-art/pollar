@@ -302,7 +302,7 @@
 .pollar-code-input {
   width: 2.75rem;
   height: 3rem;
-  border-radius: 0.5rem;
+  border-radius: var(--pollar-input-border-radius, 0.5rem);
   border: 1px solid var(--pollar-border);
   background-color: var(--pollar-input-bg);
   font-size: 1.25rem;

@@ -199,7 +199,7 @@
   font-style: normal;
   font-weight: 500;
   line-height: 30px;
-  color: var(--Color-Neutral-400, #94a3b8);
+  color: var(--pollar-text);
 }
 
 .pollar-send-label-optional {
@@ -252,7 +252,7 @@
   height: 28px;
   padding: 0 0.5rem;
   border: 0;
-  border-radius: 0.375rem;
+  border-radius: var(--pollar-buttons-border-radius, 0.375rem);
   background: var(--pollar-btn-secondary-bg, color-mix(in srgb, var(--pollar-accent) 10%, var(--pollar-bg)));
   box-shadow: none;
   color: var(--pollar-btn-secondary-fg, var(--pollar-accent));

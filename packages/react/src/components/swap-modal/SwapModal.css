@@ -194,7 +194,7 @@
 .pollar-swap-custom-toggle {
   min-height: 1.75rem;
   padding: 0.25rem 0.625rem;
-  border-radius: 0.375rem;
+  border-radius: var(--pollar-buttons-border-radius, 0.375rem);
   border: 0;
   background: var(--pollar-btn-secondary-bg, color-mix(in srgb, var(--pollar-accent) 10%, var(--pollar-bg)));
   color: var(--pollar-btn-secondary-fg, var(--pollar-accent));
@@ -292,7 +292,7 @@
 .pollar-swap-rate-row {
   margin-top: 0.75rem;
   min-height: 2.25rem;
-  color: var(--Color-Neutral-600, #475569);
+  color: var(--pollar-muted);
   font-family: Geist, sans-serif;
   font-size: 0.875rem;
   font-style: normal;
