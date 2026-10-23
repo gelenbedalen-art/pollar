@@ -64,6 +64,12 @@
   `SDK_COSIGN_REQUEST_NOT_PENDING`, and a copy older than what the client saw
   no longer reopens the prompt. `client.cosign.settle(request)` reads a proposed
   request back until Turnkey settles it.
+- Signature confirmation defaults to `'prompt'` and follows the app's
+  dashboard setting: always ask, ask and then sign for a window (minutes and a
+  USD total), or never ask. `confirmation` in the client config takes
+  `'auto'`, `'prompt'` or `{ window: { seconds, maxUsd } }`; set, the stricter
+  of it and the dashboard applies. A ramp leg always asks. See
+  [UPGRADE.md](./UPGRADE.md#signature-confirmation).
 - `@pollar/core/ramps` contract version 2, additive: `actor` and
   `wallet.signingMode` in the user context, `prebuiltPayload` and `expiresAt`
   (the order's deposit window) on a payment,

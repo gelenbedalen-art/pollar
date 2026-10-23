@@ -208,6 +208,31 @@ no longer exported, and the cosign modal no longer lists a group's steps.
 A request's `stepKey` stays on the request itself. A device that stored group
 consents under 0.11.5 drops them on its first start with this version.
 
+### Signature confirmation
+
+The default is now `'prompt'`: every signing call waits for the user, whatever
+the wallet's custody, unless the app's dashboard says otherwise. A headless
+app with nothing subscribed to `client.onConfirmationRequest()` gets
+`SDK_CONFIRMATION_UNAVAILABLE` on every signature: subscribe, or mount the
+provider, which renders `<ConfirmModal>`.
+
+The dashboard (Wallet settings → Signature confirmation) sets the app's
+policy: always ask, ask once and then sign for a window (5 minutes and 50 USD
+by default), or never ask. With `confirmation` unset the SDK follows it. Set,
+the stricter of the two applies: `'auto'` in code no longer skips the prompt
+unless the dashboard says `AUTO` too.
+
+```ts
+confirmation: 'prompt' | 'auto' | { window: { seconds: 300, maxUsd: 50 } };
+```
+
+Inside a window, a signature signs without asking while the USD total of the
+window stays within `maxUsd`. Only a payment the SDK builds itself
+(`sendPayment`, `buildAndSignAndSubmitTx('payment', ...)`) has a value it can
+read; any other signature (a raw `signTx`, a swap, a contract call) always asks,
+and so does an asset with no price. A ramp leg always asks, whatever the
+policy. The window closes on logout.
+
 ## 0.11.4 -> 0.11.5
 
 No code change is needed. `@pollar/react@0.11.5` and `@pollar/react-native@0.11.5`

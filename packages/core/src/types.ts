@@ -349,14 +349,19 @@ export interface PollarClientConfig {
   recoveryPasskey?: RecoveryPasskeyCeremony;
   /**
    * How a signing call treats the user, whatever the wallet's custody.
-   * `'auto'` (default) signs without a prompt: a custodial wallet signs on the
-   * server, a co-signed one has the device verify and vote on its own, an
-   * external one shows only its own wallet's popup. `'prompt'` shows the
-   * transaction and waits for the user before any signature; `@pollar/react`
-   * renders the prompt, a headless app subscribes with
-   * `onConfirmationRequest`. The same code works on testnet and mainnet.
+   * `'prompt'` shows the transaction and waits for the user before any
+   * signature; `@pollar/react` renders the prompt, a headless app subscribes
+   * with `onConfirmationRequest`. `{ window }`: a confirmed signature opens a
+   * window of `seconds` in which the next ones, up to `maxUsd` in total, sign
+   * without asking; a signature whose USD value the SDK cannot read (anything
+   * but a payment it builds) always asks. `'auto'` signs without a prompt.
+   *
+   * Unset, the app's dashboard setting applies, and that defaults to
+   * `'prompt'`. Set, the stricter of this and the dashboard setting applies.
+   * A ramp leg always asks, whatever the policy. The same code works on
+   * testnet and mainnet.
    */
-  confirmation?: 'auto' | 'prompt';
+  confirmation?: ConfirmationPolicy;
   /**
    * Keep the raw co-sign flow: signing calls on a co-signed wallet return
    * `cosign_pending` and the app approves through `client.cosign.*` and its
@@ -364,6 +369,9 @@ export interface PollarClientConfig {
    */
   cosignManual?: boolean;
 }
+
+/** See `PollarClientConfig.confirmation`. */
+export type ConfirmationPolicy = 'auto' | 'prompt' | { window: { seconds: number; maxUsd: number } };
 
 /** What a signing call is about to do, shown to the user under `confirmation: 'prompt'`. */
 export interface ConfirmationRequest {

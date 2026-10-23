@@ -57,7 +57,9 @@ import {
 } from '../api/endpoints/ramps';
 import { buildProof } from '../dpop';
 import { CosignManager } from '../cosign/manager';
+import { type AppSignConfirmation, ConfirmationWindow, effectivePolicy, type UsdPrice, usdValueOf } from '../lib/confirmation';
 import type {
+  ConfirmationPolicy,
   ConfirmationRequest,
   CosignCustody,
   CosignRequest,
@@ -209,6 +211,9 @@ const isReactNative = typeof navigator !== 'undefined' && (navigator as { produc
  * treats RN (no `localStorage`) as server-side.
  */
 const isClientRuntime = isBrowser || isReactNative;
+
+/** How long the dashboard's confirmation setting and the USD prices are reused. */
+const CONFIRMATION_DATA_TTL_MS = 60_000;
 
 type ConfirmationAnswer =
   | { ok: true }
@@ -535,7 +540,12 @@ export class PollarClient {
   private _cosignStateListeners = new Set<(state: CosignState) => void>();
 
   /** The confirmation policy; see `PollarClientConfig.confirmation` and `cosignManual`. */
-  private readonly _confirmation: 'auto' | 'prompt';
+  private readonly _confirmation: ConfirmationPolicy | undefined;
+  private readonly _confirmWindow = new ConfirmationWindow();
+  /** Above zero while a ramp leg is being signed: its signature always asks. */
+  private _rampSigning = 0;
+  private _appSignConfirmationCache: { at: number; value: AppSignConfirmation | null } | null = null;
+  private _usdPricesCache: { at: number; value: UsdPrice[] } | null = null;
   private readonly _cosignManual: boolean;
   /** Requests this client is settling itself: they stay out of the pending list a UI prompts for. */
   private readonly _autoHandling = new Set<string>();
@@ -662,7 +672,7 @@ export class PollarClient {
 
     // The co-signing device key is a key of its own: the DPoP key is reset on
     // logout, and the user's vote must outlive a logout.
-    this._confirmation = config.confirmation ?? 'auto';
+    this._confirmation = config.confirmation;
     this._cosignManual = config.cosignManual === true;
     this.cosign = new CosignManager({
       api: this._api,
@@ -3313,12 +3323,26 @@ export class PollarClient {
   }
 
   /**
-   * Ask the user before a signature, per the confirmation policy: `'auto'`
-   * answers yes at once, `'prompt'` publishes the request to the subscribers
-   * and waits for one of them to settle it. Setup signatures never come here.
+   * Ask the user before a signature, per the confirmation policy (see
+   * `PollarClientConfig.confirmation`): `'auto'` answers yes at once, an open
+   * window answers yes while the signature fits in it, and otherwise the
+   * request goes to the subscribers until one of them settles it. A ramp leg
+   * always asks. Setup signatures never come here.
    */
-  private _confirm(input: Omit<ConfirmationRequest, 'id' | 'createdAt'>): Promise<ConfirmationAnswer> {
-    if (this._confirmation === 'auto') return Promise.resolve({ ok: true });
+  private async _confirm(input: Omit<ConfirmationRequest, 'id' | 'createdAt'>): Promise<ConfirmationAnswer> {
+    const policy: ConfirmationPolicy =
+      this._rampSigning > 0 ? 'prompt' : effectivePolicy(this._confirmation, await this._appSignConfirmation());
+    if (policy === 'auto') return { ok: true };
+    if (policy !== 'prompt' && this._confirmWindow.isOpen(policy.window.seconds, Date.now())) {
+      const usd = usdValueOf(input, await this._usdPrices());
+      if (this._confirmWindow.take(usd, policy.window.maxUsd)) return { ok: true };
+    }
+    const answer = await this._askUser(input);
+    if (answer.ok && policy !== 'prompt') this._confirmWindow.open(Date.now());
+    return answer;
+  }
+
+  private _askUser(input: Omit<ConfirmationRequest, 'id' | 'createdAt'>): Promise<ConfirmationAnswer> {
     if (this._confirmationListeners.size === 0) {
       return Promise.resolve({
         ok: false,
@@ -4337,6 +4361,31 @@ export class PollarClient {
 
   // --- App config -----------------------------------------------------------
 
+  /** The dashboard's confirmation setting, read at most once a minute; null when it cannot be read. */
+  private async _appSignConfirmation(): Promise<AppSignConfirmation | null> {
+    const cached = this._appSignConfirmationCache;
+    if (cached && Date.now() - cached.at < CONFIRMATION_DATA_TTL_MS) return cached.value;
+    const config = (await this.getAppConfig()) as { application?: { signConfirmation?: AppSignConfirmation } } | null;
+    const value = config?.application?.signConfirmation ?? null;
+    this._appSignConfirmationCache = { at: Date.now(), value };
+    return value;
+  }
+
+  /** USD prices for the confirmation window, read at most once a minute; empty when they cannot be read. */
+  private async _usdPrices(): Promise<UsdPrice[]> {
+    const cached = this._usdPricesCache;
+    if (cached && Date.now() - cached.at < CONFIRMATION_DATA_TTL_MS) return cached.value;
+    let value: UsdPrice[] = [];
+    try {
+      const { data } = await this._api.GET('/prices/usd');
+      value = data?.content.prices ?? [];
+    } catch {
+      // No prices: every signature in the window asks.
+    }
+    this._usdPricesCache = { at: Date.now(), value };
+    return value;
+  }
+
   async getAppConfig(): Promise<unknown> {
     try {
       const { data, error } = await this._api.GET('/applications/config');
@@ -4473,7 +4522,15 @@ export class PollarClient {
       throw new Error('The ramp action changed. Refresh before signing.');
     const handler = this._rampSigners.resolve(action.chain, action.payload.encoding);
     if (!handler) throw new Error(`Register a ramp signing handler for ${action.chain}/${action.payload.encoding}.`);
-    const signedPayload = await handler(action);
+    // A ramp leg moves the user's funds through a rail wallet: whatever the
+    // policy, the signature the handler asks for is confirmed by the user.
+    this._rampSigning++;
+    let signedPayload: string;
+    try {
+      signedPayload = await handler(action);
+    } finally {
+      this._rampSigning--;
+    }
     return submitRampLegSignature(this._api, orderId, action.legIndex, { actionId, signedPayload });
   }
 
@@ -5533,7 +5590,10 @@ export class PollarClient {
     for (const cb of this._authStateListeners) cb(snapshot);
     // Nobody is left to answer a prompt once the session is gone; the signing
     // calls waiting on one end as declined instead of hanging.
-    if (next.step === 'idle') for (const c of [...this._confirmations.values()]) c.reject();
+    if (next.step === 'idle') {
+      for (const c of [...this._confirmations.values()]) c.reject();
+      this._confirmWindow.close();
+    }
     // A co-signed wallet may have setup waiting for the user's vote (its
     // account creation, a trustline the app enabled): read the list once the
     // session is in place so the store, and the UI, show it. Custodial wallets

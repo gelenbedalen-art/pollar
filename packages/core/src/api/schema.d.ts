@@ -1159,7 +1159,7 @@ export interface paths {
         };
         /**
          * Get application config
-         * @description Returns the public configuration and branding for the application, and when its users get a wallet (`application.walletProvisioning`).
+         * @description Returns the public configuration and branding for the application, when its users get a wallet (`application.walletProvisioning`), and when the SDK asks them to confirm a signature (`application.signConfirmation`).
          */
         get: operations["getApplicationsConfig"];
         put?: never;
@@ -1182,6 +1182,26 @@ export interface paths {
          * @description Returns the application logo as a binary image.
          */
         get: operations["getApplicationsByIdLogo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/prices/usd": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * USD prices for the confirmation window
+         * @description USD prices of the native coins and stablecoins of the app's network. Stablecoins count at par. An asset missing from the list has no price, and the SDK asks the user for any signature that moves it.
+         */
+        get: operations["getPricesUsd"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9619,6 +9639,12 @@ export interface operations {
                                 walletProvisioning?: "AT_LOGIN" | "ON_DEMAND" | "NONE";
                                 /** @enum {string} */
                                 walletCustodyMode?: "INTERNAL" | "COSIGNED" | "SELF_CUSTODY" | "USER_CHOICE";
+                                signConfirmation?: {
+                                    /** @enum {string} */
+                                    mode: "PROMPT" | "WINDOW" | "AUTO";
+                                    windowSeconds: number;
+                                    maxUsd: string;
+                                };
                             };
                             styles: {
                                 theme?: string;
@@ -9715,6 +9741,70 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    getPricesUsd: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_USD_PRICES";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            prices: {
+                                /** @enum {string} */
+                                chain: "STELLAR" | "SOLANA" | "POLYGON";
+                                asset: string;
+                                decimals?: number;
+                                usd: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
