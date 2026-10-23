@@ -11,7 +11,14 @@ import type {
   RampScannable,
   StellarNetwork,
 } from '@pollar/core';
-import { describeRampAction, rampLegStatus, rampLegTitle, rampRailLabel, rampResolutionText } from '@pollar/core';
+import {
+  describeRampAction,
+  rampLegStatus,
+  rampLegTitle,
+  rampNoRouteText,
+  rampRailLabel,
+  rampResolutionText,
+} from '@pollar/core';
 import { formLanguage } from '../requirement-form-modal/form-fields';
 import { RejectedRouteDisplay, RouteDisplay } from './RouteDisplay';
 import { CopyButton } from '../commons';
@@ -436,9 +443,7 @@ export function RampWidgetTemplate({
               <RejectedRouteDisplay key={i} rejection={r} />
             ))}
           </div>
-          {quotes.length === 0 && (
-            <p className="pollar-ramp-payment-note">No route can take this amount right now. Try another amount.</p>
-          )}
+          {quotes.length === 0 && <p className="pollar-ramp-payment-note">{rampNoRouteText(rejected)}</p>}
           {errorMsg && (
             <p className="pollar-ramp-payment-note" style={{ color: 'var(--pollar-error-text)' }}>
               {errorMsg}

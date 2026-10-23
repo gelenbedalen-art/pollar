@@ -8,6 +8,7 @@ import type {
   RampOrderLeg,
   RampPendingAction,
   RampQuote,
+  RampQuoteRejection,
   RampRoute,
   RampScannable,
   RampSignatureAction,
@@ -125,6 +126,14 @@ const RESOLUTION: Record<string, string> = {
 /** The text for a failure's `resolutionAction`; anything unknown asks the user to contact support. */
 export function rampResolutionText(failure: Pick<RampFailure, 'resolutionAction'>): string {
   return RESOLUTION[failure.resolutionAction] ?? RESOLUTION.contact_pollar!;
+}
+
+/** Why no route was offered: the fix every rejected route shares, else a change of amount. */
+export function rampNoRouteText(rejected: Array<Pick<RampQuoteRejection, 'failure'>>): string {
+  const actions = [...new Set(rejected.map((r) => r.failure.resolutionAction))];
+  return actions.length === 1
+    ? rampResolutionText({ resolutionAction: actions[0]! })
+    : 'No route can take this amount right now. Try another amount.';
 }
 
 /** The action as a screen shows it; platforms supply the controls, links and QR rendering. */

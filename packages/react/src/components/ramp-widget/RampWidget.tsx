@@ -28,6 +28,7 @@ const RAMP_ERROR_MESSAGES: Record<string, string> = {
   SDK_RAMPS_QUOTE_NOT_FOUND: 'This quote is no longer available. Find a route again.',
   SDK_RAMPS_ACTION_STALE: 'This step changed. It was refreshed; try again.',
   SDK_RAMPS_TX_NOT_FOUND: 'This operation was not found.',
+  SDK_RAMPS_WALLET_NOT_READY: 'Approve the new wallet account on your device, then try again.',
 };
 
 /** The text for a failed ramp call: an app that cannot serve it, a known code, the server's reason, or the fallback. */
