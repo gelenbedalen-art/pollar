@@ -21,7 +21,7 @@ import {
   rampOrderReceive,
   rampOrderStopped,
   rampRailLabel,
-  rampResolutionText,
+  rampOrderResolutionText,
   rampTrustlineAsset,
 } from '@pollar/core';
 import { formLanguage } from '../requirement-form-modal/form-fields';
@@ -602,7 +602,7 @@ export function RampWidgetTemplate({
           {order.failure && (
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">What to do</span>
-              <p className="pollar-ramp-payment-note">{rampResolutionText(order.failure)}</p>
+              <p className="pollar-ramp-payment-note">{rampOrderResolutionText(order)}</p>
               {stopped && !settled && order.failure.resolutionOwner === 'END_USER' && onRetryOrder && (
                 <button type="button" className="pollar-btn-primary" disabled={retrying} onClick={onRetryOrder}>
                   {retrying ? (

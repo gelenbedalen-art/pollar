@@ -39,7 +39,7 @@ import {
   rampOrderStopped,
   rampQuoteFields,
   rampRailLabel,
-  rampResolutionText,
+  rampOrderResolutionText,
   rampTrustlineAsset,
   rampTrustlineErrorText,
 } from '@pollar/core';
@@ -504,7 +504,7 @@ export function RampWidgetTemplate({
               copyRow(order.state === 'completed' ? 'You received' : 'You receive', `${receive.amount} ${receive.unit}`)}
             {order.failure && (
               <>
-                <Text style={[styles.note, { color: colors.text }]}>{rampResolutionText(order.failure)}</Text>
+                <Text style={[styles.note, { color: colors.text }]}>{rampOrderResolutionText(order)}</Text>
                 {copyRow('Order', order.id)}
                 {stopped &&
                   !settled &&

@@ -162,6 +162,19 @@ export function rampResolutionText(failure: Pick<RampFailure, 'resolutionAction'
   return RESOLUTION[failure.resolutionAction] ?? RESOLUTION.contact_pollar!;
 }
 
+/** What a held order asks instead, where it differs: its funds moved and wait where they are. */
+const HELD_RESOLUTION: Record<string, string> = {
+  start_again:
+    'The provider order expired before the payment reached it. Your funds are safe in your wallet: try again to place a new order at the current price.',
+};
+
+/** The text for an order's failure, told apart when the order is held with its funds already moved. */
+export function rampOrderResolutionText(order: Pick<RampOrder, 'failure' | 'legs'>): string | null {
+  if (!order.failure) return null;
+  const held = order.legs.some((leg) => leg.status === 'HELD');
+  return (held ? HELD_RESOLUTION[order.failure.resolutionAction] : undefined) ?? rampResolutionText(order.failure);
+}
+
 /**
  * What a route held back by a verification step says, and the button that opens
  * the step. A step under review or refused has nothing the user can do from the

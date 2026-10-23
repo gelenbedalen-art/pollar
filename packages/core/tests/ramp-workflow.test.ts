@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { describeRampAction, rampFieldValid, rampLegStatus, rampOrderReceive, rampOrderStopped } from '../src/ramps/workflow';
+import {
+  describeRampAction,
+  rampFieldValid,
+  rampLegStatus,
+  rampOrderReceive,
+  rampOrderResolutionText,
+  rampOrderStopped,
+} from '../src/ramps/workflow';
 
 const usdc = { kind: 'asset' as const, code: 'USDC', identifier: 'GA5Z', chain: 'STELLAR' as const };
 const bob = { kind: 'fiat' as const, currency: 'BOB', rail: 'QR', country: 'BO' };
@@ -51,4 +58,23 @@ test("a payment's window is part of how the action is shown", () => {
   };
   assert.equal(describeRampAction(order as never).expiresAt, '2026-10-23T12:10:00.000Z');
   assert.equal(describeRampAction({ state: 'processing', pendingAction: null } as never).expiresAt, null);
+});
+
+test('an expired provider order reads differently once the funds moved: the user tries again, nothing is lost', () => {
+  const failure = {
+    code: 'PROVIDER_ORDER_EXPIRED',
+    retryable: false,
+    resolutionOwner: 'END_USER',
+    resolutionAction: 'start_again',
+  };
+  const failed = rampOrderResolutionText({ failure, legs: [{ status: 'FAILED' }] } as never);
+  const held = rampOrderResolutionText({ failure, legs: [{ status: 'COMPLETED' }, { status: 'HELD' }] } as never);
+  assert.match(failed!, /nothing was charged/);
+  assert.match(held!, /funds are safe in your wallet: try again/);
+  assert.equal(rampOrderResolutionText({ failure: null, legs: [] } as never), null);
+  const other = { ...failure, resolutionAction: 'contact_pollar' };
+  assert.equal(
+    rampOrderResolutionText({ failure: other, legs: [{ status: 'HELD' }] } as never),
+    rampOrderResolutionText({ failure: other, legs: [{ status: 'FAILED' }] } as never),
+  );
 });

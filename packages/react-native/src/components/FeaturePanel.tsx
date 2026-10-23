@@ -22,7 +22,7 @@ import {
   rampLegStatus,
   rampLegTitle,
   rampQuoteFields,
-  rampResolutionText,
+  rampOrderResolutionText,
 } from '@pollar/core';
 import { usePollar } from '../context';
 import { ActionButton, ActionState, Card, Choice, Field, Label, ResultView, useAction } from './native-ui';
@@ -942,7 +942,7 @@ export function RampPanel() {
               {leg.onchainTxHash ? ` · ${leg.onchainTxHash.slice(0, 10)}…` : ''}
             </Label>
           ))}
-          {order.failure && <Label>{rampResolutionText(order.failure)}</Label>}
+          {order.failure && <Label>{rampOrderResolutionText(order)}</Label>}
           {view && !settled && <Label>{view.title}</Label>}
           {view?.scannable?.payload && !settled && (
             <View style={{ alignItems: 'center', paddingVertical: 8 }}>

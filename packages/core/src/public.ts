@@ -100,6 +100,7 @@ export {
   rampFieldValid,
   rampLegStatus,
   rampOrderReceive,
+  rampOrderResolutionText,
   rampOrderStopped,
   rampLegTitle,
   rampNoRouteText,
