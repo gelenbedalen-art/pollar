@@ -49,6 +49,11 @@
   `onCreateWallet` / `creatingWallet` props of `RejectedRouteDisplay` and
   `RampWidgetTemplate` are optional. An app with no chains enabled says so
   (`noChains`) instead of showing an empty route list.
+- `setTrustline` on a co-signed wallet settles the request its device approves
+  (the 202 `SDK_COSIGN_PENDING`) like any co-signed send, and answers
+  `cosign_pending` under `cosignManual`. A failed `TrustlineOutcome` carries
+  the API `code`, and `rampTrustlineErrorText(outcome, assetCode)` turns it into
+  a message for the user.
 - Ramp quotes and order creation wait up to 30 seconds for the providers,
   instead of the 10-second default of every other call.
 - `<KycModal>` shows the session it is opening and keeps it while the list
