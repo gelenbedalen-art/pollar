@@ -58,6 +58,13 @@ function rampErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/** A route's identity across quotes: quoting again gives the same route a new quote id. */
+function routeKey(quote: RampQuote): string {
+  const node = (n: RampQuote['legs'][number]['from']) =>
+    n.kind === 'asset' ? `${n.code}:${n.chain}` : `${n.currency}:${n.rail}`;
+  return quote.legs.map((leg) => `${leg.kind}:${node(leg.from)}>${node(leg.to)}`).join('|');
+}
+
 /** An exact decimal, as the API takes amounts: "10", "10.5", never "1e3" or "-2". */
 const DECIMAL = /^\d+(\.\d+)?$/;
 
@@ -108,7 +115,7 @@ async function signLegWithWallet(client: PollarClient, orderId: string, actionId
 }
 
 export function RampWidget({ onClose }: RampWidgetProps) {
-  const { getClient, styles, network, openCosignModal, openRecoveryModal, appConfig } = usePollar();
+  const { getClient, styles, network, openCosignModal, openRecoveryModal, appConfig, cosign } = usePollar();
   const client = getClient();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
 
@@ -136,6 +143,9 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   // The dropped route (its index) whose wallet step is running.
   const [walletBusy, setWalletBusy] = useState<number | null>(null);
   const [retrying, setRetrying] = useState(false);
+  // A route whose order waits on the new account the user approves on the device: once that
+  // request is approved the route is resumed, since its quote may lapse meanwhile.
+  const [awaitingAccount, setAwaitingAccount] = useState<{ routeKey: string; requestId: string } | null>(null);
   // A read of the order failed and polling keeps trying; cleared by the next good read.
   const [pollTrouble, setPollTrouble] = useState(false);
   // Bumped to start following the order again (after a retry or refresh of one that had stopped).
@@ -227,16 +237,30 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       .then(() => openCosignModal());
   }, [approval, client, openCosignModal]);
 
+  const resolvedRequest = cosign.lastResolved;
+  useEffect(() => {
+    if (!awaitingAccount || resolvedRequest?.id !== awaitingAccount.requestId) return;
+    setAwaitingAccount(null);
+    if (resolvedRequest.status !== 'APPROVED') {
+      setErrorMsg('The new account was not approved, so this route cannot start.');
+      return;
+    }
+    void resumeRoute(awaitingAccount.routeKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingAccount, resolvedRequest]);
+
   function handleDirectionChange(next: RampDirection) {
     setDirection(next);
     setErrorMsg(null);
+    setAwaitingAccount(null);
   }
 
-  async function handleFindRoute() {
-    if (!fiat || !asset) return;
+  /** Quotes the entered amount and shows the routes; the quotes found, none when it failed. */
+  async function handleFindRoute(): Promise<RampQuote[]> {
+    if (!fiat || !asset) return [];
     if (!DECIMAL.test(amount.trim()) || Number(amount) <= 0) {
       setErrorMsg('Enter an amount greater than zero.');
-      return;
+      return [];
     }
     setStep('loading_quote');
     setErrorMsg(null);
@@ -251,15 +275,17 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       setQuotes(result.quotes);
       setRejected(result.rejected);
       setStep('select_route');
+      return result.quotes;
     } catch (error) {
       if (isPollarApiError(error) && error.code === 'SDK_RAMPS_NO_ROUTE') {
         setQuotes([]);
         setRejected(Array.isArray(error.body.rejected) ? (error.body.rejected as RampQuoteRejection[]) : []);
         setStep('select_route');
-        return;
+        return [];
       }
       setErrorMsg(rampErrorMessage(error, 'Could not find a route. Please try again.'));
       setStep('error');
+      return [];
     }
   }
 
@@ -340,18 +366,32 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     }
   }
 
-  function handleSelectQuote(quote: RampQuote) {
+  /** Quotes again and continues with the same route on its fresh quote, which is never resumed again. */
+  async function resumeRoute(key: string) {
+    const same = (await handleFindRoute()).find((q) => routeKey(q) === key);
+    if (same) handleSelectQuote(same, true);
+    else setErrorMsg('That route is no longer available. Pick another one.');
+  }
+
+  /** `fresh`: the quote was just taken, so a lapse is reported instead of quoting again. */
+  function handleSelectQuote(quote: RampQuote, fresh = false) {
+    // The server refuses a lapsed quote: take the same route on a new one instead of sending it.
+    if (!fresh && Date.parse(quote.expiresAt) <= Date.now()) {
+      void resumeRoute(routeKey(quote));
+      return;
+    }
     setSelected(quote);
     setErrorMsg(null);
     const missing = rampQuoteFields(quote).some((f) => !f.optional && !(fieldValues[f.key] ?? '').trim());
     if (missing) setStep('contact');
-    else void startOrder(quote);
+    else void startOrder(quote, fresh);
   }
 
-  async function startOrder(quote: RampQuote) {
+  async function startOrder(quote: RampQuote, fresh = false) {
     setIsLoading(true);
     setStartingQuoteId(quote.quoteId);
     setErrorMsg(null);
+    setAwaitingAccount(null);
     try {
       const payee = Object.fromEntries(
         rampQuoteFields(quote)
@@ -365,13 +405,23 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       setOrder(created);
       setStep('status');
     } catch (error) {
-      setErrorMsg(rampErrorMessage(error, 'Could not start the operation. Please try again.'));
       // The route's wallet on another chain waits on the user's approval: bring that request up.
-      if (isPollarApiError(error) && error.code === 'SDK_RAMPS_WALLET_NOT_READY')
-        void client.cosign
-          .pending()
-          .catch(() => undefined)
-          .then(() => openCosignModal());
+      // Not a failure while the request is there: the route starts again once it is approved.
+      if (isPollarApiError(error) && error.code === 'SDK_RAMPS_WALLET_NOT_READY') {
+        const pending = await client.cosign.pending().catch(() => []);
+        const request = pending.find((r) => r.intent === 'add_accounts');
+        if (request) setAwaitingAccount({ routeKey: routeKey(quote), requestId: request.id });
+        else setErrorMsg(rampErrorMessage(error, 'Could not start the operation. Please try again.'));
+        openCosignModal();
+        setStep('select_route');
+        return;
+      }
+      // Lapsed between the list and the click (or by the server's clock): same route, new quote.
+      if (isPollarApiError(error) && error.code === 'SDK_RAMPS_QUOTE_EXPIRED' && !fresh) {
+        void resumeRoute(routeKey(quote));
+        return;
+      }
+      setErrorMsg(rampErrorMessage(error, 'Could not start the operation. Please try again.'));
       // A refused detail is fixed on the form; an expired quote needs a new one.
       if (isPollarApiError(error) && error.code === 'VALIDATION_ERROR' && rampQuoteFields(quote).length) setStep('contact');
       else setStep('select_route');
@@ -412,6 +462,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   }
 
   function handleNewOrder() {
+    setAwaitingAccount(null);
     setOrder(null);
     setSelected(null);
     setQuotes([]);
@@ -423,6 +474,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
 
   function handleBack() {
     setErrorMsg(null);
+    setAwaitingAccount(null);
     setStep(step === 'contact' ? 'select_route' : 'input');
   }
 
@@ -531,6 +583,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         refreshing={refreshing}
         signing={signing}
         errorMsg={errorMsg}
+        notice={awaitingAccount ? 'Approve the new account on your device. The order starts once it is approved.' : null}
         onDirectionChange={handleDirectionChange}
         onCountryChange={(next) => {
           setCountry(next);
@@ -547,7 +600,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
           setErrorMsg(null);
         }}
         onFindRoute={() => void handleFindRoute()}
-        onSelectQuote={handleSelectQuote}
+        onSelectQuote={(quote) => handleSelectQuote(quote)}
         onVerifyRoute={handleVerifyRoute}
         trustingAsset={trustingAsset}
         onTrustAsset={(asset) => void handleTrustAsset(asset)}

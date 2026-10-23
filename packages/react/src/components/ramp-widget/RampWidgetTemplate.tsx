@@ -128,6 +128,8 @@ interface RampWidgetTemplateProps {
   refreshing: boolean;
   signing: boolean;
   errorMsg: string | null;
+  /** Progress the route waits on that is not a failure, shown with a spinner (an account the user approves on the device). */
+  notice?: string | null;
   onDirectionChange: (direction: RampDirection) => void;
   onCountryChange: (country: string) => void;
   onFiatChange: (key: string) => void;
@@ -207,6 +209,7 @@ export function RampWidgetTemplate({
   refreshing,
   signing,
   errorMsg,
+  notice = null,
   onDirectionChange,
   onCountryChange,
   onFiatChange,
@@ -492,6 +495,11 @@ export function RampWidgetTemplate({
             ))}
           </div>
           {quotes.length === 0 && <p className="pollar-ramp-payment-note">{rampNoRouteText(rejected)}</p>}
+          {notice && (
+            <p className="pollar-ramp-payment-note">
+              <span className="pollar-spinner pollar-spinner-sm" aria-hidden /> {notice}
+            </p>
+          )}
           {errorMsg && (
             <p className="pollar-ramp-payment-note" style={{ color: 'var(--pollar-error-text)' }}>
               {errorMsg}

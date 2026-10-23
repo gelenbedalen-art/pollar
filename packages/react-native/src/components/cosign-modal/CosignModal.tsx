@@ -4,6 +4,9 @@ import { usePollar } from '../../context';
 import { PollarOverlay } from '../commons';
 import { CosignModalTemplate } from './CosignModalUI';
 
+/** How long an outcome that needs nothing from the user stays up before the modal closes. */
+const CLOSE_AFTER_SECONDS = 3;
+
 interface CosignModalProps {
   onClose: () => void;
 }
@@ -24,11 +27,38 @@ export function CosignModal({ onClose }: CosignModalProps) {
 
   const current = pending.find((r) => r.id === selectedId) ?? pending[0] ?? null;
 
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     void getClient()
       .cosign.pending()
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
   }, [getClient]);
+
+  // Nothing left to vote on and nothing to read (no transaction, no signature): count down and close.
+  const silent =
+    pending.length === 0 &&
+    (lastResolved ? lastResolved.status === 'APPROVED' && !lastResolved.submit?.hash && !lastResolved.signedXdr : loaded);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const [closesIn, setClosesIn] = useState<number | null>(null);
+  useEffect(() => {
+    if (!silent) {
+      setClosesIn(null);
+      return;
+    }
+    let left = CLOSE_AFTER_SECONDS;
+    setClosesIn(left);
+    const timer = setInterval(() => {
+      left -= 1;
+      if (left > 0) setClosesIn(left);
+      else {
+        clearInterval(timer);
+        onCloseRef.current();
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [silent, lastResolved?.id]);
 
   // The quorum as this device read it from Turnkey, once per open; a bad
   // reading fails every verification so nothing is approved on it.
@@ -97,6 +127,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
         busy={busy}
         error={error}
         {...(lastResolved ? { lastResolved } : {})}
+        closesIn={closesIn}
         onSelect={(r) => setSelectedId(r.id)}
         onApprove={(r) => void run('approving', r)}
         onReject={(r) => void run('rejecting', r)}

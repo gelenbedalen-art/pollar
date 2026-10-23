@@ -10,6 +10,9 @@ import './CosignModal.css';
 import { CosignModalTemplate } from './CosignModalTemplate';
 import { modalChrome } from '../modal-theme';
 
+/** How long an outcome that needs nothing from the user stays up before the modal closes. */
+const CLOSE_AFTER_SECONDS = 3;
+
 interface CosignModalProps {
   onClose: () => void;
 }
@@ -22,7 +25,7 @@ interface CosignModalProps {
 export function CosignModal({ onClose }: CosignModalProps) {
   const { getClient, styles, network } = usePollar();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
-  const { pending, lastResolved, approve, reject, verify, inspectQuorum } = useCosign();
+  const { pending, lastResolved, loaded, approve, reject, verify, inspectQuorum } = useCosign();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [verification, setVerification] = useState<CosignVerification | null>(null);
@@ -84,6 +87,29 @@ export function CosignModal({ onClose }: CosignModalProps) {
     });
   }, [getClient]);
 
+  // Nothing left to vote on and nothing to read (no transaction, no signature): count down and close.
+  const silent =
+    pending.length === 0 &&
+    (lastResolved ? lastResolved.status === 'APPROVED' && !lastResolved.submit?.hash && !lastResolved.signedXdr : loaded);
+  const [closesIn, setClosesIn] = useState<number | null>(null);
+  useEffect(() => {
+    if (!silent) {
+      setClosesIn(null);
+      return;
+    }
+    let left = CLOSE_AFTER_SECONDS;
+    setClosesIn(left);
+    const timer = setInterval(() => {
+      left -= 1;
+      if (left > 0) setClosesIn(left);
+      else {
+        clearInterval(timer);
+        onCloseRef.current();
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [silent, lastResolved?.id]);
+
   const run = useCallback(
     async (kind: 'approving' | 'rejecting', request: CosignRequest, action: (r: CosignRequest) => Promise<CosignRequest>) => {
       setBusy(kind);
@@ -113,6 +139,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
         error={error}
         approveBlocked={!!current && approveFailedFor === current.id}
         {...(lastResolved ? { lastResolved } : {})}
+        closesIn={closesIn}
         explorerUrl={lastResolved?.submit?.hash ? explorerTxUrl(lastResolved.network, lastResolved.submit.hash, network) : null}
         onSelect={(r) => setSelectedId(r.id)}
         onApprove={(r) => void run('approving', r, approve)}

@@ -82,6 +82,10 @@ function fakeClient() {
       state = { pending: [request] };
       emit();
     },
+    resolve(resolved) {
+      state = { pending: [], lastResolved: resolved };
+      emit();
+    },
     cosign: {
       pending: async () => {
         client.calls.pending++;
@@ -188,6 +192,66 @@ async function mount(element) {
     const approve = [...view.container.querySelectorAll('button')].find((b) => /Approve/.test(b.textContent));
     check('Approve is enabled', () => assert.ok(approve && !approve.disabled, 'Approve missing or disabled'));
     await view.unmount();
+  }
+
+  // ── 3. Auto-close ───────────────────────────────────────────────
+  // An outcome that needs nothing from the user counts down and closes; one
+  // with something to read (a sent transaction) stays until it is closed.
+  const wait = (ms) => React.act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+  const outcomes = [
+    ['approved, nothing signed', { ...request, status: 'APPROVED' }, true],
+    ['approved and sent', { ...request, status: 'APPROVED', submit: { hash: 'f'.repeat(64) } }, false],
+  ];
+  for (const platform of ['web', 'react-native']) {
+    console.log(`\n── 3. ${platform} auto-close ─────────────────────────────`);
+    for (const [name, resolved, closes] of outcomes) {
+      const client = fakeClient();
+      let closed = 0;
+      const onClose = () => closed++;
+      let CosignModal;
+      let Host;
+      if (platform === 'web') {
+        const context = { getClient: () => client, isAuthenticated: true, styles: {}, network: 'mainnet' };
+        ({ CosignModal } = loader({
+          '../../context': { usePollar: () => context },
+          './context': { usePollar: () => context },
+          '../commons': { cropAddress: (s) => s, PollarModalFooter: () => null, explorerTxUrl: () => null },
+        })('packages/react/src/components/cosign-modal/CosignModal.tsx'));
+        Host = () => React.createElement(CosignModal, { onClose });
+      } else {
+        const context = { getClient: () => client, styles: {}, cosign: client.getCosignState() };
+        ({ CosignModal } = loader({
+          'react-native': reactNative,
+          '../../context': { usePollar: () => context },
+          '../commons': { PollarOverlay: passthrough, PollarModalFooter: () => null },
+        })('packages/react-native/src/components/cosign-modal/CosignModal.tsx'));
+        Host = () => {
+          const [, rerender] = React.useState(0);
+          React.useEffect(
+            () =>
+              client.onCosignStateChange((state) => {
+                context.cosign = state;
+                rerender((n) => n + 1);
+              }),
+            [],
+          );
+          return React.createElement(CosignModal, { onClose });
+        };
+      }
+      await React.act(async () => client.arrive(request));
+      const view = await mount(React.createElement(Host));
+      await settle();
+      await React.act(async () => client.resolve(resolved));
+      await wait(50);
+      check(`${name}: ${closes ? 'counts down' : 'shows no countdown'}`, () =>
+        closes
+          ? assert.match(view.container.textContent, /Closing in 3s/)
+          : assert.doesNotMatch(view.container.textContent, /Closing in/),
+      );
+      await wait(3100);
+      check(`${name}: ${closes ? 'closes on its own' : 'stays open'}`, () => assert.equal(closed, closes ? 1 : 0));
+      await view.unmount();
+    }
   }
 
   console.log(`\n${passed} pass, ${failed} fail`);

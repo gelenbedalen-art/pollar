@@ -23,6 +23,8 @@ export interface CosignModalTemplateProps {
   lastResolved?: CosignRequest;
   /** Explorer page of {@link lastResolved}'s transaction, when it was sent. */
   explorerUrl?: string | null;
+  /** Seconds until the modal closes on its own, while what it shows needs nothing from the user. */
+  closesIn?: number | null;
   onSelect: (request: CosignRequest) => void;
   onApprove: (request: CosignRequest) => void;
   onReject: (request: CosignRequest) => void;
@@ -100,6 +102,7 @@ export function CosignModalTemplate({
   approveBlocked = false,
   lastResolved,
   explorerUrl,
+  closesIn = null,
   onSelect,
   onApprove,
   onReject,
@@ -170,6 +173,7 @@ export function CosignModalTemplate({
           ) : (
             <p className="pollar-cosign-muted">Nothing waits for your approval.</p>
           )}
+          {closesIn !== null && <p className="pollar-cosign-muted pollar-cosign-closing">Closing in {closesIn}s</p>}
         </div>
       )}
 

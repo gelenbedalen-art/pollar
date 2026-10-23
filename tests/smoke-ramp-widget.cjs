@@ -752,8 +752,137 @@ async function mount(client, application = {}) {
     client.destroy();
   }
 
+  // --- A route whose Polygon account waits on the device: no error, then the same route on a new quote ---
+  {
+    const polygonUsdt = { kind: 'asset', code: 'USDT', identifier: '0xusdt', chain: 'POLYGON' };
+    // Two routes, so the one the user picked must be found again among the fresh quotes.
+    const viaPolygon = (id) => ({
+      ...quote,
+      quoteId: id,
+      legs: [
+        { ...quote.legs[0], to: polygonUsdt, requiredFields: [] },
+        { ...quote.legs[0], index: 1, kind: 'BRIDGE', from: polygonUsdt, to: usdc, requiredFields: [] },
+      ],
+    });
+    const direct = (id) => ({ ...quote, quoteId: id, legs: [{ ...quote.legs[0], requiredFields: [] }] });
+    const accountRequest = {
+      id: 'acct-1',
+      kind: 'ACCOUNT',
+      intent: 'add_accounts',
+      network: 'POLYGON',
+      status: 'PENDING',
+      expiresAt: later(3600),
+    };
+    for (const outcome of ['APPROVED', 'REJECTED']) {
+      let round = 0;
+      const { client, calls } = fixtureClient({
+        quoteRamp: async (body) => {
+          calls.push(['quoteRamp', body]);
+          round++;
+          return { quotes: [direct(`d${round}`), viaPolygon(`p${round}`)], rejected: [] };
+        },
+        createRampOrder: async (body) => {
+          calls.push(['createRampOrder', body]);
+          if (body.quoteId === 'p1')
+            throw new PollarApiError('SDK_RAMPS_WALLET_NOT_READY', { code: 'SDK_RAMPS_WALLET_NOT_READY' });
+          return order(qrAction);
+        },
+      });
+      // The co-sign store as core keeps it, so the test can resolve the request.
+      const listeners = new Set();
+      let cosignState = { pending: [] };
+      client.getCosignState = () => cosignState;
+      client.onCosignStateChange = (cb) => {
+        listeners.add(cb);
+        cb(cosignState);
+        return () => listeners.delete(cb);
+      };
+      const emit = (next) => {
+        cosignState = next;
+        listeners.forEach((cb) => cb(next));
+      };
+      client.cosign.pending = async () => [accountRequest];
+      client.cosign.inspectQuorum = async () => ({ ok: true });
+      const ui = await mount(client);
+      await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+      await ui.click(ui.button('Find best route'));
+      await ui.click(ui.container.querySelectorAll('.pollar-ramp-route-card')[1]);
+      assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(['createRampOrder', { quoteId: 'p1' }]));
+      assert.match(ui.container.textContent, /Approve the new account on your device\. The order starts once it is approved\./);
+      assert.doesNotMatch(ui.container.textContent, /then try again/, 'waiting on the device is not an error');
+      assert.ok(ui.container.querySelector('.pollar-ramp-payment-note .pollar-spinner'), 'the wait shows a spinner');
+      await act(async () => {
+        emit({ pending: [], lastResolved: { ...accountRequest, status: outcome } });
+        await new Promise((r) => setTimeout(r, 30));
+      });
+      const orders = calls.filter(([name]) => name === 'createRampOrder');
+      if (outcome === 'APPROVED') {
+        assert.equal(calls.filter(([name]) => name === 'quoteRamp').length, 2, 'quoted again once approved');
+        assert.equal(JSON.stringify(orders.at(-1)), JSON.stringify(['createRampOrder', { quoteId: 'p2' }]), 'same route');
+        assert.match(ui.container.textContent, /Pay 100 BOB/);
+      } else {
+        assert.equal(orders.length, 1, 'a rejected account starts nothing');
+        assert.match(ui.container.textContent, /The new account was not approved/);
+      }
+      await ui.unmount();
+      client.destroy();
+    }
+  }
+
+  // --- A lapsed quote is never sent: the same route is quoted again and started ---
+  {
+    let round = 0;
+    const { client, calls } = fixtureClient({
+      quoteRamp: async (body) => {
+        calls.push(['quoteRamp', body]);
+        round++;
+        const legs = [{ ...quote.legs[0], requiredFields: [] }];
+        return { quotes: [{ ...quote, quoteId: `q${round}`, expiresAt: later(round === 1 ? -5 : 60), legs }], rejected: [] };
+      },
+    });
+    const ui = await mount(client);
+    await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+    await ui.click(ui.button('Find best route'));
+    await ui.click(ui.container.querySelector('.pollar-ramp-route-card'));
+    const orders = calls.filter(([name]) => name === 'createRampOrder');
+    assert.equal(JSON.stringify(orders), JSON.stringify([['createRampOrder', { quoteId: 'q2' }]]), 'only the new quote');
+    assert.doesNotMatch(ui.container.textContent, /expired/);
+    await ui.unmount();
+    client.destroy();
+  }
+
+  // --- A quote the server calls expired is taken again once; a second refusal is shown ---
+  for (const lapses of [1, 2]) {
+    let round = 0;
+    const { client, calls } = fixtureClient({
+      quoteRamp: async (body) => {
+        calls.push(['quoteRamp', body]);
+        round++;
+        const legs = [{ ...quote.legs[0], requiredFields: [] }];
+        return { quotes: [{ ...quote, quoteId: `q${round}`, legs }], rejected: [] };
+      },
+      createRampOrder: async (body) => {
+        calls.push(['createRampOrder', body]);
+        if (Number(body.quoteId.slice(1)) <= lapses)
+          throw new PollarApiError('SDK_RAMPS_QUOTE_EXPIRED', { code: 'SDK_RAMPS_QUOTE_EXPIRED' });
+        return order(qrAction);
+      },
+    });
+    const ui = await mount(client);
+    await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+    await ui.click(ui.button('Find best route'));
+    await ui.click(ui.container.querySelector('.pollar-ramp-route-card'));
+    await act(async () => new Promise((r) => setTimeout(r, 30)));
+    const orders = calls.filter(([name]) => name === 'createRampOrder').map(([, body]) => body.quoteId);
+    assert.deepEqual(orders, ['q1', 'q2'], 'one new quote, never a loop');
+    if (lapses === 1) assert.match(ui.container.textContent, /Pay 100 BOB/);
+    else assert.match(ui.container.textContent, /This quote expired/);
+    await ui.unmount();
+    client.destroy();
+  }
+
   console.log(
-    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume, open orders, QR window, receive amount, approvals, retry and 402 passed.',
+    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, wallet creation, no chains, resume, open orders, QR window, receive amount, approvals, retry, account approval resume, lapsed quotes and 402 passed.',
   );
 })().catch((error) => {
   console.error(error);

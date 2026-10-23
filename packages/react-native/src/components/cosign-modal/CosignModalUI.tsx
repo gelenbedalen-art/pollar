@@ -12,6 +12,8 @@ export interface CosignModalTemplateProps {
   busy: 'approving' | 'rejecting' | null;
   error: string | null;
   lastResolved?: CosignRequest;
+  /** Seconds until the modal closes on its own, while what it shows needs nothing from the user. */
+  closesIn?: number | null;
   onSelect: (request: CosignRequest) => void;
   onApprove: (request: CosignRequest) => void;
   onReject: (request: CosignRequest) => void;
@@ -80,6 +82,7 @@ export function CosignModalTemplate({
   busy,
   error,
   lastResolved,
+  closesIn = null,
   onSelect,
   onApprove,
   onReject,
@@ -119,6 +122,7 @@ export function CosignModalTemplate({
             {lastResolved?.submit?.hash && (
               <Text style={{ color: colors.muted }}>Sent. Transaction {crop(lastResolved.submit.hash)}</Text>
             )}
+            {closesIn !== null && <Text style={{ color: colors.muted, fontSize: 12 }}>Closing in {closesIn}s</Text>}
           </View>
         )}
 

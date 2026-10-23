@@ -35,6 +35,11 @@
   text-decoration: underline;
 }
 
+.pollar-cosign-closing {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+}
+
 .pollar-cosign-empty-title {
   margin: 0 0 0.35rem;
   font-weight: 600;
