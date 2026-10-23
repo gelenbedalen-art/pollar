@@ -107,11 +107,32 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * A field a quote asks for is complete when it is filled and, for an email,
  * well-formed. An optional field may stay blank, but what is typed must be well-formed.
  */
-export function rampFieldValid(field: Pick<RampField, 'type' | 'optional'>, raw: string | undefined): boolean {
+export function rampFieldValid(field: Pick<RampField, 'type' | 'optional' | 'pattern'>, raw: string | undefined): boolean {
   const value = (raw ?? '').trim();
   if (!value) return field.optional === true;
-  if (field.type === 'email') return EMAIL_RE.test(value);
-  return true;
+  if (field.type === 'email' && !EMAIL_RE.test(value)) return false;
+  return matchesWhole(field.pattern, value);
+}
+
+/** What is wrong with a filled-in value, or null while it is blank or valid (`rampFieldValid` says when it is complete). */
+export function rampFieldError(
+  field: Pick<RampField, 'type' | 'label' | 'hint' | 'pattern'>,
+  raw: string | undefined,
+): string | null {
+  const value = (raw ?? '').trim();
+  if (!value || rampFieldValid({ ...field, optional: true }, value)) return null;
+  if (field.type === 'email') return 'Enter a valid email address.';
+  return field.hint ? `Check the ${field.label.toLowerCase()}: ${field.hint}` : `Check the ${field.label.toLowerCase()}.`;
+}
+
+/** Whether `value` matches the field's `pattern` whole; a pattern this runtime cannot read checks nothing. */
+function matchesWhole(pattern: string | undefined, value: string): boolean {
+  if (!pattern) return true;
+  try {
+    return new RegExp(`^(?:${pattern})$`).test(value);
+  } catch {
+    return true;
+  }
 }
 
 /**

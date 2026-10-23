@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   describeRampAction,
+  rampFieldError,
   rampFieldValid,
   rampLegStatus,
   rampOrderReceive,
@@ -44,6 +45,22 @@ test('a field is complete when filled and, for an email, well-formed; an optiona
   assert.equal(rampFieldValid({ type: 'text', optional: true }, ''), true);
   assert.equal(rampFieldValid({ type: 'email' }, 'ana@pollar.xyz'), true);
   assert.equal(rampFieldValid({ type: 'email', optional: true }, 'not-an-email'), false);
+});
+
+test('a field with a pattern is complete only when the whole value matches it; one this runtime cannot read checks nothing', () => {
+  const account = { type: 'text' as const, pattern: '\\d{5,20}' };
+  assert.equal(rampFieldValid(account, '1234567890'), true);
+  assert.equal(rampFieldValid(account, ' 12345 '), true, 'trimmed first');
+  assert.equal(rampFieldValid(account, '1234'), false, 'too short');
+  assert.equal(rampFieldValid(account, '12345a'), false, 'the whole value, not a part of it');
+  assert.equal(rampFieldValid({ ...account, optional: true }, ''), true);
+  assert.equal(rampFieldValid({ type: 'text', pattern: '(' }, 'x'), true);
+
+  const field = { ...account, label: 'Bank account number', hint: 'Digits only, 5 to 20.' };
+  assert.equal(rampFieldError(field, ''), null, 'blank is incomplete, not wrong');
+  assert.equal(rampFieldError(field, '123456'), null);
+  assert.equal(rampFieldError(field, '12-34'), 'Check the bank account number: Digits only, 5 to 20.');
+  assert.equal(rampFieldError({ type: 'email', label: 'Email' }, 'nope'), 'Enter a valid email address.');
 });
 
 test("a payment's window is part of how the action is shown", () => {

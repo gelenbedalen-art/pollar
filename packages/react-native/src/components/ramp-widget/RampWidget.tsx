@@ -35,6 +35,7 @@ import {
   rampCountries,
   rampLegStatus,
   rampLegTitle,
+  rampFieldError,
   rampFieldValid,
   rampNoRouteText,
   rampOrderReceive,
@@ -488,6 +489,9 @@ export function RampWidgetTemplate({
                   />
                 )}
                 {f.hint ? <Text style={[styles.note, { color: colors.muted }]}>{f.hint}</Text> : null}
+                {rampFieldError(f, fieldValues[f.key]) ? (
+                  <Text style={[styles.note, { color: colors.error }]}>{rampFieldError(f, fieldValues[f.key])}</Text>
+                ) : null}
               </View>
             ))}
             {errorLine}

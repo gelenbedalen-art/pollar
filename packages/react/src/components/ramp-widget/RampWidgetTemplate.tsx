@@ -18,6 +18,7 @@ import {
   describeRampAction,
   rampLegStatus,
   rampLegTitle,
+  rampFieldError,
   rampFieldValid,
   rampNoRouteText,
   rampOrderReceive,
@@ -549,8 +550,8 @@ export function RampWidgetTemplate({
                 />
               )}
               {f.hint && <span className="pollar-ramp-field-hint">{f.hint}</span>}
-              {f.type === 'email' && (fieldValues[f.key] ?? '').trim() !== '' && !rampFieldValid(f, fieldValues[f.key]) && (
-                <span className="pollar-ramp-field-error">Enter a valid email address.</span>
+              {rampFieldError(f, fieldValues[f.key]) && (
+                <span className="pollar-ramp-field-error">{rampFieldError(f, fieldValues[f.key])}</span>
               )}
             </div>
           ))}

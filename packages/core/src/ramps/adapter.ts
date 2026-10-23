@@ -81,6 +81,8 @@ export type RampAdapterField = {
   placeholder?: string;
   placeholderFrom?: string;
   hint?: string;
+  /** A regular expression (JavaScript syntax, no flags) the whole value must match. */
+  pattern?: string;
 };
 export type RampAdapterAction =
   | { kind: 'collect_information'; fields: RampAdapterField[] }

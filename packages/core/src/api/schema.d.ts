@@ -14358,6 +14358,7 @@ export interface operations {
                                         placeholder?: string;
                                         placeholderFrom?: string;
                                         hint?: string;
+                                        pattern?: string;
                                     }[];
                                 }[];
                             }[];
