@@ -62,7 +62,10 @@ When no route can be quoted at all, `quoteRamp` throws a `PollarApiError` with c
 says why each candidate dropped out: `failure.resolutionAction` is what the user can do about it.
 A route waiting on a verification step carries it as `requirement` (`RampQuoteRequirement`: KYC, a
 form, a registry check or a provider registration); `rampRequirementCopy(requirement)` gives the
-text and the button, and a `null` action means the step is under review or refused.
+text and the button, and a `null` action means the step is under review or refused. A route dropped
+because the Stellar wallet does not trust the asset it delivers (`resolutionAction: 'add_trustline'`)
+names it through `rampTrustlineAsset(rejection)` (`{ code, issuer }`): add it with `setTrustline`, then
+quote again.
 
 | Quote field                                    | Use                                                                                           |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |

@@ -35,6 +35,19 @@
   `<RequirementFormModal>`, `<RegistryCheckModal>` or
   `<ProviderRegistrationModal>`) from the route's row and quotes again when it is
   done.
+- A route dropped because the Stellar wallet does not trust the asset it
+  delivers names that asset: `rampTrustlineAsset(rejection)` returns its `code`
+  and `issuer`. `<RampWidget>` adds the trustline from the route's row with
+  `setTrustline` (a co-signed wallet opens the approval) and quotes again. The
+  `onVerify` and `onTrust` handlers of `RejectedRouteDisplay` and the matching
+  `RampWidgetTemplate` props are optional: without one the row describes the
+  fix and offers no button.
+- Ramp quotes and order creation wait up to 30 seconds for the providers,
+  instead of the 10-second default of every other call.
+- `<KycModal>` shows the session it is opening and keeps it while the list
+  reloads; an option opened for the user (a ramp step) opens behind a spinner
+  instead of the list. `KycModalTemplate` gains the optional
+  `startingProviderId` and `directOpen` props.
 - With no route to offer, `rampNoRouteText(rejected)` gives the fix every
   rejected route shares (or a change of amount), and the widgets show it.
   `SDK_RAMPS_WALLET_NOT_READY` asks the user to approve the new wallet account

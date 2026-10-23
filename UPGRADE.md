@@ -196,7 +196,8 @@ const removeSigner = client.registerRampSigningHandler('STELLAR', 'xdr', async (
 UI helpers exported from core are `describeRampAction(order)`,
 `rampCountries`, `rampQuoteFields`, `rampLegTitle`, `rampLegStatus`,
 `rampRailLabel`, `rampResolutionText` and `rampNoRouteText(rejected)` (the fix
-every rejected route shares, else a change of amount), with
+every rejected route shares, else a change of amount), `rampRequirementCopy`
+and `rampTrustlineAsset` for a route the user can unblock, with
 `isRampOrderSettled(order)`, the `RampSigningHandler` type, and
 `assertRampStellarSigner` for a Stellar signer; registry and URL internals are
 private.
