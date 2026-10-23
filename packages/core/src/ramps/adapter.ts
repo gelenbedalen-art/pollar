@@ -11,7 +11,11 @@
 export const RAMP_ADAPTER_CONTRACT_VERSION = 2 as const;
 export type RampAdapterContractVersion = 1 | 2;
 export type RampAdapterChain = 'STELLAR' | 'POLYGON' | 'SOLANA';
-export type RampAdapterRail = 'SPEI' | 'PIX' | 'PSE' | 'ACH' | 'BREB' | 'QR';
+/**
+ * How the user pays or gets paid. `HOSTED` means the method is chosen inside the
+ * provider's own flow, so Pollar does not know it when the route is listed.
+ */
+export type RampAdapterRail = 'SPEI' | 'PIX' | 'PSE' | 'ACH' | 'BREB' | 'QR' | 'BANK_TRANSFER' | 'CASH' | 'CARD' | 'HOSTED';
 export type RampAdapterTerms = {
   fiatCurrency: string;
   fiatAmount: string;

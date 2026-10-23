@@ -31,7 +31,7 @@ This code runs in the Pollar server. `provider` calls the external provider; the
 
 Required methods are `capabilities`, `quote`, `create`, `status` and `reconcile`. Optional methods support preparation, action validation, input mapping, quote comparison, continuation, callback verification, refunds, notification and an independent authenticated fiat receipt reader (`verifySettlement`). Provider status reports and hashes alone cannot establish completion.
 
-Use exact decimal strings in all amounts and terms. Chain identifiers follow `STELLAR`, `POLYGON` and `SOLANA`; rails follow the backend catalog (`SPEI`, `PIX`, `PSE`, `ACH`, `BREB`, `QR`). Additional chains or rails require backend/schema support. Advertise only routes for which the provider account, user wallet, chain executor and independent evidence readers are available.
+Use exact decimal strings in all amounts and terms. Chain identifiers follow `STELLAR`, `POLYGON` and `SOLANA`; rails follow the backend catalog (`SPEI`, `PIX`, `PSE`, `ACH`, `BREB`, `QR`, `BANK_TRANSFER`, `CASH`, `CARD`, `HOSTED`; `HOSTED` when the user picks the method inside the provider's flow). Additional chains or rails require backend/schema support. Advertise only routes for which the provider account, user wallet, chain executor and independent evidence readers are available.
 
 ## Export the server registration
 
