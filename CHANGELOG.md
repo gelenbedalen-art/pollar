@@ -54,6 +54,10 @@
   `cosign_pending` under `cosignManual`. A failed `TrustlineOutcome` carries
   the API `code`, and `rampTrustlineErrorText(outcome, assetCode)` turns it into
   a message for the user.
+- A co-signed vote gets 60 seconds. If the connection drops while it settles,
+  the client reads the request back and reports it as it stands instead of
+  rejecting a send that may have landed; `reject` cancels a request only while
+  it is still pending.
 - Ramp quotes and order creation wait up to 30 seconds for the providers,
   instead of the 10-second default of every other call.
 - `<KycModal>` shows the session it is opening and keeps it while the list
