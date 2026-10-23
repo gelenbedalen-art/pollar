@@ -100,6 +100,7 @@ export {
   rampLegStatus,
   rampLegTitle,
   rampQuoteFields,
+  rampRailLabel,
   rampResolutionText,
 } from './ramps/workflow';
 export type { RampSigningHandler } from './ramps/workflow';

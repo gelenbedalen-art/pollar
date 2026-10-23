@@ -195,6 +195,17 @@ const order = (patch) => ({
     ['Buy USDT on Polygon', 'Convert USDT to USDC', 'Send to Stellar'],
   );
   assert.deepEqual(
+    ['SPEI', 'QR', 'BANK_TRANSFER', 'CASH', 'CARD', 'HOSTED', 'WIRE'].map((rail) => sdk.rampRailLabel(rail)),
+    ['SPEI', 'QR', 'Bank transfer', 'Cash', 'Card', 'Chosen at the provider', 'WIRE'],
+    'named schemes keep their name; an unknown rail shows as it came',
+  );
+  assert.deepEqual(
+    ['BREB', 'BANK_TRANSFER', 'CASH', 'CARD', 'HOSTED'].map((rail) => sdk.rampRailLabel(rail, { language: 'es' })),
+    ['BREB', 'Transferencia bancaria', 'Efectivo', 'Tarjeta', 'Se elige en el proveedor'],
+  );
+  assert.equal(sdk.rampRailLabel('HOSTED', { language: 'es', provider: 'Anclap' }), 'Se elige en Anclap');
+  assert.equal(sdk.rampRailLabel('HOSTED', { provider: 'Anclap' }), 'Chosen at Anclap');
+  assert.deepEqual(
     ['COMPLETED', 'ACTIVE', 'PENDING', 'HELD'].map((status) => sdk.rampLegStatus({ status, failure: null })),
     ['done', 'active', 'pending', 'failed'],
   );

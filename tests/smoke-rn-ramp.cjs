@@ -76,7 +76,10 @@ function load(file) {
     if (id === 'react-native-svg') return { SvgXml: () => null };
     if (id === '../../context') return { usePollar: () => pollarContext };
     if (id === '../commons') return { PollarOverlay: passthrough };
-    if (id.startsWith('.')) return load(`${path.join(path.dirname(file), id)}.tsx`);
+    if (id.startsWith('.')) {
+      const base = path.join(path.dirname(file), id);
+      return load(fs.existsSync(path.resolve(__dirname, '..', `${base}.tsx`)) ? `${base}.tsx` : `${base}.ts`);
+    }
     return require(id);
   };
   vm.runInNewContext(output, scope);

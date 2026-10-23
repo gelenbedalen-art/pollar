@@ -33,10 +33,12 @@ import {
   rampLegStatus,
   rampLegTitle,
   rampQuoteFields,
+  rampRailLabel,
   rampResolutionText,
 } from '@pollar/core';
 import { usePollar } from '../../context';
 import { PollarOverlay } from '../commons';
+import { formLanguage } from '../requirement-form-modal/form-fields';
 import { RejectedRouteDisplay, RouteDisplay } from './RouteDisplay';
 
 export type RampStep = 'input' | 'loading_quote' | 'select_route' | 'contact' | 'status' | 'error';
@@ -311,7 +313,10 @@ export function RampWidgetTemplate({
                   <>
                     <Text style={[styles.label, { color: colors.text }]}>{onramp ? 'Pay with' : 'Receive in'}</Text>
                     {chips(
-                      fiats.map((f) => ({ key: fiatKey(f), label: `${f.currency} · ${f.rail}` })),
+                      fiats.map((f) => ({
+                        key: fiatKey(f),
+                        label: `${f.currency} · ${rampRailLabel(f.rail, { language: formLanguage() })}`,
+                      })),
                       fiat ? fiatKey(fiat) : '',
                       onFiatChange,
                     )}

@@ -56,6 +56,26 @@ export function rampCountries(routes: RampRoute[]): Array<{ country: string; fia
   return [...byCountry].map(([country, fiats]) => ({ country, fiats }));
 }
 
+const RAIL_LABEL: Record<'en' | 'es', Record<string, string>> = {
+  en: { BANK_TRANSFER: 'Bank transfer', CASH: 'Cash', CARD: 'Card', HOSTED: 'Chosen at the provider' },
+  es: { BANK_TRANSFER: 'Transferencia bancaria', CASH: 'Efectivo', CARD: 'Tarjeta', HOSTED: 'Se elige en el proveedor' },
+};
+
+/**
+ * A rail as the user reads it. Named schemes (SPEI, PIX, PSE, ACH, BREB, QR) keep
+ * their name, and a rail this version does not know shows as it came, so a newer
+ * backend never breaks the screen. `HOSTED` names the provider when one is given.
+ */
+export function rampRailLabel(
+  rail: RampFiat['rail'] | (string & {}),
+  options: { language?: 'en' | 'es'; provider?: string } = {},
+): string {
+  const language = options.language === 'es' ? 'es' : 'en';
+  if (rail === 'HOSTED' && options.provider)
+    return language === 'es' ? `Se elige en ${options.provider}` : `Chosen at ${options.provider}`;
+  return RAIL_LABEL[language][rail] ?? rail;
+}
+
 /** Every field the quote asks the user for, across its legs, once per key. */
 export function rampQuoteFields(quote: RampQuote): RampField[] {
   const fields = new Map<string, RampField>();

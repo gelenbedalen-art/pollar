@@ -11,7 +11,8 @@ import type {
   RampScannable,
   StellarNetwork,
 } from '@pollar/core';
-import { describeRampAction, rampLegStatus, rampLegTitle, rampResolutionText } from '@pollar/core';
+import { describeRampAction, rampLegStatus, rampLegTitle, rampRailLabel, rampResolutionText } from '@pollar/core';
+import { formLanguage } from '../requirement-form-modal/form-fields';
 import { RejectedRouteDisplay, RouteDisplay } from './RouteDisplay';
 import { CopyButton } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
@@ -345,7 +346,7 @@ export function RampWidgetTemplate({
                   >
                     {fiats.map((f) => (
                       <option key={fiatKey(f)} value={fiatKey(f)}>
-                        {f.currency} · {f.rail}
+                        {f.currency} · {rampRailLabel(f.rail, { language: formLanguage() })}
                       </option>
                     ))}
                   </select>
