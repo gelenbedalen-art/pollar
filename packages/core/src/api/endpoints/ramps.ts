@@ -14,6 +14,14 @@ import { PollarApiError } from '../../types';
 import { isRecord, stringField } from '../error-fields';
 
 /**
+ * A quote asks every candidate route's providers, venues and bridges, and an order
+ * confirms the provider's quote and runs the first leg; both wait on third-party
+ * APIs and can take well over the 10s default. Only these calls get the longer budget.
+ */
+const RAMP_PROVIDER_TIMEOUT_MS = 30_000;
+const providerBudget = { 'x-pollar-timeout-ms': String(RAMP_PROVIDER_TIMEOUT_MS) };
+
+/**
  * Wrap an error body into a {@link PollarApiError}, keeping every field the API
  * sent: a quote that found no route carries `rejected` (why each route dropped
  * out), a refused payee carries `message` (which field and why).
@@ -38,7 +46,7 @@ export async function getRampRoutes(api: PollarApiClient, direction: RampDirecti
  * leg, best first. No route at all answers 422 SDK_RAMPS_NO_ROUTE with `rejected`.
  */
 export async function quoteRamp(api: PollarApiClient, body: RampQuoteRequest): Promise<RampQuotesResponse> {
-  const { data, error } = await api.POST('/ramps/quotes', { body });
+  const { data, error } = await api.POST('/ramps/quotes', { body, headers: providerBudget });
   if (!data?.content || error) throw rampApiError(error, 'Failed to quote the ramp');
   return data.content;
 }
@@ -49,7 +57,7 @@ export async function quoteRamp(api: PollarApiClient, body: RampQuoteRequest): P
  * quote's `requiredFields`. The same quote always answers the same order.
  */
 export async function createRampOrder(api: PollarApiClient, body: RampOrderRequest): Promise<RampOrder> {
-  const { data, error } = await api.POST('/ramps/orders', { body });
+  const { data, error } = await api.POST('/ramps/orders', { body, headers: providerBudget });
   if (!data?.content || error) throw rampApiError(error, 'Failed to create the ramp order');
   return data.content;
 }
