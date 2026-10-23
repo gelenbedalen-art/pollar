@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import type { RampQuote, RampQuoteRejection, RampQuoteRequirement } from '@pollar/core';
-import { rampLegTitle, rampRequirementCopy, rampResolutionText } from '@pollar/core';
+import { rampLegTitle, rampRequirementCopy, rampResolutionText, rampTrustlineAsset } from '@pollar/core';
 
 interface RouteDisplayProps {
   quote: RampQuote;
@@ -42,28 +42,56 @@ export function RouteDisplay({ quote, best = false, disabled = false, onSelect }
   );
 }
 
-/** A route that was planned and dropped, and what the user can do about it: a verification step opens from its button. */
+/**
+ * A route that was planned and dropped, and what the user can do about it: a
+ * verification step opens from its button, a missing trustline is added from its own.
+ */
 export function RejectedRouteDisplay({
   rejection,
   accentColor = '#005DB4',
   disabled = false,
+  trusting = false,
   onVerify,
+  onTrust,
 }: {
   rejection: RampQuoteRejection;
   accentColor?: string;
-  /** A route is starting, so a step cannot be opened meanwhile. */
+  /** A route is starting or a trustline is being added, so nothing else opens meanwhile. */
   disabled?: boolean;
-  onVerify: (requirement: RampQuoteRequirement) => void;
+  /** This row's trustline is being added. */
+  trusting?: boolean;
+  /** Without it, a verification step is described but offers no button. */
+  onVerify?: ((requirement: RampQuoteRequirement) => void) | undefined;
+  /** Without it, a missing trustline is described but offers no button. */
+  onTrust?: ((asset: { code: string; issuer: string }) => void) | undefined;
 }) {
   const requirement = rejection.requirement;
   const copy = requirement ? rampRequirementCopy(requirement) : null;
+  const trustAsset = !requirement && onTrust ? rampTrustlineAsset(rejection) : null;
   return (
-    <View style={[styles.card, !copy?.action && { opacity: 0.6 }]}>
+    <View style={[styles.card, !(copy?.action && onVerify) && !trustAsset && { opacity: 0.6 }]}>
       <View style={styles.left}>
         <Text style={styles.provider}>{rejection.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</Text>
         <Text style={styles.meta}>{copy ? copy.message : rampResolutionText(rejection.failure)}</Text>
       </View>
-      {requirement && copy?.action && (
+      {trustAsset && (
+        <TouchableOpacity
+          style={[styles.verify, { borderColor: accentColor, opacity: disabled && !trusting ? 0.5 : 1 }]}
+          disabled={disabled}
+          accessibilityState={{ busy: trusting, disabled }}
+          onPress={() => onTrust!(trustAsset)}
+        >
+          {trusting ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ActivityIndicator size="small" color={accentColor} />
+              <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>Adding…</Text>
+            </View>
+          ) : (
+            <Text style={{ color: accentColor, fontWeight: '600', fontSize: 13 }}>Add {trustAsset.code} trustline</Text>
+          )}
+        </TouchableOpacity>
+      )}
+      {requirement && copy?.action && onVerify && (
         <TouchableOpacity
           style={[styles.verify, { borderColor: accentColor, opacity: disabled ? 0.5 : 1 }]}
           disabled={disabled}

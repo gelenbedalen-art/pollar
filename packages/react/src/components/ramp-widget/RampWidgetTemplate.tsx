@@ -19,6 +19,7 @@ import {
   rampNoRouteText,
   rampRailLabel,
   rampResolutionText,
+  rampTrustlineAsset,
 } from '@pollar/core';
 import { formLanguage } from '../requirement-form-modal/form-fields';
 import { RejectedRouteDisplay, RouteDisplay } from './RouteDisplay';
@@ -146,7 +147,11 @@ interface RampWidgetTemplateProps {
   onFindRoute: () => void;
   onSelectQuote: (quote: RampQuote) => void;
   /** Opens the verification step a dropped route waits on. */
-  onVerifyRoute: (requirement: RampQuoteRequirement) => void;
+  onVerifyRoute?: (requirement: RampQuoteRequirement) => void;
+  /** The Stellar asset whose trustline is being added, as `code:issuer`; null when none is. */
+  trustingAsset?: string | null;
+  /** Adds the trustline a dropped route needs, then quotes again. */
+  onTrustAsset?: (asset: { code: string; issuer: string }) => void;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -158,6 +163,12 @@ interface RampWidgetTemplateProps {
   onRetry: () => void;
   onRefresh: () => void;
   onClose: () => void;
+}
+
+/** The trustline a dropped route asks for, as the widget tracks it while it is added. */
+function trustKey(rejection: RampQuoteRejection): string | null {
+  const asset = rampTrustlineAsset(rejection);
+  return asset ? `${asset.code}:${asset.issuer}` : null;
 }
 
 const LOADING_STEPS = ['Checking routes…', 'Quoting each step…', 'Route found!'];
@@ -198,6 +209,8 @@ export function RampWidgetTemplate({
   onFindRoute,
   onSelectQuote,
   onVerifyRoute,
+  trustingAsset = null,
+  onTrustAsset,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -444,7 +457,14 @@ export function RampWidgetTemplate({
               />
             ))}
             {rejected.map((r, i) => (
-              <RejectedRouteDisplay key={i} rejection={r} disabled={startingQuoteId != null} onVerify={onVerifyRoute} />
+              <RejectedRouteDisplay
+                key={i}
+                rejection={r}
+                disabled={startingQuoteId != null || trustingAsset !== null}
+                trusting={trustKey(r) === trustingAsset}
+                onVerify={onVerifyRoute}
+                onTrust={onTrustAsset}
+              />
             ))}
           </div>
           {quotes.length === 0 && <p className="pollar-ramp-payment-note">{rampNoRouteText(rejected)}</p>}

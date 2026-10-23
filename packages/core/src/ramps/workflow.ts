@@ -164,6 +164,21 @@ export function rampRequirementCopy(requirement: Pick<RampQuoteRequirement, 'typ
   }
 }
 
+/**
+ * The Stellar asset a route dropped for a missing trustline delivers, to trust
+ * with `setTrustline`; null for any other rejection.
+ */
+export function rampTrustlineAsset(rejection: Pick<RampQuoteRejection, 'legs' | 'failure'>): {
+  code: string;
+  issuer: string;
+} | null {
+  if (rejection.failure.resolutionAction !== 'add_trustline') return null;
+  const leg = rejection.legs.find((l) => l.index === rejection.failure.legIndex) ?? rejection.legs[rejection.legs.length - 1];
+  const to = leg?.to;
+  if (to?.kind !== 'asset' || to.chain !== 'STELLAR' || !to.identifier) return null;
+  return { code: to.code, issuer: to.identifier };
+}
+
 /** Why no route was offered: the fix every rejected route shares, else a change of amount. */
 export function rampNoRouteText(rejected: Array<Pick<RampQuoteRejection, 'failure'>>): string {
   const actions = [...new Set(rejected.map((r) => r.failure.resolutionAction))];

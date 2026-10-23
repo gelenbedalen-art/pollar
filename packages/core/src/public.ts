@@ -104,6 +104,7 @@ export {
   rampRailLabel,
   rampRequirementCopy,
   rampResolutionText,
+  rampTrustlineAsset,
 } from './ramps/workflow';
 export type { RampSigningHandler } from './ramps/workflow';
 export { assertRampStellarSigner } from './ramps/stellar-signing';

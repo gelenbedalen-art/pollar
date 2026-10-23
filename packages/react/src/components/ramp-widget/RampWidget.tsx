@@ -123,6 +123,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [signing, setSigning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
+  const [trustingAsset, setTrustingAsset] = useState<string | null>(null);
   // The step opened last: a modal that reports after it was closed or replaced is ignored.
   const verifyAttempt = useRef<RampQuoteRequirement | null>(null);
 
@@ -234,6 +235,31 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     if (verifyAttempt.current !== requirement) return;
     closeVerification();
     void handleFindRoute();
+  }
+
+  /** Adds the trustline a dropped route needs, sponsored when the app covers it, then quotes again. */
+  async function handleTrustAsset(asset: { code: string; issuer: string }) {
+    if (trustingAsset) return;
+    setTrustingAsset(`${asset.code}:${asset.issuer}`);
+    setErrorMsg(null);
+    try {
+      const outcome = await client.setTrustline(asset);
+      if (outcome.status === 'error') {
+        setErrorMsg(outcome.details ?? `Could not add the ${asset.code} trustline. Please try again.`);
+        return;
+      }
+      if (outcome.status === 'cosign_pending') {
+        setErrorMsg(`Approve the ${asset.code} trustline, then refresh the routes.`);
+        openCosignModal();
+        return;
+      }
+      await client.refreshAssets().catch(() => {});
+      await handleFindRoute();
+    } catch (error) {
+      setErrorMsg(rampErrorMessage(error, `Could not add the ${asset.code} trustline. Please try again.`));
+    } finally {
+      setTrustingAsset(null);
+    }
   }
 
   function handleSelectQuote(quote: RampQuote) {
@@ -422,6 +448,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         onFindRoute={() => void handleFindRoute()}
         onSelectQuote={handleSelectQuote}
         onVerifyRoute={handleVerifyRoute}
+        trustingAsset={trustingAsset}
+        onTrustAsset={(asset) => void handleTrustAsset(asset)}
         onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
         onContactContinue={() => {
           if (selected) void startOrder(selected);

@@ -37,6 +37,7 @@ import {
   rampQuoteFields,
   rampRailLabel,
   rampResolutionText,
+  rampTrustlineAsset,
 } from '@pollar/core';
 import { usePollar } from '../../context';
 import { PollarOverlay } from '../commons';
@@ -48,6 +49,12 @@ import { RegistryCheckModal } from '../registry-check-modal/RegistryCheckModal';
 import { ProviderRegistrationModal } from '../provider-registration-modal/ProviderRegistrationModal';
 
 export type RampStep = 'input' | 'loading_quote' | 'select_route' | 'contact' | 'status' | 'error';
+
+/** The trustline a dropped route asks for, as the widget tracks it while it is added. */
+function trustKey(rejection: RampQuoteRejection): string | null {
+  const asset = rampTrustlineAsset(rejection);
+  return asset ? `${asset.code}:${asset.issuer}` : null;
+}
 
 /** Ramp failures a user can act on, by API code. */
 const RAMP_ERROR_MESSAGES: Record<string, string> = {
@@ -155,7 +162,11 @@ export interface RampWidgetTemplateProps {
   onFindRoute: () => void;
   onSelectQuote: (quote: RampQuote) => void;
   /** Opens the verification step a dropped route waits on. */
-  onVerifyRoute: (requirement: RampQuoteRequirement) => void;
+  onVerifyRoute?: (requirement: RampQuoteRequirement) => void;
+  /** The Stellar asset whose trustline is being added, as `code:issuer`; null when none is. */
+  trustingAsset?: string | null;
+  /** Adds the trustline a dropped route needs, then quotes again. */
+  onTrustAsset?: (asset: { code: string; issuer: string }) => void;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -199,6 +210,8 @@ export function RampWidgetTemplate({
   onFindRoute,
   onSelectQuote,
   onVerifyRoute,
+  trustingAsset = null,
+  onTrustAsset,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -380,8 +393,10 @@ export function RampWidgetTemplate({
                 key={i}
                 rejection={r}
                 accentColor={accentColor}
-                disabled={startingQuoteId != null}
+                disabled={startingQuoteId != null || trustingAsset !== null}
+                trusting={trustKey(r) === trustingAsset}
                 onVerify={onVerifyRoute}
+                onTrust={onTrustAsset}
               />
             ))}
             {quotes.length === 0 && <Text style={[styles.note, { color: colors.muted }]}>{rampNoRouteText(rejected)}</Text>}
@@ -528,6 +543,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   const [signing, setSigning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
+  const [trustingAsset, setTrustingAsset] = useState<string | null>(null);
   // The step opened last: a modal that reports after it was closed or replaced is ignored.
   const verifyAttempt = useRef<RampQuoteRequirement | null>(null);
 
@@ -642,6 +658,31 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     if (verifyAttempt.current !== requirement) return;
     closeVerification();
     void handleFindRoute();
+  }
+
+  /** Adds the trustline a dropped route needs, sponsored when the app covers it, then quotes again. */
+  async function handleTrustAsset(asset: { code: string; issuer: string }) {
+    if (trustingAsset) return;
+    setTrustingAsset(`${asset.code}:${asset.issuer}`);
+    setErrorMsg(null);
+    try {
+      const outcome = await client.setTrustline(asset);
+      if (outcome.status === 'error') {
+        setErrorMsg(outcome.details ?? `Could not add the ${asset.code} trustline. Please try again.`);
+        return;
+      }
+      if (outcome.status === 'cosign_pending') {
+        setErrorMsg(`Approve the ${asset.code} trustline, then refresh the routes.`);
+        openCosignModal();
+        return;
+      }
+      await client.refreshAssets().catch(() => {});
+      await handleFindRoute();
+    } catch (error) {
+      setErrorMsg(rampErrorMessage(error, `Could not add the ${asset.code} trustline. Please try again.`));
+    } finally {
+      setTrustingAsset(null);
+    }
   }
 
   function handleSelectQuote(quote: RampQuote) {
@@ -784,6 +825,8 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           onFindRoute={() => void handleFindRoute()}
           onSelectQuote={handleSelectQuote}
           onVerifyRoute={handleVerifyRoute}
+          trustingAsset={trustingAsset}
+          onTrustAsset={(asset) => void handleTrustAsset(asset)}
           onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
           onContactContinue={() => {
             if (selected) void startOrder(selected);

@@ -1,7 +1,7 @@
 'use client';
 
 import type { RampQuote, RampQuoteRejection, RampQuoteRequirement } from '@pollar/core';
-import { rampLegTitle, rampRequirementCopy, rampResolutionText } from '@pollar/core';
+import { rampLegTitle, rampRequirementCopy, rampResolutionText, rampTrustlineAsset } from '@pollar/core';
 
 interface RouteDisplayProps {
   quote: RampQuote;
@@ -72,31 +72,61 @@ export function RouteDisplay({ quote, best = false, busy = false, disabled = fal
   );
 }
 
-/** A route that was planned and dropped, and what the user can do about it: a verification step opens from its button. */
+/**
+ * A route that was planned and dropped, and what the user can do about it: a
+ * verification step opens from its button, a missing trustline is added from its own.
+ */
 export function RejectedRouteDisplay({
   rejection,
   disabled = false,
+  trusting = false,
   onVerify,
+  onTrust,
 }: {
   rejection: RampQuoteRejection;
-  /** A route is starting, so a step cannot be opened meanwhile. */
+  /** A route is starting or a trustline is being added, so nothing else opens meanwhile. */
   disabled?: boolean;
-  onVerify: (requirement: RampQuoteRequirement) => void;
+  /** This row's trustline is being added. */
+  trusting?: boolean;
+  /** Without it, a verification step is described but offers no button. */
+  onVerify?: ((requirement: RampQuoteRequirement) => void) | undefined;
+  /** Without it, a missing trustline is described but offers no button. */
+  onTrust?: ((asset: { code: string; issuer: string }) => void) | undefined;
 }) {
   const requirement = rejection.requirement;
   const copy = requirement ? rampRequirementCopy(requirement) : null;
+  const trustAsset = !requirement && onTrust ? rampTrustlineAsset(rejection) : null;
   return (
     <div
       className="pollar-ramp-route-card"
       data-locked
       data-kyc-status={requirement?.status}
-      data-disabled={!copy?.action || disabled || undefined}
+      data-disabled={(!(copy?.action && onVerify) && !trustAsset) || (disabled && !trusting) || undefined}
     >
       <div className="pollar-ramp-route-left">
         <span className="pollar-ramp-route-provider">{rejection.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</span>
         <span className="pollar-ramp-route-meta">{copy ? copy.message : rampResolutionText(rejection.failure)}</span>
       </div>
-      {requirement && copy?.action && (
+      {trustAsset && (
+        <div className="pollar-ramp-route-right">
+          <button
+            type="button"
+            className="pollar-btn-secondary pollar-ramp-route-verify"
+            disabled={disabled}
+            aria-busy={trusting}
+            onClick={() => onTrust!(trustAsset)}
+          >
+            {trusting ? (
+              <>
+                <span className="pollar-spinner pollar-spinner-sm" /> Adding…
+              </>
+            ) : (
+              `Add ${trustAsset.code} trustline`
+            )}
+          </button>
+        </div>
+      )}
+      {requirement && copy?.action && onVerify && (
         <div className="pollar-ramp-route-right">
           <button
             type="button"

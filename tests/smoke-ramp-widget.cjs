@@ -401,6 +401,56 @@ async function mount(client) {
     client.destroy();
   }
 
+  // --- A route dropped for a missing trustline adds it from its row and quotes again ---
+  {
+    const untrusted = {
+      legs: [{ index: 0, kind: 'PROVIDER_ONRAMP', from: bob, to: usdc }],
+      failure: {
+        code: 'WALLET_TRUSTLINE_MISSING',
+        legIndex: 0,
+        retryable: false,
+        resolutionOwner: 'END_USER',
+        resolutionAction: 'add_trustline',
+      },
+    };
+    let trusted = false;
+    let release;
+    const { client, calls } = fixtureClient({
+      quoteRamp: async (body) => {
+        calls.push(['quoteRamp', body]);
+        if (trusted) return { quotes: [quote], rejected: [] };
+        throw new PollarApiError('SDK_RAMPS_NO_ROUTE', { code: 'SDK_RAMPS_NO_ROUTE', rejected: [untrusted] });
+      },
+      setTrustline: (asset) => {
+        calls.push(['setTrustline', asset]);
+        return new Promise((resolve) => {
+          release = () => {
+            trusted = true;
+            resolve({ status: 'success', hash: 'trust-hash' });
+          };
+        });
+      },
+      refreshAssets: async () => {},
+    });
+    const ui = await mount(client);
+    await ui.type(ui.container.querySelector('#pollar-ramp-amount'), '100');
+    await ui.click(ui.button('Find best route'));
+    await ui.click(ui.button('Add USDC trustline'));
+    assert.deepEqual(calls.at(-1), ['setTrustline', { code: 'USDC', issuer: 'GA5Z' }]);
+    const adding = ui.button('Adding');
+    assert.ok(adding && adding.disabled, 'the button spins and stays disabled while the trustline is added');
+    await ui.click(adding);
+    assert.equal(calls.filter(([name]) => name === 'setTrustline').length, 1, 'a second click adds nothing');
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    assert.equal(calls.filter(([name]) => name === 'quoteRamp').length, 2, 'quoted again once trusted');
+    assert.match(ui.container.textContent, /100 BOB → 14.2 USDC/);
+    await ui.unmount();
+    client.destroy();
+  }
+
   // --- An app out of credits: the user is pointed to the app, never told about credits ---
   {
     const { client } = fixtureClient({
@@ -418,7 +468,7 @@ async function mount(client) {
   }
 
   console.log(
-    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, resume and 402 passed.',
+    'Ramp widget v3: route, quote, details, order, QR, Stellar and Solana wallet signing, verification step, trustline, resume and 402 passed.',
   );
 })().catch((error) => {
   console.error(error);
