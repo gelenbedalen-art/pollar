@@ -189,6 +189,8 @@ Recovery actions must have specific purposes, such as “Check provider again”
 
 The eventual adapter development kit should provide a documented responsibility contract, capability-profile template, fixture-backed example provider, normalized action and observation catalog, configuration and credential-injection guidance, initial contract checks, and an onboarding guide.
 
+The core extension follow-up exports the canonical server `RampAdapter` contract and `defineRampAdapterRegistration` from `@pollar/core/ramps`. Provider packages register in Pollar's backend; applications consume their enabled routes through the existing authenticated SDK API. Backend persistence, scoped configuration, durable dispatch and independent settlement checks remain authoritative. See the [server registration guide](../development/custom-ramp-adapters.md) and [injected provider example](../../examples/custom-ramp/adapter.ts). This source change does not imply deployment, a published SDK release or provider certification.
+
 A contributor should be able to describe supported routes, implement provider translation, supply sanitized fixtures, register the adapter, and run shared checks. Shared handlers should not acquire provider-specific branches. Unsupported directions must remain explicit gaps rather than placeholder implementations advertised as available.
 
 Anclap, Abroad, and Stereum are integration inputs for later validation, not proof that one fixed sequence fits all providers. DEV-6 identifies hosted/signature interaction, payout and memo matching, and intermediary bridge steps as differences the design must accommodate. Each real migration must verify actual support and final settlement obligations.

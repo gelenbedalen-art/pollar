@@ -259,6 +259,65 @@
   gap: 1rem;
 }
 
+.pollar-ramp-saved {
+  gap: 0.625rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--pollar-border);
+}
+
+.pollar-ramp-saved-row {
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+}
+
+.pollar-ramp-saved-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.pollar-ramp-saved-row > button:last-child:not(:first-child) {
+  width: auto;
+}
+
+.pollar-ramp-explore {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  border-top: 1px solid var(--pollar-border);
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+}
+
+.pollar-ramp-workflow p {
+  margin: 0;
+}
+
+.pollar-ramp-terms {
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--pollar-border);
+  border-radius: var(--pollar-card-border-radius, 10px);
+  background: var(--pollar-input-bg);
+  color: var(--pollar-text);
+  line-height: 1.6;
+  font-size: 0.875rem;
+}
+
+.pollar-ramp-workflow-detail,
+.pollar-ramp-reference {
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--pollar-muted);
+}
+
+.pollar-ramp-hosted-link {
+  display: flex;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .pollar-ramp-payment-title {
   font-size: 0.8125rem;
   font-weight: 600;
@@ -294,7 +353,7 @@
   font-weight: 700;
   color: var(--pollar-text);
   letter-spacing: 0.03em;
-  font-family: monospace;
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
 /* Pollar-rendered QR. The SVG paints with `currentColor`, so setting the text
@@ -350,4 +409,63 @@
   padding: 0 0.75rem;
   font-size: 0.8125rem;
   white-space: nowrap;
+}
+
+/* Progress of an order, one row per leg. */
+.pollar-ramp-legs {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.pollar-ramp-leg {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.875rem;
+  color: var(--pollar-muted);
+}
+
+.pollar-ramp-leg-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  border: 2px solid var(--pollar-border);
+  flex-shrink: 0;
+}
+
+.pollar-ramp-leg[data-status='active'],
+.pollar-ramp-leg[data-status='done'] {
+  color: var(--pollar-text);
+}
+
+.pollar-ramp-leg[data-status='active'] .pollar-ramp-leg-dot {
+  border-color: var(--pollar-accent);
+}
+
+.pollar-ramp-leg[data-status='done'] .pollar-ramp-leg-dot {
+  border-color: var(--pollar-accent);
+  background: var(--pollar-accent);
+}
+
+.pollar-ramp-leg[data-status='failed'] {
+  color: var(--pollar-error-text, #dc2626);
+}
+
+.pollar-ramp-leg[data-status='failed'] .pollar-ramp-leg-dot {
+  border-color: var(--pollar-error-text, #dc2626);
+}
+
+.pollar-ramp-leg-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.pollar-ramp-leg-link {
+  font-family: var(--pollar-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.75rem;
+  color: var(--pollar-accent);
 }

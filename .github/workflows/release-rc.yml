@@ -3,6 +3,13 @@ name: Release candidate
 on:
   push:
     tags: ['v*-rc*']
+    branches: ['v*-rc*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: RC version to publish (for example, 0.12.0-rc.2)
+        required: true
+        type: string
 
 concurrency:
   group: release-rc
@@ -17,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      PACKAGES: core react react-native privy-adapter accesly-adapter stellar-wallets-kit-adapter solana-wallet-standard-adapter
+      PACKAGES: core react react-native stellar-wallets-kit-adapter solana-wallet-standard-adapter
     steps:
       - uses: actions/checkout@v4
 
@@ -28,14 +35,12 @@ jobs:
 
       - name: Check the version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || { echo "::error::$GITHUB_REF_NAME is not vX.Y.Z-rc.N"; exit 1; }
-          # The tagged code has to be on that release line, or a tag on the wrong branch publishes the wrong code.
+          VERSION="${{ inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || { echo "::error::$VERSION is not X.Y.Z-rc.N"; exit 1; }
+          # The source has to be on that release line, or it publishes the wrong code.
           base="$(node -p 'require("./packages/core/package.json").version.split("-")[0]')"
           [ "${VERSION%-rc.*}" = "$base" ] || { echo "::error::$GITHUB_REF_NAME points at code for $base"; exit 1; }
-          if [ -n "$(npm view "@pollar/core@$VERSION" version 2>/dev/null)" ]; then
-            echo "::error::@pollar/core@$VERSION is already on npm"; exit 1
-          fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Set the version
@@ -56,6 +61,11 @@ jobs:
       - name: Publish
         run: |
           for pkg in $PACKAGES; do
+            package="$(node -p "require('./packages/$pkg/package.json').name")"
+            if npm view "$package@$VERSION" version --silent 2>/dev/null | grep -qx "$VERSION"; then
+              echo "$package@$VERSION is already on npm; skipping"
+              continue
+            fi
             (cd "packages/$pkg" && npm publish --access public --tag next) || exit 1
           done
           echo "Published $VERSION with dist-tag next" >> "$GITHUB_STEP_SUMMARY"

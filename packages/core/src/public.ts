@@ -4,10 +4,11 @@
 // modules so bundlers can tree-shake unused code paths.
 
 export { PollarClient, isPollarClient } from './client/client';
+export * from './ramps/index';
 export { POLLAR_CORE_VERSION } from './version';
 export { createLogger } from './lib/logger';
 export { toBaseUnits, fromBaseUnits } from './lib/units';
-export { transactionErrorMessage } from './lib/tx-error-messages';
+export { appUnavailableMessage, transactionErrorMessage } from './lib/tx-error-messages';
 export type { LogLevel, PollarLogger } from './lib/logger';
 
 // --- Storage ------------------------------------------------------------------
@@ -29,8 +30,6 @@ export { compressedPublicKeyHex, rawSignatureToDer, encodeStamp } from './cosign
 export { stellarTransactionHashHex } from './cosign/stellar-hash';
 export { recognizedSetupRequest, stellarAccountBytes } from './cosign/recognize';
 export type { SetupRecognition } from './cosign/recognize';
-export { cosignGroupOf, cosignStepKeyOf, stepInGroup } from './cosign/groups';
-export type { CosignGroup } from './cosign/groups';
 export type { BuildProofArgs } from './dpop';
 
 export { FreighterAdapter, AlbedoAdapter, WalletType, isInteractiveAuthAdapter } from './wallets';
@@ -76,20 +75,14 @@ export {
 
 // --- Ramps endpoints ----------------------------------------------------------
 export {
-  continueRamp,
   getRampRoutes,
-  getRampsQuote,
-  getRampCountries,
-  createOnRamp,
-  createOffRamp,
-  completeWithdraw,
-  submitRampSignature,
-  getRampTransaction,
-  retryRampTransaction,
-  pollRampTransaction,
-  getRampLiquidity,
-  getRampKycStatus,
-  decodePixQr,
+  quoteRamp,
+  createRampOrder,
+  getRampOrder,
+  listRampOrders,
+  submitRampLegSignature,
+  pollRampOrder,
+  isRampOrderSettled,
 } from './api/endpoints/ramps';
 
 // --- Distribution endpoints ---------------------------------------------------
@@ -101,8 +94,20 @@ export { quoteSwap, getSwapConfig, getSwapTokens } from './api/endpoints/swap';
 // --- Earn endpoints -----------------------------------------------------------
 export { getEarnProviders, getEarnOpportunities, getEarnPosition, buildEarnTx } from './api/endpoints/earn';
 
-export { describeRampAction, mergeRampSnapshot, mergeRampCountries } from './ramps/workflow';
-export type { RampSnapshot, RampSigningHandler } from './ramps/workflow';
+export {
+  describeRampAction,
+  rampCountries,
+  rampLegStatus,
+  rampLegTitle,
+  rampNoRouteText,
+  rampQuoteFields,
+  rampRailLabel,
+  rampRequirementCopy,
+  rampResolutionText,
+  rampTrustlineAsset,
+} from './ramps/workflow';
+export type { RampSigningHandler } from './ramps/workflow';
+export { assertRampStellarSigner } from './ramps/stellar-signing';
 // --- Cards endpoints ----------------------------------------------------------
 export {
   getCardProviders,

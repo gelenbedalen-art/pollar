@@ -1,6 +1,6 @@
 'use client';
 
-import { cosignGroupOf, cosignStepKeyOf, stepInGroup, type CosignRequest, type CosignVerification } from '@pollar/core';
+import { type CosignRequest, type CosignVerification, fromBaseUnits } from '@pollar/core';
 import { cropAddress, PollarModalFooter } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
@@ -51,6 +51,17 @@ function expiresIn(request: CosignRequest): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** A base-unit amount with the `decimals` and `symbol` written next to it, as the user reads it; null when either is missing. */
+function readableAmount(details: Record<string, unknown>): { amount: string; symbol: string } | null {
+  const { amount, decimals, symbol } = details;
+  if (typeof amount !== 'string' || typeof decimals !== 'number' || typeof symbol !== 'string') return null;
+  try {
+    return { amount: fromBaseUnits(amount, decimals), symbol };
+  } catch {
+    return null;
+  }
+}
+
 function detailRows(request: CosignRequest): Array<[string, string]> {
   const details = (request.details ?? {}) as Record<string, unknown>;
   const rows: Array<[string, string]> = [];
@@ -62,8 +73,9 @@ function detailRows(request: CosignRequest): Array<[string, string]> {
     ]);
   };
   push('Destination', details.destination);
-  push('Amount', details.amount);
-  push('Asset', details.asset ?? details.assetCode);
+  const readable = readableAmount(details);
+  push('Amount', readable ? `${readable.amount} ${readable.symbol}` : details.amount);
+  push('Asset', details.asset ?? details.assetCode ?? readable?.symbol);
   push('Network', request.network);
   return rows;
 }
@@ -182,7 +194,6 @@ export function CosignModalTemplate({
         <div className="pollar-cosign-detail">
           <p className="pollar-cosign-detail-title">{labelOf(current)}</p>
           {current.summary && <p className="pollar-cosign-muted">{current.summary}</p>}
-          <GroupSteps request={current} />
           <dl className="pollar-cosign-rows">
             {detailRows(current).map(([k, v]) => (
               <div key={k} className="pollar-cosign-row">
@@ -228,34 +239,6 @@ export function CosignModalTemplate({
       )}
 
       <PollarModalFooter />
-    </div>
-  );
-}
-
-/**
- * The steps one approval covers, when the request opens a group: the user
- * approves the group once, and this device votes its later steps on its own,
- * each verified against its own transaction before the vote.
- */
-function GroupSteps({ request }: { request: CosignRequest }) {
-  const group = cosignGroupOf(request);
-  if (!group || group.steps.length < 2) return null;
-  const stepKey = cosignStepKeyOf(request);
-  return (
-    <div className="pollar-cosign-group">
-      <p className="pollar-cosign-group-title">{group.title}</p>
-      <p className="pollar-cosign-muted">Approving covers these steps; each one is checked before it is signed.</p>
-      <ol className="pollar-cosign-group-steps">
-        {group.steps.map((step) => {
-          const isThis = stepKey !== null && stepInGroup({ steps: [step] }, stepKey);
-          return (
-            <li key={step.key} className={isThis ? 'pollar-cosign-group-step-current' : undefined}>
-              {step.label}
-              {isThis && <span className="pollar-cosign-muted"> (this one)</span>}
-            </li>
-          );
-        })}
-      </ol>
     </div>
   );
 }

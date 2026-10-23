@@ -10,6 +10,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'index.rn': 'src/index.rn.ts',
+    'ramps/index': 'src/ramps/index.ts',
     'adapters/expo-secure-store': 'src/adapters/expo-secure-store.ts',
     'adapters/react-native-keychain': 'src/adapters/react-native-keychain.ts',
     'adapters/react-native-appstate': 'src/adapters/react-native-appstate.ts',
