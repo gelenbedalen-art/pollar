@@ -114,6 +114,7 @@ const RESOLUTION: Record<string, string> = {
   complete_verification: 'Complete the identity verification to continue.',
   correct_input: 'Some details were not accepted. Check them and start again.',
   link_wallet: 'This route needs a wallet on another network.',
+  add_trustline: 'Your Stellar wallet must trust USDC to receive it. Add the USDC trustline and try again.',
   sign_again: 'The signature expired. Sign the step again.',
   start_again: 'This transfer could not go through. Start a new one; nothing was charged.',
   wait_reconciliation: 'We are confirming where the funds are. You do not need to start again.',

@@ -235,6 +235,12 @@ export type RampAdapterPayment = {
    * asks the adapter for a fresh one.
    */
   prebuiltPayload?: { encoding: string; value: string; expiresAt: string | null } | null;
+  /**
+   * Version 2. When the provider stops taking this payment (an off-ramp
+   * order's deposit window). Pollar does not ask the user to sign, nor sends,
+   * a payment past it; null or absent when the provider sets no limit.
+   */
+  expiresAt?: string | null;
 };
 /** Reports are observations, not verified fiat/chain settlement or lifecycle completion. */
 export type RampAdapterFact =
