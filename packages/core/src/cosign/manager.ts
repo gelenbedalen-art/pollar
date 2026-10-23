@@ -22,6 +22,8 @@ import { checkSolanaRequest } from './solana';
 import { stellarTransactionHashHex } from './stellar-hash';
 import { isRecord, stringField } from '../api/error-fields';
 
+const REQUEST_VOTE_TIMEOUT_MS = 60_000;
+
 /**
  * The user's half of a Turnkey wallet, headless: no UI, only promises and the
  * requests it resolves. The device key is a P-256 key of its own (namespace
@@ -205,6 +207,9 @@ export class CosignManager {
     const result = content(
       await this.deps.api.POST('/cosign/relay', {
         body: { path, body: json, stamp, ...(options?.requestId ? { requestId: options.requestId } : {}) },
+        // A vote on a request runs Turnkey's activity, Pollar's approver and, for an
+        // intent that submits, the transaction itself: well over the 10s default.
+        ...(options?.requestId ? { headers: { 'x-pollar-timeout-ms': String(REQUEST_VOTE_TIMEOUT_MS) } } : {}),
       }),
       'SDK_COSIGN_UPSTREAM_ERROR',
     );
@@ -389,9 +394,13 @@ export class CosignManager {
     return current;
   }
 
-  /** Vote no. Final: a rejected request can never be approved. */
+  /**
+   * Vote no. Final: a rejected request can never be approved. The request is
+   * read first: a copy the caller holds can be stale (a vote that completed
+   * while its call timed out), and only a request still pending is cancelled.
+   */
   async reject(target: CosignRequest | string): Promise<CosignRequest> {
-    const request = typeof target === 'string' ? await this.get(target) : target;
+    const request = await this.get(typeof target === 'string' ? target : target.id);
     if (request.status !== 'PENDING') throw new PollarApiError('SDK_COSIGN_REQUEST_NOT_PENDING', { status: request.status });
     return this.cancel(request.id);
   }

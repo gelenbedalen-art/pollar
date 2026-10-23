@@ -10,7 +10,7 @@ import type {
   RampQuotesResponse,
   RampRoutesResponse,
 } from '../types';
-import { createApiClient, fetchWithTimeout, PollarApiClient } from '../api/client';
+import { createApiClient, fetchWithTimeout, isRetryableTransportError, PollarApiClient } from '../api/client';
 import { claimDistributionRule, listDistributionRules } from '../api/endpoints/distribution';
 import { getSwapConfig, getSwapTokens, quoteSwap } from '../api/endpoints/swap';
 import { buildEarnTx, getEarnOpportunities, getEarnPosition, getEarnProviders } from '../api/endpoints/earn';
@@ -3426,6 +3426,16 @@ export class PollarClient {
       const resolved = await this.cosign.settle(await this.cosign.approve(request));
       return await this._outcomeOfCosign(resolved, ctx);
     } catch (err) {
+      // A call that never answered says nothing about the vote: it may have landed
+      // (Turnkey signed, Pollar voted, the transaction went out). The request says
+      // what happened; rejecting it here could report a send that succeeded as failed.
+      if (isRetryableTransportError(err)) {
+        try {
+          return await this._outcomeOfCosign(await this.cosign.settle(await this.cosign.get(request.id, { sync: true })), ctx);
+        } catch {
+          return { status: 'cosign_pending', request, ...(buildData && { buildData }) };
+        }
+      }
       const code = err instanceof PollarApiError ? err.code : undefined;
       let details = err instanceof Error ? err.message : undefined;
       if (err instanceof PollarApiError && code === 'SDK_COSIGN_VERIFICATION_FAILED') {

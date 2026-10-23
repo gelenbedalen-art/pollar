@@ -241,6 +241,8 @@ function request(overrides = {}) {
     resolvedAt: new Date().toISOString(),
   });
 
+  // A vote whose call drops before answering, though the activity landed upstream.
+  let dropVoteRelay = false;
   globalThis.fetch = async (req) => {
     const url = new URL(req.url);
     const method = req.method ?? 'GET';
@@ -396,6 +398,10 @@ function request(overrides = {}) {
       }
       if (PROPOSAL_PATHS.includes(body.path)) {
         approveCalls++;
+        if (dropVoteRelay) {
+          pendingList = pendingList.filter((r) => r.id !== body.requestId);
+          throw new TypeError('Failed to fetch');
+        }
         proposals.push({ path: body.path, body: inner, requestId: body.requestId });
         // Pollar's approver votes second and the activity completes, so the
         // list no longer carries the request; the answer names it.
@@ -413,6 +419,14 @@ function request(overrides = {}) {
         });
       }
       return json(400, { success: false, code: 'VALIDATION_ERROR' });
+    }
+    const one = url.pathname.match(/^\/v3\/cosign\/requests\/([^/]+)$/);
+    if (one && method === 'GET') {
+      const id = one[1];
+      const current = dropVoteRelay
+        ? { ...approvedRequest, id }
+        : (pendingList.find((r) => r.id === id) ?? signingRequest({ id }));
+      return json(200, { success: true, code: 'SDK_COSIGN_REQUEST', content: { request: current } });
     }
     return json(404, { success: false, code: 'NOT_FOUND', path: url.pathname });
   };
@@ -749,6 +763,30 @@ function request(overrides = {}) {
   const autoSend = await auto.signAndSubmitTx(UNSIGNED_XDR);
   check('signAndSubmitTx returns success with the hash', autoSend.status === 'success' && autoSend.hash === 'abc123', autoSend);
   check('the tx state ended in success', autoStates[autoStates.length - 1] === 'success');
+
+  // The vote's call drops, but Turnkey signed and the transaction went out: the
+  // request is read back and reported as it stands, and nothing is rejected.
+  dropVoteRelay = true;
+  const rejectsBeforeDrop = rejectCalls;
+  const dropped = await auto.signAndSubmitTx(UNSIGNED_XDR);
+  check(
+    'a vote call that drops reads the request back and reports the send that landed',
+    dropped.status === 'success' && dropped.hash === 'abc123',
+    dropped,
+  );
+  check('a dropped vote call rejects nothing', rejectCalls === rejectsBeforeDrop);
+  // A pending copy of a request that settled meanwhile: reject reads it and cancels nothing.
+  let staleRefused = false;
+  try {
+    await auto.cosign.reject(request());
+  } catch (err) {
+    staleRefused = err.code === 'SDK_COSIGN_REQUEST_NOT_PENDING';
+  }
+  check(
+    'reject on a stale pending copy reads the request and cancels nothing',
+    staleRefused && rejectCalls === rejectsBeforeDrop,
+  );
+  dropVoteRelay = false;
 
   // Two reads at once (provider + modal, or strict mode) list the request once and vote on nothing.
   const setupRequest2 = request({

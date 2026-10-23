@@ -33,10 +33,11 @@ const accountRequest = {
   }),
 } as unknown as CosignRequest;
 
-function managerWith(calls: Array<{ path: string; body?: unknown }>) {
+/** `status`: what sdk-api answers when the request is read. */
+function managerWith(calls: Array<{ path: string; body?: unknown }>, status = 'APPROVED') {
   const manager = new CosignManager({
     api: {
-      GET: async () => ({ data: { content: { request: { ...accountRequest, status: 'APPROVED' } } } }),
+      GET: async () => ({ data: { content: { request: { ...accountRequest, status } } } }),
       POST: async (path: string, init?: { body?: unknown }) => {
         calls.push({ path, body: init?.body });
         return { data: { content: { status: 200, body: {}, request: { ...accountRequest, status: 'APPROVED' } } } };
@@ -86,11 +87,20 @@ test('approve on a request already proposed only reads it back', async () => {
 
 test('reject closes the request through sdk-api and stamps nothing', async () => {
   const calls: Array<{ path: string; body?: unknown }> = [];
-  await managerWith(calls).reject(accountRequest);
+  await managerWith(calls, 'PENDING').reject(accountRequest);
   assert.deepEqual(
     calls.map((c) => c.path),
     ['/cosign/requests/{id}/cancel'],
   );
+});
+
+test('reject reads the request first: one that settled meanwhile is not cancelled', async () => {
+  const calls: Array<{ path: string; body?: unknown }> = [];
+  await assert.rejects(
+    managerWith(calls, 'APPROVED').reject(accountRequest),
+    (err: unknown) => (err as { code?: string }).code === 'SDK_COSIGN_REQUEST_NOT_PENDING',
+  );
+  assert.equal(calls.length, 0);
 });
 
 test('an unreadable derivation is not proposed', async () => {
