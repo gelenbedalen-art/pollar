@@ -65,7 +65,8 @@ form, a registry check or a provider registration); `rampRequirementCopy(require
 text and the button, and a `null` action means the step is under review or refused. A route dropped
 because the Stellar wallet does not trust the asset it delivers (`resolutionAction: 'add_trustline'`)
 names it through `rampTrustlineAsset(rejection)` (`{ code, issuer }`): add it with `setTrustline`, then
-quote again.
+quote again. A route waiting on the user's wallet (`resolutionAction: 'create_wallet'`) needs
+`createWallet()` first (with `{ custody }` for an app in `USER_CHOICE` custody), then a new quote.
 
 | Quote field                                    | Use                                                                                           |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |

@@ -42,6 +42,13 @@
   `onVerify` and `onTrust` handlers of `RejectedRouteDisplay` and the matching
   `RampWidgetTemplate` props are optional: without one the row describes the
   fix and offers no button.
+- A route waiting on the user's wallet (`resolutionAction: 'create_wallet'`)
+  creates it from the route's row with `createWallet()` and quotes again; an app
+  in `USER_CHOICE` custody points to the wallet menu instead, where the user
+  picks the custody. `rampResolutionText` covers `create_wallet`, and the
+  `onCreateWallet` / `creatingWallet` props of `RejectedRouteDisplay` and
+  `RampWidgetTemplate` are optional. An app with no chains enabled says so
+  (`noChains`) instead of showing an empty route list.
 - Ramp quotes and order creation wait up to 30 seconds for the providers,
   instead of the 10-second default of every other call.
 - `<KycModal>` shows the session it is opening and keeps it while the list
