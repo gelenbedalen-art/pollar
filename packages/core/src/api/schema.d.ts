@@ -13997,7 +13997,8 @@ export interface operations {
                                     /** @constant */
                                     kind: "fiat";
                                     currency: string;
-                                    rail: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                     country: string;
                                 };
                                 asset: {
@@ -14060,7 +14061,8 @@ export interface operations {
                     direction: "ONRAMP" | "OFFRAMP";
                     fiat: {
                         currency: string;
-                        rail: string;
+                        /** @enum {string} */
+                        rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                         country: string;
                     };
                     asset: {
@@ -14111,7 +14113,8 @@ export interface operations {
                                         /** @constant */
                                         kind: "fiat";
                                         currency: string;
-                                        rail: string;
+                                        /** @enum {string} */
+                                        rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                         country: string;
                                     };
                                     to: {
@@ -14125,7 +14128,8 @@ export interface operations {
                                         /** @constant */
                                         kind: "fiat";
                                         currency: string;
-                                        rail: string;
+                                        /** @enum {string} */
+                                        rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                         country: string;
                                     };
                                     amountIn: string;
@@ -14185,7 +14189,8 @@ export interface operations {
                                         /** @constant */
                                         kind: "fiat";
                                         currency: string;
-                                        rail: string;
+                                        /** @enum {string} */
+                                        rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                         country: string;
                                     };
                                     to: {
@@ -14199,7 +14204,8 @@ export interface operations {
                                         /** @constant */
                                         kind: "fiat";
                                         currency: string;
-                                        rail: string;
+                                        /** @enum {string} */
+                                        rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                         country: string;
                                     };
                                 }[];
@@ -14313,7 +14319,8 @@ export interface operations {
                                         /** @constant */
                                         kind: "fiat";
                                         currency: string;
-                                        rail: string;
+                                        /** @enum {string} */
+                                        rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                         country: string;
                                     };
                                     to: {
@@ -14327,7 +14334,8 @@ export interface operations {
                                         /** @constant */
                                         kind: "fiat";
                                         currency: string;
-                                        rail: string;
+                                        /** @enum {string} */
+                                        rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                         country: string;
                                     };
                                     amountInPlanned: string;
@@ -14521,7 +14529,8 @@ export interface operations {
                                     /** @constant */
                                     kind: "fiat";
                                     currency: string;
-                                    rail: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                     country: string;
                                 };
                                 to: {
@@ -14535,7 +14544,8 @@ export interface operations {
                                     /** @constant */
                                     kind: "fiat";
                                     currency: string;
-                                    rail: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                     country: string;
                                 };
                                 amountInPlanned: string;
@@ -14750,7 +14760,8 @@ export interface operations {
                                     /** @constant */
                                     kind: "fiat";
                                     currency: string;
-                                    rail: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                     country: string;
                                 };
                                 to: {
@@ -14764,7 +14775,8 @@ export interface operations {
                                     /** @constant */
                                     kind: "fiat";
                                     currency: string;
-                                    rail: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                     country: string;
                                 };
                                 amountInPlanned: string;
@@ -14957,7 +14969,8 @@ export interface operations {
                                     /** @constant */
                                     kind: "fiat";
                                     currency: string;
-                                    rail: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                     country: string;
                                 };
                                 to: {
@@ -14971,7 +14984,8 @@ export interface operations {
                                     /** @constant */
                                     kind: "fiat";
                                     currency: string;
-                                    rail: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
                                     country: string;
                                 };
                                 amountInPlanned: string;
