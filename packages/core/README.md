@@ -14,7 +14,18 @@ Pollar runs on Solana end to end for wallets and payments:
   fees** and token accounts created for the recipient.
 - **Fiat on/off-ramps to Solana**: Bolivia (BOB, via Stereum + CCTP) and Brazil (BRL via Pix, PagFinance).
 
-> **0.11.5**. **Turnkey co-signed wallets** and a
+> **0.12.0** calls sdk-api **`/v3`** (`baseUrl` stays an origin) and warns once on a `Deprecation` header.
+> **Ramps are orders**: `getRampRoutes(direction)`, `quoteRamp`, `rampQuoteFields`, `createRampOrder`,
+> `getRampOrder`, `listRampOrders`, `pollRampOrder` and `signRampLeg` replace the 0.11.x ramp methods, a ramp leg
+> is signed only through a handler the app registers (`registerRampSigningHandler`, `assertRampStellarSigner`),
+> and `@pollar/core/ramps` defines a server-side ramp provider adapter. **Wallets the user holds**:
+> `createWallet({ custody })`, `client.cosign.switchCustody()`, `client.cosign.recovery` (passkeys, email code,
+> device enrollment, phrase export) and `client.cosign.migrateWallets()` for a custodial wallet moving to
+> Turnkey. The device proposes each co-signed activity (`verify()` returns `proposal`). `confirmation`
+> defaults to `'prompt'` and follows the app's dashboard; the stricter policy wins. **Breaking**; see
+> [UPGRADE.md](../../UPGRADE.md).
+>
+> Earlier: **0.11.5**. **Turnkey co-signed wallets** and a
 > **confirmation policy**: `config.confirmation` `'auto'` (default; a co-signed wallet's device verifies
 > against Turnkey and votes on its own) or `'prompt'` (every signature waits for the user, through
 > `onConfirmationRequest()`); `config.cosignManual` keeps the raw `{ status: 'cosign_pending', request }`
@@ -83,7 +94,7 @@ Pollar runs on Solana end to end for wallets and payments:
 > could not be read, and must render as unavailable rather than as `0`. Every chain reports its
 > native coin plus each token the app enabled (0.11.0 reported only the native token off
 > Stellar), and balances gained `decimals`, `limit` and `sponsored`. `signTx` accepts
-> `skipSponsorship`. **0.12.0** moved every request to the **`/v3`** API. **0.11.0** went multichain
+> `skipSponsorship`. **0.11.0** went multichain
 > (Solana joins Stellar) and moved every request to the `/v2` API. **0.10.0** unified external wallets into `walletAdapters: WalletAdapter[]` and
 > removed the singular `walletAdapter` resolver and `client.loginWallet()`.
 >

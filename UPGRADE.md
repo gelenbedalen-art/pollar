@@ -2,11 +2,16 @@
 
 ## 0.11.5 -> 0.12.0
 
-Use `@pollar/core`, `@pollar/react` and `@pollar/react-native` at matching versions.
-The candidate is `0.12.0-rc.1`; install prerelease versions explicitly. Upgrade
-client adapter packages to their matching 0.12 candidates when using this core
-version. Their peer ranges accept both 0.11.x and 0.12; older adapter releases
-with a core peer range of only `^0.11.2` cannot be used with core 0.12.
+Use `@pollar/core`, `@pollar/react` and `@pollar/react-native` at matching
+versions: `@pollar/react@0.12.0` and `@pollar/react-native@0.12.0` require
+`@pollar/core@^0.12.0`. A caret range on 0.11.x (`^0.11.5`) does not reach
+0.12, so change it by hand.
+
+Upgrade `@pollar/stellar-wallets-kit-adapter` and
+`@pollar/solana-wallet-standard-adapter` to `0.12.0` too: their core range is
+`^0.11.2 || ^0.12.0`, while the releases before it (`^0.11.2`) refuse core 0.12.
+`@pollar/privy-adapter` and `@pollar/accesly-adapter` have no 0.12 release;
+their published ranges do not accept core 0.12.
 
 ### API v3
 
@@ -189,8 +194,10 @@ const removeSigner = client.registerRampSigningHandler('STELLAR', 'xdr', async (
 ```
 
 UI helpers exported from core are `describeRampAction(order)`,
-`rampCountries`, `rampQuoteFields`, `rampLegTitle`, `rampLegStatus` and
-`rampResolutionText`, with the `RampSigningHandler` type, and
+`rampCountries`, `rampQuoteFields`, `rampLegTitle`, `rampLegStatus`,
+`rampRailLabel`, `rampResolutionText` and `rampNoRouteText(rejected)` (the fix
+every rejected route shares, else a change of amount), with
+`isRampOrderSettled(order)`, the `RampSigningHandler` type, and
 `assertRampStellarSigner` for a Stellar signer; registry and URL internals are
 private.
 
@@ -207,6 +214,48 @@ action.
 no longer exported, and the cosign modal no longer lists a group's steps.
 A request's `stepKey` stays on the request itself. A device that stored group
 consents under 0.11.5 drops them on its first start with this version.
+
+### Co-signed activity proposed by the device
+
+sdk-api no longer opens the Turnkey activity of a co-signed request: the device
+reads the unsigned payload, builds the Turnkey request from the values it
+checked and proposes it, and Pollar's approver votes second. This needs an
+sdk-api with the device-proposes relay. An app that uses the built-in
+`<CosignModal>` or `client.cosign.approve(request)` changes nothing. Code that
+drives the verification itself:
+
+- `client.cosign.verify(request)` returns `proposal` (the Turnkey request the
+  device will relay) instead of `turnkeyPayload`.
+- `client.cosign.approve(request)` has no `verify` option: it always verifies.
+- `readActivityIntent()` and `readActivityPayload()` are removed; read what the
+  user approves from the verification result.
+- `client.cosign.reject(request)` closes the request on the server.
+
+### Recovery and custody migration in the provider
+
+No code change is needed, but the provider shows two new screens when the
+server asks for them. When sdk-api reports that the user's custodial wallets
+must move to Turnkey, `<CustodyMigrationModal>` opens after login, before
+anything else, and the user can leave it for later. When the wallet requires a
+recovery method and has none, `recoveryLocked` is true: the wallet menu shows
+the lock with a way to fix it and the receive modal hides the address until
+`<RecoveryModal>` adds one. A headless app reads the same state from
+`client.cosign.custodyMigration()` and `client.cosign.recovery.status()`.
+
+### Branding and the wallet button template
+
+In `@pollar/react`, the dashboard's Branding no longer outranks the host page:
+a rule the app writes on a Pollar root for a public `--pollar-*` variable wins
+over the dashboard, which wins over the theme defaults. An app that relied on
+the dashboard overriding its own CSS removes that CSS. `html.dark` switches to
+the dark defaults only while Branding leaves the palette unpinned.
+`--pollar-font-family` and `--pollar-font-family-mono` set the fonts; without
+them the components use the page's font instead of Geist.
+
+A custom wallet button template (`WalletButtonTemplateProps`) receives `theme`,
+`accentColor` and `styleOverrides` instead of `dropdownBg`, `dropdownBorder` and
+`itemColor`. Pass them to `buildModalCssVars` for the same colors the built-in
+template uses.
 
 ### Signature confirmation
 

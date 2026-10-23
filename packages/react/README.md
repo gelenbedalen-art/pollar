@@ -3,7 +3,17 @@
 React bindings for [Pollar](https://pollar.xyz) — drop-in authentication UI, transaction modals, and hooks for
 Stellar and Solana applications.
 
-> **0.11.5** (requires `@pollar/core@^0.11.5`).
+> **0.12.0** (requires `@pollar/core@^0.12.0`). `<RampWidget>` runs on the v3 ramps API: routes, quotes leg by
+> leg, the fields a quote asks for, the order's progress and its pending action; it signs a leg with the connected
+> Stellar or Solana wallet only when the leg was built for it. **Wallets the user holds**: the wallet button lets the
+> user pick co-signed or self-custody when the app leaves it to them, `<RecoveryModal>` manages passkeys, email,
+> devices and the recovery phrase (`recoveryLocked`, `openRecoveryModal()`), and `<CustodyMigrationModal>` moves a
+> custodial wallet to Turnkey after login. `<SendModal>` offers to create a Stellar account that does not exist.
+> Branding yields to the host stylesheet, with `--pollar-font-family` and `--pollar-font-family-mono`;
+> `WalletButtonTemplateProps` takes `theme`, `accentColor` and `styleOverrides`. **Breaking**; see
+> [UPGRADE.md](../../UPGRADE.md).
+>
+> Earlier: **0.11.5** (requires `@pollar/core@^0.11.5`).
 > **Turnkey co-signed wallets**: `<CosignModal>` opens for a request the device did not settle and enables
 > Approve only after it verifies against Turnkey; `useCosign()` exposes the pending requests.
 > `<ConfirmModal>` shows every signature first under `confirmation: 'prompt'`. The ramp widget links the

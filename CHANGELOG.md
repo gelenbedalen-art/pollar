@@ -2,9 +2,22 @@
 
 ## 0.12.0
 
-> Candidate: `0.12.0-rc.1` for `@pollar/core`, `@pollar/react` and
-> `@pollar/react-native` and the four client adapter packages. This minor
-> release includes the 0.11.5 changes below.
+> `@pollar/core`, `@pollar/react`, `@pollar/react-native`,
+> `@pollar/solana-wallet-standard-adapter` and
+> `@pollar/stellar-wallets-kit-adapter`. `0.12.0-rc.2` was published on the
+> `next` tag; `0.12.0-rc.1` was never published.
+>
+> **API v3, ramps as orders, and wallets the user holds.** The SDK calls
+> sdk-api `/v3`. A ramp is an order of legs that Pollar runs server-side. A
+> Turnkey wallet can be self-custody or co-signed and switch between the two,
+> is recovered with a passkey, an email code or another device, and a
+> custodial wallet moves to Turnkey from the device. Every signature asks the
+> user unless the app's dashboard says otherwise. This release breaks
+> integrations that call ramps, use the co-sign verification directly or
+> render custom wallet button templates; read
+> [UPGRADE.md](./UPGRADE.md#0115---0120). `@pollar/privy-adapter` and
+> `@pollar/accesly-adapter` are not part of it: their published core ranges do
+> not accept 0.12.
 
 - `@pollar/core` calls sdk-api `/v3`: `baseUrl` stays an origin and the SDK
   appends the version; its types are generated from `/openapi.v3.json`
@@ -16,6 +29,11 @@
   lists the fields it needs (`rampQuoteFields`) and a refused payee answers
   400 before anything moves. The 0.11.x ramp methods are removed; the widgets
   are rebuilt on the new calls. See [UPGRADE.md](./UPGRADE.md#ramps-on-api-v3).
+- With no route to offer, `rampNoRouteText(rejected)` gives the fix every
+  rejected route shares (or a change of amount), and the widgets show it.
+  `SDK_RAMPS_WALLET_NOT_READY` asks the user to approve the new wallet account
+  first. `pollRampOrder` takes an `until(order)` stop condition, and
+  `isRampOrderSettled(order)` tells a final order apart.
 - Ramp chains stay a closed `RampChain` catalog (`STELLAR`, `POLYGON`,
   `SOLANA`) and amounts stay exact strings.
 - Ramp rails add `BANK_TRANSFER`, `CASH`, `CARD` and `HOSTED` to `SPEI`,
@@ -70,7 +88,71 @@
   `'auto'`, `'prompt'` or `{ window: { seconds, maxUsd } }`; set, the stricter
   of it and the dashboard applies. A ramp leg always asks. See
   [UPGRADE.md](./UPGRADE.md#signature-confirmation).
-- `@pollar/core/ramps` contract version 2, additive: `actor` and
+- **Self-custody and co-signed Turnkey wallets.** `createWallet({ custody })`
+  carries the user's choice for an app whose custody mode is `USER_CHOICE`
+  (which creates no wallet at login); the React wallet button and the React
+  Native one after sign-in offer both kinds and create a self-custody wallet
+  only after the user accepts its risks. `client.cosign.inspectQuorum()`
+  checks the quorum the custody implies (2-of-2 with Pollar's approver, or the
+  user alone at threshold 1) and `client.cosign.switchCustody(to)` moves a
+  wallet between the two, checking each step before the device stamps it.
+- **Wallet recovery.** `client.cosign.recovery` adds and removes passkeys,
+  confirms an email with an OTP code (sent encrypted to Turnkey's enclave,
+  never through Pollar), lets a new device ask to join and an enrolled one
+  approve or reject it, recovers a device that lost access with a passkey or an
+  email code, and exports the recovery phrase (`exportWallet()`). The passkey
+  ceremony comes from the platform layer (`PollarClientConfig.recoveryPasskey`,
+  also accepted by `setPasskeyDefaults`; `browserRecoveryPasskey` in React).
+  `<RecoveryModal>` (React and React Native) is the UI; the context exposes
+  `recovery`, `recoveryLocked` and `openRecoveryModal()`, and a wallet with no
+  recovery method stays locked, with the reason shown, until it has one. Core
+  depends on `@turnkey/crypto`, loaded only while a recovery or an export runs.
+- **Custodial wallets move to Turnkey from the device.**
+  `client.cosign.custodyMigration()` reports what must move;
+  `migrateWallet(custody, { chain })` and `migrateWallets(custody)` move the
+  Stellar, Solana and Polygon wallets, the device voting the account each one
+  moves to. `SDK_CUSTODY_MIGRATION_BLOCKED` carries `body.reasons` while
+  something prevents it. `<CustodyMigrationModal>` runs it before anything else
+  after login, lists every wallet that moves, warns when an address changes and
+  lets a blocked user continue later.
+- **The device proposes each co-signed activity.** `cosign.verify()` reads the
+  unsigned payload and builds the Turnkey request from the values it checked;
+  `approve()` relays that proposal and Pollar's approver votes second;
+  `reject()` closes the request. `verify()` returns `proposal` instead of
+  `turnkeyPayload`, `approve()` has no `verify` option, and
+  `readActivityIntent()` and `readActivityPayload()` are gone. See
+  [UPGRADE.md](./UPGRADE.md#co-signed-activity-proposed-by-the-device).
+- Co-signed Solana: the device checks a transfer against the destination,
+  amount and mint it approves, and refuses a request whose fee can pass
+  custody's 0.001 SOL cap. Co-signed and historical Solana amounts and fees show
+  in units, not base units. An adapter that cannot sign a Solana transaction
+  ends the send in an error state.
+- A wallet derived after login (a Polygon account approved later, or one found
+  on session resume) reaches the session and its network pickers without a
+  new login.
+- `@pollar/react`: Max on a self-paid SOL send leaves the network fee behind.
+- `@pollar/solana-wallet-standard-adapter`: a session restored after a reload
+  signs without reconnecting, and a wallet without `solana:signIn` logs in
+  through `signMessage`. The core peer range is `^0.11.2 || ^0.12.0`, as in
+  `@pollar/stellar-wallets-kit-adapter`, which has no other change.
+- **Branding follows the host page.** In `@pollar/react` the dashboard's
+  Branding is written as private `--pollar-brand-*` variables mapped onto the
+  public `--pollar-*` ones at zero specificity, so a host stylesheet beats the
+  dashboard, which beats the theme defaults. Every button, the remaining
+  hardcoded colors and radii, and the overlay follow the theme variables;
+  `--pollar-font-family` and `--pollar-font-family-mono` set the fonts (the
+  page's font when unset). `WalletButtonTemplateProps` takes `theme`,
+  `accentColor` and `styleOverrides` instead of `dropdownBg`, `dropdownBorder`
+  and `itemColor`. See [UPGRADE.md](./UPGRADE.md#branding-and-the-wallet-button-template).
+- The Pollar mark from the brandkit replaces `logo_pollar.png` in React and
+  React Native; a configured Branding background picks the visible mark by its
+  own luminance.
+- An app with an overdue Pollar statement (402 `SDK_BILLING_OVERDUE`) reads as
+  the same `appUnavailableMessage` as an app out of credits.
+- `rampResolutionText` covers `add_trustline`, the action of a route refused
+  because the Stellar wallet does not trust USDC.
+- **New `@pollar/core/ramps` subpath** for a server-side ramp provider adapter
+  registered with Pollar. Its contract is version 2: `actor` and
   `wallet.signingMode` in the user context, `prebuiltPayload` and `expiresAt`
   (the order's deposit window) on a payment,
   `recorder` in the dependencies, `providerCode` and `detail` on
