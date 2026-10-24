@@ -78,7 +78,10 @@
 - `client.checkRampOrder(id)` asks the provider about an order's fiat payment
   now instead of at the next recheck (at most once every 10 seconds per order)
   and returns the order. The widgets' "I've paid" calls it at once and every 10
-  seconds for two minutes.
+  seconds for two minutes. It has a 30s request budget instead of the 10s
+  default. In `<RampWidget>` a check that times out shows no error (the server
+  still runs it and the periodic checks carry on), and a failed check's message
+  clears once the order is past the payment.
 - A ramp payment can carry the provider's own page: `describeRampAction`
   returns its `link` and `linkLabel` for a QR or bank payment too, and a payment
   that has only the page is paid there. It also returns `codeMissing` (a QR
@@ -279,7 +282,10 @@
 - An app with an overdue Pollar statement (402 `SDK_BILLING_OVERDUE`) reads as
   the same `appUnavailableMessage` as an app out of credits.
 - `rampResolutionText` covers `add_trustline`, the action of a route refused
-  because the Stellar wallet does not trust USDC.
+  because the Stellar wallet does not trust USDC, and `fund_gas_wallet` and
+  `enable_signing_mode`: routes only the app can fix (its gas wallet, its
+  allowed signing modes) read as not available instead of asking the user to
+  contact support with an order id.
 - **New `@pollar/core/ramps` subpath** for a server-side ramp provider adapter
   registered with Pollar. Its contract is version 2: `actor` and
   `wallet.signingMode` in the user context, `prebuiltPayload` and `expiresAt`
