@@ -120,8 +120,18 @@ async function signLegWithWallet(client: PollarClient, orderId: string, actionId
 }
 
 export function RampWidget({ onClose }: RampWidgetProps) {
-  const { getClient, styles, network, openCosignModal, openRecoveryModal, appConfig, cosign, refreshWalletBalance } =
-    usePollar();
+  const {
+    getClient,
+    styles,
+    network,
+    openCosignModal,
+    openRecoveryModal,
+    recovery,
+    recoveryLocked,
+    appConfig,
+    cosign,
+    refreshWalletBalance,
+  } = usePollar();
   const client = getClient();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
 
@@ -551,6 +561,15 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     }
   }
 
+  // An order held until the wallet has a way to be recovered tries again once it has one.
+  const heldForRecovery = step === 'status' && order?.failure?.resolutionAction === 'set_up_recovery';
+  const wasRecoveryLocked = useRef(recoveryLocked);
+  useEffect(() => {
+    if (heldForRecovery && wasRecoveryLocked.current && !recoveryLocked && recovery) void handleRetryOrder();
+    wasRecoveryLocked.current = recoveryLocked;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heldForRecovery, recoveryLocked, recovery]);
+
   async function handleRefresh() {
     if (refreshing) return;
     setRefreshing(true);
@@ -677,6 +696,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         retrying={retrying}
         onRetryOrder={() => void handleRetryOrder()}
         onSetUpRecovery={openRecoveryModal}
+        recoveryMissing={recovery === null ? null : recoveryLocked}
         pollTrouble={pollTrouble}
         checkingPayment={paymentCheckUntil !== null}
         onCheckPayment={() => void handleCheckPayment()}

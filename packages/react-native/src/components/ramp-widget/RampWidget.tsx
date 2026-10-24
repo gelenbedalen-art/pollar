@@ -217,6 +217,8 @@ export interface RampWidgetTemplateProps {
   onRetryOrder?: (() => void) | undefined;
   /** Opens the wallet's recovery setup, for an order held until the wallet has a way to be recovered. */
   onSetUpRecovery?: (() => void) | undefined;
+  /** Whether the wallet still has no way to be recovered; null while its state is unread. */
+  recoveryMissing?: boolean | null;
   /** Reading the order keeps failing and polling is retrying. */
   pollTrouble?: boolean;
   onFieldChange: (key: string, value: string) => void;
@@ -287,6 +289,7 @@ export function RampWidgetTemplate({
   retrying = false,
   onRetryOrder,
   onSetUpRecovery,
+  recoveryMissing = null,
   pollTrouble = false,
   onFieldChange,
   onContactContinue,
@@ -315,6 +318,8 @@ export function RampWidgetTemplate({
   // Held (no next read) or final: the order no longer moves on its own.
   const stopped = order ? rampOrderStopped(order) : false;
   const receive = order ? rampOrderReceive(order) : null;
+  // A held order that waits on the wallet's recovery: retrying before it exists fails the same way.
+  const waitsOnRecovery = order?.failure?.resolutionAction === 'set_up_recovery';
   useRenderAt(view?.canSign && view.expiresAt ? Date.parse(view.expiresAt) : null);
   const missingField = fields.some((f) => !rampFieldValid(f, fieldValues[f.key]));
   const canFind = !!amount && Number(amount) > 0 && !!fiat && !!asset && !isLoading;
@@ -626,11 +631,6 @@ export function RampWidgetTemplate({
                   {status === 'active' && !settled && <ActivityIndicator size="small" color={accentColor} />}
                 </View>
               );
-            })}
-
-            {receive &&
-              copyRow(
-                order.state === 'completed' ? 'You received' : 'You receive',
               const note = rampLegNote(leg);
               if (!note) return row;
               return (
@@ -639,6 +639,11 @@ export function RampWidgetTemplate({
                   <Text style={[styles.legNote, { color: colors.muted }]}>{note}</Text>
                 </View>
               );
+            })}
+
+            {receive &&
+              copyRow(
+                order.state === 'completed' ? 'You received' : 'You receive',
                 `${receive.estimated ? '~' : ''}${receive.amount} ${receive.unit}`,
               )}
             {order.failure && (
@@ -647,14 +652,22 @@ export function RampWidgetTemplate({
                 {copyRow('Order', order.id)}
                 {stopped &&
                   !settled &&
-                  order.failure.resolutionAction === 'set_up_recovery' &&
+                  waitsOnRecovery &&
+                  recoveryMissing !== false &&
                   onSetUpRecovery &&
                   secondary('Set up recovery', onSetUpRecovery)}
+                {stopped && !settled && waitsOnRecovery && recoveryMissing === true && (
+                  <Text style={[styles.note, { color: colors.muted }]}>Once it is set up, the order goes on by itself.</Text>
+                )}
                 {stopped &&
                   !settled &&
                   order.failure.resolutionOwner === 'END_USER' &&
                   onRetryOrder &&
-                  primary(retrying ? 'Trying again…' : 'Try again', onRetryOrder, retrying)}
+                  primary(
+                    retrying ? 'Trying again…' : 'Try again',
+                    onRetryOrder,
+                    retrying || (waitsOnRecovery && recoveryMissing === true),
+                  )}
               </>
             )}
             {!settled && view.action?.kind === 'FIAT_PAYMENT' && view.expiresAt && (
@@ -728,6 +741,8 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     styles: pollarStyles,
     openCosignModal,
     openRecoveryModal,
+    recovery,
+    recoveryLocked,
     appConfig,
     cosign,
     refreshWalletBalance,
@@ -895,6 +910,15 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
       setRetrying(false);
     }
   }
+
+  // An order held until the wallet has a way to be recovered tries again once it has one.
+  const heldForRecovery = step === 'status' && order?.failure?.resolutionAction === 'set_up_recovery';
+  const wasRecoveryLocked = useRef(recoveryLocked);
+  useEffect(() => {
+    if (heldForRecovery && wasRecoveryLocked.current && !recoveryLocked && recovery) void handleRetryOrder();
+    wasRecoveryLocked.current = recoveryLocked;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heldForRecovery, recoveryLocked, recovery]);
 
   const resolvedRequest = cosign.lastResolved;
   useEffect(() => {
@@ -1203,6 +1227,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           retrying={retrying}
           onRetryOrder={() => void handleRetryOrder()}
           onSetUpRecovery={openRecoveryModal}
+          recoveryMissing={recovery === null ? null : recoveryLocked}
           pollTrouble={pollTrouble}
           onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
           onContactContinue={() => {
@@ -1398,12 +1423,6 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     borderWidth: 2,
   },
-  statusBox: {
-    paddingVertical: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
   // Indented past the dot (10) and the row gap (8), under the title.
   legNote: {
     fontSize: 12,
@@ -1412,3 +1431,9 @@ const styles = StyleSheet.create({
     marginTop: -2,
     marginBottom: 6,
   },
+  statusBox: {
+    paddingVertical: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

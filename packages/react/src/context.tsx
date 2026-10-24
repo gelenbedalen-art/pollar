@@ -1015,7 +1015,13 @@ export function PollarProvider({
       )}
       {recoveryModalOpen && (
         <ModalErrorBoundary onClose={() => setRecoveryModalOpen(false)}>
-          <RecoveryModal onClose={() => setRecoveryModalOpen(false)} />
+          <RecoveryModal
+            onClose={() => {
+              setRecoveryModalOpen(false);
+              // A method added in the modal unlocks what waited on it (a held ramp order).
+              refreshRecovery();
+            }}
+          />
         </ModalErrorBoundary>
       )}
       {firstConfirmation && (

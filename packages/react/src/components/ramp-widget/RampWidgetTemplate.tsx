@@ -166,6 +166,8 @@ interface RampWidgetTemplateProps {
   onRetryOrder?: (() => void) | undefined;
   /** Opens the wallet's recovery setup, for an order held until the wallet has a way to be recovered. */
   onSetUpRecovery?: (() => void) | undefined;
+  /** Whether the wallet still has no way to be recovered; null while its state is unread. */
+  recoveryMissing?: boolean | null;
   /** Reading the order keeps failing and polling is retrying. */
   pollTrouble?: boolean;
   /** The fiat payment the user says they made is being checked. */
@@ -252,6 +254,7 @@ export function RampWidgetTemplate({
   retrying = false,
   onRetryOrder,
   onSetUpRecovery,
+  recoveryMissing = null,
   checkingPayment = false,
   onCheckPayment,
   pollTrouble = false,
@@ -275,6 +278,8 @@ export function RampWidgetTemplate({
   // Held (no next read) or final: the order no longer moves on its own.
   const stopped = order ? rampOrderStopped(order) : false;
   const receive = order ? rampOrderReceive(order) : null;
+  // A held order that waits on the wallet's recovery: retrying before it exists fails the same way.
+  const waitsOnRecovery = order?.failure?.resolutionAction === 'set_up_recovery';
   const payBy = view?.action?.kind === 'FIAT_PAYMENT' && view.expiresAt ? Date.parse(view.expiresAt) : null;
   useRenderAt(view?.canSign && view.expiresAt ? Date.parse(view.expiresAt) : null);
   // Once the order exists, going back means a new order, which "New order" already starts.
@@ -614,12 +619,12 @@ export function RampWidgetTemplate({
             {order.legs.map((leg) => {
               const status = rampLegStatus(leg);
               const hash = leg.onchainTxHash;
+              const note = rampLegNote(leg);
               return (
                 <li key={leg.index} className="pollar-ramp-leg" data-status={status}>
                   <span className="pollar-ramp-leg-dot" aria-hidden />
                   <span className="pollar-ramp-leg-title">{rampLegTitle(leg)}</span>
                   {status === 'active' && !settled && (
-              const note = rampLegNote(leg);
                     <span className="pollar-spinner pollar-spinner-sm" aria-label="In progress" />
                   )}
                   {hash && (
@@ -632,12 +637,12 @@ export function RampWidgetTemplate({
                       {hash.slice(0, 6)}…{hash.slice(-4)}
                     </a>
                   )}
+                  {note && <span className="pollar-ramp-leg-note">{note}</span>}
                 </li>
               );
             })}
           </ol>
 
-                  {note && <span className="pollar-ramp-leg-note">{note}</span>}
           {receive && (
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">{order.state === 'completed' ? 'You received' : 'You receive'}</span>
@@ -652,13 +657,21 @@ export function RampWidgetTemplate({
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">What to do</span>
               <p className="pollar-ramp-payment-note">{rampOrderResolutionText(order)}</p>
-              {stopped && !settled && order.failure.resolutionAction === 'set_up_recovery' && onSetUpRecovery && (
+              {stopped && !settled && waitsOnRecovery && recoveryMissing !== false && onSetUpRecovery && (
                 <button type="button" className="pollar-btn-secondary" onClick={onSetUpRecovery}>
                   Set up recovery
                 </button>
               )}
+              {stopped && !settled && waitsOnRecovery && recoveryMissing === true && (
+                <p className="pollar-ramp-payment-note">Once it is set up, the order goes on by itself.</p>
+              )}
               {stopped && !settled && order.failure.resolutionOwner === 'END_USER' && onRetryOrder && (
-                <button type="button" className="pollar-btn-primary" disabled={retrying} onClick={onRetryOrder}>
+                <button
+                  type="button"
+                  className="pollar-btn-primary"
+                  disabled={retrying || (waitsOnRecovery && recoveryMissing === true)}
+                  onClick={onRetryOrder}
+                >
                   {retrying ? (
                     <>
                       <span className="pollar-spinner pollar-spinner-sm" /> Trying again…
