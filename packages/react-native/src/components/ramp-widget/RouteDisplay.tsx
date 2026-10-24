@@ -86,7 +86,9 @@ export function RejectedRouteDisplay({
   const step = !requirement ? rampWalletStep(rejection) : null;
   const fromMenu = step?.action === 'create_wallet' && custodyChoice;
   const walletStep = onWalletStep && !fromMenu ? step : null;
-  const picks: Array<CosignCustody | undefined> = custodyChoice ? ['COSIGNED', 'SELF_CUSTODY'] : [undefined];
+  // Only a step that creates or moves a wallet picks its custody; adding recovery does not.
+  const picks: Array<CosignCustody | undefined> =
+    custodyChoice && step?.action !== 'set_up_recovery' ? ['COSIGNED', 'SELF_CUSTODY'] : [undefined];
   const meta = copy
     ? copy.message
     : fromMenu

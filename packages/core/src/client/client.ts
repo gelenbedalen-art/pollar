@@ -4551,13 +4551,16 @@ export class PollarClient {
    * wallets Pollar still holds to the app's custody. `custody` is the user's pick
    * when the app leaves it to them. `recoveryRequired` when the Turnkey wallet it
    * leaves needs a recovery method before it signs: the route quotes, but its
-   * steps would wait on it.
+   * steps would wait on it. A `set_up_recovery` step does nothing itself: its
+   * `recoveryRequired` tells the caller to open the recovery flow.
    */
   async runRampWalletStep(step: RampWalletStep, custody?: CosignCustody): Promise<{ recoveryRequired: boolean }> {
     if (step.action === 'create_wallet') await this.createWallet(custody ? { custody } : undefined);
     else if (step.action === 'set_up_wallet' && step.chain) await this.setUpRampWallet(step.chain, custody);
     else if (step.action === 'migrate_custody') await this.cosign.migrateWallets(custody);
-    else throw new PollarApiError('VALIDATION_ERROR', { reason: `no wallet step ${step.action}` });
+    // Recovery is added in the recovery flow; the status below tells the caller to open it.
+    else if (step.action !== 'set_up_recovery')
+      throw new PollarApiError('VALIDATION_ERROR', { reason: `no wallet step ${step.action}` });
     const recovery = await this.cosign.recovery.status().catch(() => null);
     return { recoveryRequired: !!recovery?.required && !recovery.configured };
   }

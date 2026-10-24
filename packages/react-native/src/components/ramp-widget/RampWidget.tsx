@@ -198,6 +198,8 @@ export interface RampWidgetTemplateProps {
   retrying?: boolean;
   /** Runs the user's held order again; absent, a held order only says what happened. */
   onRetryOrder?: (() => void) | undefined;
+  /** Opens the wallet's recovery setup, for an order held until the wallet has a way to be recovered. */
+  onSetUpRecovery?: (() => void) | undefined;
   /** Reading the order keeps failing and polling is retrying. */
   pollTrouble?: boolean;
   onFieldChange: (key: string, value: string) => void;
@@ -262,6 +264,7 @@ export function RampWidgetTemplate({
   noChains = false,
   retrying = false,
   onRetryOrder,
+  onSetUpRecovery,
   pollTrouble = false,
   onFieldChange,
   onContactContinue,
@@ -546,6 +549,11 @@ export function RampWidgetTemplate({
               <>
                 <Text style={[styles.note, { color: colors.text }]}>{rampOrderResolutionText(order)}</Text>
                 {copyRow('Order', order.id)}
+                {stopped &&
+                  !settled &&
+                  order.failure.resolutionAction === 'set_up_recovery' &&
+                  onSetUpRecovery &&
+                  secondary('Set up recovery', onSetUpRecovery)}
                 {stopped &&
                   !settled &&
                   order.failure.resolutionOwner === 'END_USER' &&
@@ -1073,6 +1081,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           noChains={Array.isArray(appChains) && appChains.length === 0}
           retrying={retrying}
           onRetryOrder={() => void handleRetryOrder()}
+          onSetUpRecovery={openRecoveryModal}
           pollTrouble={pollTrouble}
           onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
           onContactContinue={() => {

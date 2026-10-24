@@ -173,6 +173,7 @@ const RESOLUTION: Record<string, string> = {
   create_wallet: 'You need a wallet to receive this. Create one to continue.',
   set_up_wallet: 'This route runs through another network. Set up your wallet there to continue.',
   migrate_custody: "Your wallet is still held by Pollar alone. Move it to your app's secure wallet to continue.",
+  set_up_recovery: 'Your wallet needs a way to be recovered before it can sign. Add one, then try again.',
   add_trustline: 'Your Stellar wallet must trust USDC to receive it. Add the USDC trustline and try again.',
   sign_again: 'The signature expired. Sign the step again.',
   start_again: 'This transfer could not go through. Start a new one; nothing was charged.',
@@ -188,7 +189,7 @@ export function rampResolutionText(failure: Pick<RampFailure, 'resolutionAction'
 
 /** A wallet step a dropped route asks for, and the button that runs it (`PollarClient.runRampWalletStep`). */
 export interface RampWalletStep {
-  action: 'create_wallet' | 'set_up_wallet' | 'migrate_custody';
+  action: 'create_wallet' | 'set_up_wallet' | 'migrate_custody' | 'set_up_recovery';
   /** The chain to set the wallet up on, for `set_up_wallet`. */
   chain: RampWalletSetupChain | null;
   label: string;
@@ -204,6 +205,8 @@ export function rampWalletStep(rejection: Pick<RampQuoteRejection, 'failure'>): 
     return { action: resolutionAction, chain: detail, label: 'Set up wallet', busyLabel: 'Setting up…' };
   if (resolutionAction === 'migrate_custody')
     return { action: resolutionAction, chain: null, label: 'Move wallet', busyLabel: 'Moving…' };
+  if (resolutionAction === 'set_up_recovery')
+    return { action: resolutionAction, chain: null, label: 'Set up recovery', busyLabel: 'Opening…' };
   return null;
 }
 

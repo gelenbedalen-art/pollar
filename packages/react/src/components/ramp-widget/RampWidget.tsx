@@ -676,6 +676,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         onApprove={openCosignModal}
         retrying={retrying}
         onRetryOrder={() => void handleRetryOrder()}
+        onSetUpRecovery={openRecoveryModal}
         pollTrouble={pollTrouble}
         checkingPayment={paymentCheckUntil !== null}
         onCheckPayment={() => void handleCheckPayment()}

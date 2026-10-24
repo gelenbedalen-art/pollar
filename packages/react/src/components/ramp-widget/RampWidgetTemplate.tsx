@@ -163,6 +163,8 @@ interface RampWidgetTemplateProps {
   retrying?: boolean;
   /** Runs the user's held order again; absent, a held order only says what happened. */
   onRetryOrder?: (() => void) | undefined;
+  /** Opens the wallet's recovery setup, for an order held until the wallet has a way to be recovered. */
+  onSetUpRecovery?: (() => void) | undefined;
   /** Reading the order keeps failing and polling is retrying. */
   pollTrouble?: boolean;
   /** The fiat payment the user says they made is being checked. */
@@ -248,6 +250,7 @@ export function RampWidgetTemplate({
   noChains = false,
   retrying = false,
   onRetryOrder,
+  onSetUpRecovery,
   checkingPayment = false,
   onCheckPayment,
   pollTrouble = false,
@@ -645,6 +648,11 @@ export function RampWidgetTemplate({
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">What to do</span>
               <p className="pollar-ramp-payment-note">{rampOrderResolutionText(order)}</p>
+              {stopped && !settled && order.failure.resolutionAction === 'set_up_recovery' && onSetUpRecovery && (
+                <button type="button" className="pollar-btn-secondary" onClick={onSetUpRecovery}>
+                  Set up recovery
+                </button>
+              )}
               {stopped && !settled && order.failure.resolutionOwner === 'END_USER' && onRetryOrder && (
                 <button type="button" className="pollar-btn-primary" disabled={retrying} onClick={onRetryOrder}>
                   {retrying ? (

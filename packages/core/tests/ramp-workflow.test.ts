@@ -178,3 +178,20 @@ test('a dropped route that needs a wallet names the step and, to set one up, its
   assert.equal(rampWalletStep(failure('create_wallet'))!.label, 'Create wallet');
   assert.equal(rampWalletStep(failure('add_trustline')), null);
 });
+
+test('a wallet with no way to be recovered asks for recovery, on a dropped route and on a held order', () => {
+  const failure = {
+    code: 'WALLET_RECOVERY_REQUIRED',
+    legIndex: 1,
+    retryable: false,
+    resolutionOwner: 'END_USER',
+    resolutionAction: 'set_up_recovery',
+  } as never;
+  assert.deepEqual(rampWalletStep({ failure }), {
+    action: 'set_up_recovery',
+    chain: null,
+    label: 'Set up recovery',
+    busyLabel: 'Opening…',
+  });
+  assert.match(rampOrderResolutionText({ failure, legs: [{ status: 'HELD' }] } as never)!, /recovered/);
+});
