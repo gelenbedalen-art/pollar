@@ -24,14 +24,14 @@ const STATE = {
 const completed = { status: 200, body: { activity: { status: 'ACTIVITY_STATUS_COMPLETED' } } };
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
 
-function harness(extra: { exportBundle?: string } = {}) {
+function harness(extra: { exportBundle?: string; state?: Partial<typeof STATE> } = {}) {
   const relays: Array<{ path: string; body: Record<string, unknown> }> = [];
   const stamped: Array<{ path: string; body: string; stamp: string; stampHeader: string }> = [];
   const proxy: Array<{ path: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
   const crypto: Array<[string, unknown[]]> = [];
   const recovery = new CosignRecovery({
     api: {
-      GET: async () => ({ data: { content: STATE } }),
+      GET: async () => ({ data: { content: { ...STATE, ...extra.state } } }),
       POST: async (_path: string) => ({ data: { content: { id: 'enr-1', expiresAt: 'later' } } }),
     } as never,
     publicKeyHex: async () => DEVICE,
@@ -113,7 +113,7 @@ test('a passkey is registered with its attestation and Turnkey transport names',
 });
 
 test('an email is confirmed through the Auth Proxy: the code goes encrypted, then the device sets the verified email', async () => {
-  const { recovery, relays, proxy, crypto } = harness();
+  const { recovery, relays, proxy, crypto } = harness({ state: { email: { address: null, verified: false } } as never });
   await recovery.startEmail('user@fixture.invalid');
   assert.equal(proxy[0]!.path, '/v1/otp_init_v2');
   assert.equal(proxy[0]!.headers['X-Auth-Proxy-Config-Id'], 'cfg-1');
@@ -194,4 +194,28 @@ test('an export is encrypted to a key made for it and decrypted here', async () 
     target,
     'the bundle is decrypted with the target key',
   );
+});
+
+test('the sign-in email the wallet already holds unconfirmed is cleared, then set again with the code', async () => {
+  const { recovery, relays } = harness({ state: { email: { address: 'User@Fixture.invalid', verified: false } } as never });
+  await recovery.startEmail('user@fixture.invalid');
+  await recovery.confirmEmail('123456789');
+  assert.deepEqual(
+    relays.map((r) => r.body.parameters),
+    [
+      { userId: 'tk-user', userEmail: '' },
+      {
+        userId: 'tk-user',
+        userEmail: 'user@fixture.invalid',
+        verificationToken: (relays[1]!.body.parameters as { verificationToken: string }).verificationToken,
+      },
+    ],
+  );
+});
+
+test('an email already confirmed is not set again', async () => {
+  const { recovery, relays } = harness();
+  await recovery.startEmail('user@fixture.invalid');
+  await recovery.confirmEmail('123456789');
+  assert.equal(relays.length, 0);
 });

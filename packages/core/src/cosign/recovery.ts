@@ -294,16 +294,24 @@ export class CosignRecovery {
   /** Confirm the email with the code Turnkey sent; it counts as a recovery method from now on. */
   async confirmEmail(code: string): Promise<RecoveryState> {
     const email = this.otp?.email;
-    const { subOrgId, endUserId } = await this.requireWallet();
+    const { subOrgId, endUserId, email: current } = await this.requireWallet();
     const verificationToken = await this.verifyCode(code, ephemeralKey(), 'confirm');
-    await this.deps
-      .relay('/public/v1/submit/update_user_email', {
-        type: 'ACTIVITY_TYPE_UPDATE_USER_EMAIL',
-        timestampMs: String(Date.now()),
-        organizationId: subOrgId,
-        parameters: { userId: endUserId, userEmail: email, verificationToken },
-      })
-      .then(relayActivity);
+    const same = !!email && !!current.address && current.address.toLowerCase() === email.toLowerCase();
+    if (same && current.verified) return this.status();
+    const updateEmail = (parameters: Record<string, unknown>) =>
+      this.deps
+        .relay('/public/v1/submit/update_user_email', {
+          type: 'ACTIVITY_TYPE_UPDATE_USER_EMAIL',
+          timestampMs: String(Date.now()),
+          organizationId: subOrgId,
+          parameters: { userId: endUserId, ...parameters },
+        })
+        .then(relayActivity);
+    // The wallet may already carry this address unconfirmed (the sign-in email it was
+    // created with), and Turnkey refuses to set an email it already holds: it is
+    // cleared first, then set with the code's token, which is what confirms it.
+    if (same) await updateEmail({ userEmail: '' });
+    await updateEmail({ userEmail: email, verificationToken });
     return this.status();
   }
 

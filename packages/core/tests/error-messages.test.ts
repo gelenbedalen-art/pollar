@@ -3,7 +3,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolveAuthError } from '../src/client/auth/errorMessages';
-import { appUnavailableMessage, onChainErrorCode, transactionErrorMessage } from '../src/lib/tx-error-messages';
+import {
+  appUnavailableMessage,
+  cosignRefusalMessage,
+  onChainErrorCode,
+  transactionErrorMessage,
+} from '../src/lib/tx-error-messages';
 import { AUTH_ERROR_CODES } from '../src/types';
 
 test("an app out of Pollar credits (402) tells the user to reach the app's support, as every other flow does", () => {
@@ -41,4 +46,18 @@ test('a bare on-chain code never reaches the screen', () => {
   assert.equal(onChainErrorCode('txFailed'), undefined);
   assert.equal(transactionErrorMessage(null, 'txFailed'), 'Something went wrong. Please try again.');
   assert.equal(transactionErrorMessage(null, 'The memo is too long.'), 'The memo is too long.');
+});
+
+test("the wallet provider's refusal shows its own reason, without the provider's code", () => {
+  const refused = (message?: string) => ({
+    code: 'SDK_COSIGN_TURNKEY_REJECTED',
+    body: message === undefined ? {} : { message },
+  });
+  assert.equal(
+    cosignRefusalMessage(refused('Turnkey error 3: email is already set to user@fixture.invalid (Details: [])')),
+    'The wallet provider refused the request: email is already set to user@fixture.invalid.',
+  );
+  assert.equal(cosignRefusalMessage(refused()), transactionErrorMessage('SDK_COSIGN_TURNKEY_REJECTED'));
+  assert.equal(cosignRefusalMessage({ code: 'SDK_COSIGN_UPSTREAM_ERROR', body: { message: 'x' } }), null);
+  assert.equal(cosignRefusalMessage(new Error('x')), null);
 });
