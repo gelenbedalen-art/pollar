@@ -256,7 +256,12 @@
 - `@pollar/solana-wallet-standard-adapter`: a session restored after a reload
   signs without reconnecting, and a wallet without `solana:signIn` logs in
   through `signMessage`. The core peer range is `^0.11.2 || ^0.12.0`, as in
-  `@pollar/stellar-wallets-kit-adapter`, which has no other change.
+  `@pollar/stellar-wallets-kit-adapter`.
+- `@pollar/stellar-wallets-kit-adapter`: `KitPickerOptions` keeps the options
+  the factory reads (`wallets`, `labels`, `groupLabel`); `order`,
+  `showInstalledOnly`, `layout` and `theme` are gone, since nothing read them.
+- `PollarFlowError` is exported as a value, so `instanceof PollarFlowError`
+  works at runtime and not only in the types.
 - **Branding follows the host page.** In `@pollar/react` the dashboard's
   Branding is written as private `--pollar-brand-*` variables mapped onto the
   public `--pollar-*` ones at zero specificity, so a host stylesheet beats the
