@@ -19,7 +19,11 @@ import {
   describeRampAction,
   rampLegStatus,
   rampLegNote,
+  rampLegTimeLeft,
   rampLegTitle,
+  rampNextApproval,
+  rampStepStatusText,
+  rampStepTitle,
   rampFieldError,
   rampFieldValid,
   rampNoRouteText,
@@ -93,6 +97,30 @@ function explorerTxUrl(chain: string, hash: string, network: StellarNetwork): st
 function legChain(leg: RampOrder['legs'][number]): string {
   if (leg.from.kind === 'asset') return leg.from.chain;
   return leg.to.kind === 'asset' ? leg.to.chain : 'STELLAR';
+}
+
+/** The chain a step's transaction is on: a mint lands on the destination, the rest leave from the source. */
+function stepChain(kind: string, leg: RampOrder['legs'][number]): string {
+  if (kind === 'mint' && leg.to.kind === 'asset') return leg.to.chain;
+  return legChain(leg);
+}
+
+const timeLeftText = (seconds: number) =>
+  seconds <= 0
+    ? 'Taking a little longer than usual'
+    : seconds < 60
+      ? `About ${seconds}s left`
+      : `About ${Math.ceil(seconds / 60)} min left`;
+
+/** The current time, every second while `running`: what a countdown reads. */
+function useNowEverySecond(running: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+  return now;
 }
 
 export const fiatKey = (fiat: Pick<RampFiat, 'currency' | 'rail'>) => `${fiat.currency}:${fiat.rail}`;
@@ -275,6 +303,10 @@ export function RampWidgetTemplate({
   const sendUnit = onramp ? fiat?.currency : asset?.code;
   const view = order ? describeRampAction(order) : null;
   const settled = order ? ['completed', 'failed', 'refunded'].includes(order.state) : false;
+  // A leg running on its own (not waiting on the user) counts down its quoted time.
+  const running = order?.legs.find((leg) => rampLegStatus(leg) === 'active' && order.pendingAction?.legIndex !== leg.index);
+  const now = useNowEverySecond(step === 'status' && !settled && !!running && running.etaSeconds !== null);
+  const nextApproval = order && !settled ? rampNextApproval(order) : null;
   // Held (no next read) or final: the order no longer moves on its own.
   const stopped = order ? rampOrderStopped(order) : false;
   const receive = order ? rampOrderReceive(order) : null;
@@ -638,10 +670,41 @@ export function RampWidgetTemplate({
                     </a>
                   )}
                   {note && <span className="pollar-ramp-leg-note">{note}</span>}
+                  {status === 'active' && !settled && leg.steps.length > 0 && (
+                    <ol className="pollar-ramp-steps">
+                      {leg.steps.map((s) => (
+                        <li key={s.kind} className="pollar-ramp-step" data-status={s.status}>
+                          <span className="pollar-ramp-step-title">{rampStepTitle(s, leg)}</span>
+                          <span className="pollar-ramp-step-state">
+                            {s.status === 'confirming' && <span className="pollar-spinner pollar-spinner-sm" aria-hidden />}
+                            {s.hash ? (
+                              <a
+                                className="pollar-ramp-leg-link"
+                                href={explorerTxUrl(stepChain(s.kind, leg), s.hash, network)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {rampStepStatusText(s)}
+                              </a>
+                            ) : (
+                              rampStepStatusText(s)
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  {running === leg && !settled && rampLegTimeLeft(leg, now) !== null && (
+                    <span className="pollar-ramp-leg-eta">{timeLeftText(rampLegTimeLeft(leg, now)!)}</span>
+                  )}
                 </li>
               );
             })}
           </ol>
+
+          {nextApproval && !order.pendingAction && (
+            <p className="pollar-ramp-next">Next: {nextApproval}. You approve it on this device when it comes up.</p>
+          )}
 
           {receive && (
             <div className="pollar-ramp-payment-field">

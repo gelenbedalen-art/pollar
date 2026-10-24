@@ -140,6 +140,12 @@ interface PollarContextValue {
   /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
   openCosignModal: () => void;
   /**
+   * The approval a flow will ask for next (a ramp's swap after its approve),
+   * or null. While one is coming, the approval prompt stays open after a sent
+   * transaction and shows the next request when it arrives, instead of closing.
+   */
+  setCosignNextStep: (next: string | null) => void;
+  /**
    * The recovery state of the user's Turnkey wallet: null until read, or for a
    * session without one. `recoveryLocked` is true while the wallet has no way
    * to be recovered without this device: it signs nothing but its own setup.
@@ -662,6 +668,7 @@ export function PollarProvider({
   const [receiveModalOpen, setReceiveModalOpen] = useState(false);
   const [sessionsModalOpen, setSessionsModalOpen] = useState(false);
   const [cosignModalOpen, setCosignModalOpen] = useState(false);
+  const [cosignNextStep, setCosignNextStep] = useState<string | null>(null);
   const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   // A signing call that came back pending needs the user's vote now; open the
   // prompt the moment a new request appears, never when one merely resolves.
@@ -850,6 +857,7 @@ export function PollarProvider({
       // cosign
       cosign,
       openCosignModal: () => setCosignModalOpen(true),
+      setCosignNextStep,
       recovery,
       recoveryLocked,
       refreshRecovery,
@@ -993,7 +1001,7 @@ export function PollarProvider({
       )}
       {cosignModalOpen && (
         <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
-          <CosignModal onClose={() => setCosignModalOpen(false)} />
+          <CosignModal nextStep={cosignNextStep} onClose={() => setCosignModalOpen(false)} />
         </ModalErrorBoundary>
       )}
       {custodyMigration?.required && !custodyMigrationLater && (

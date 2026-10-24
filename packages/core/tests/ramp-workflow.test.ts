@@ -6,6 +6,10 @@ import {
   rampFieldValid,
   rampLegNote,
   rampLegStatus,
+  rampLegTimeLeft,
+  rampNextApproval,
+  rampStepStatusText,
+  rampStepTitle,
   rampNoRouteText,
   rampOrderReceive,
   rampOrderResolutionText,
@@ -224,4 +228,46 @@ test('no route: a verification the user cannot act on says it waits, never asks 
   );
   assert.equal(rampNoRouteText([kyc('none'), kyc('pending', 'DUPLICATE_DOCUMENT')]), verify);
   assert.equal(rampNoRouteText([{ failure } as never]), verify);
+});
+
+const usdtPolygon = { kind: 'asset' as const, code: 'USDT', identifier: '0xc213', chain: 'POLYGON' as const };
+const usdcOnPolygon = { kind: 'asset' as const, code: 'USDC', identifier: '0x3c49', chain: 'POLYGON' as const };
+const step = (kind: string, status: string, signs = true) => ({ kind, status, signs, hash: null });
+
+test('the next approval is the next step the user signs, else the next leg that signs', () => {
+  const swap = {
+    kind: 'SWAP',
+    status: 'AWAITING_ACTION',
+    from: usdtPolygon,
+    to: usdcOnPolygon,
+    signingMode: 'COSIGNED',
+    steps: [step('approve', 'awaiting_approval'), step('swap', 'pending')],
+  };
+  const bridge = { kind: 'BRIDGE', status: 'PENDING', from: usdcOnPolygon, to: usdc, signingMode: 'COSIGNED', steps: [] };
+  const provider = { kind: 'PROVIDER_ONRAMP', status: 'COMPLETED', from: bob, to: usdtPolygon, signingMode: null, steps: [] };
+  assert.equal(rampNextApproval({ legs: [provider, swap, bridge] } as never), 'Swap USDT to USDC');
+  const swapping = { ...swap, steps: [step('approve', 'done'), step('swap', 'awaiting_approval')] };
+  assert.equal(rampNextApproval({ legs: [provider, swapping, bridge] } as never), 'Send to Stellar');
+  const burning = {
+    ...bridge,
+    status: 'AWAITING_ACTION',
+    steps: [step('burn', 'awaiting_approval'), step('attestation', 'pending', false), step('mint', 'pending', false)],
+  };
+  assert.equal(rampNextApproval({ legs: [provider, { ...swap, status: 'COMPLETED' }, burning] } as never), null);
+});
+
+test('a chain step reads in the user terms, with what it is doing now', () => {
+  const leg = { from: usdcOnPolygon, to: usdc };
+  assert.equal(rampStepTitle({ kind: 'burn' }, leg as never), 'Send from Polygon');
+  assert.equal(rampStepTitle({ kind: 'mint' }, leg as never), 'Arrives on Stellar');
+  assert.equal(rampStepStatusText({ status: 'awaiting_approval', signs: true }), 'Waiting for your approval');
+  assert.equal(rampStepStatusText({ status: 'confirming', signs: false }), 'In progress');
+});
+
+test('a running leg counts down its quoted time and stops at zero once late', () => {
+  const startedAt = '2026-10-24T13:43:00.000Z';
+  const at = (seconds: number) => Date.parse(startedAt) + seconds * 1000;
+  assert.equal(rampLegTimeLeft({ etaSeconds: 30, startedAt }, at(12)), 18);
+  assert.equal(rampLegTimeLeft({ etaSeconds: 30, startedAt }, at(45)), 0);
+  assert.equal(rampLegTimeLeft({ etaSeconds: null, startedAt }, at(1)), null);
 });

@@ -17,6 +17,7 @@ import {
   assertRampStellarSigner,
   isPollarApiError,
   rampCountries,
+  rampNextApproval,
   rampQuoteFields,
   rampTrustlineErrorText,
 } from '@pollar/core';
@@ -125,6 +126,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     styles,
     network,
     openCosignModal,
+    setCosignNextStep,
     openRecoveryModal,
     recovery,
     recoveryLocked,
@@ -284,6 +286,13 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       .catch(() => undefined)
       .then(() => openCosignModal());
   }, [approval, client, openCosignModal]);
+
+  // The approval prompt stays up between two approvals of the order instead of closing and reopening.
+  const nextApproval = step === 'status' && order ? rampNextApproval(order) : null;
+  useEffect(() => {
+    setCosignNextStep(nextApproval);
+  }, [nextApproval, setCosignNextStep]);
+  useEffect(() => () => setCosignNextStep(null), [setCosignNextStep]);
 
   const resolvedRequest = cosign.lastResolved;
   useEffect(() => {

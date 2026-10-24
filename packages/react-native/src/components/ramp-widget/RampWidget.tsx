@@ -35,7 +35,11 @@ import {
   rampCountries,
   rampLegStatus,
   rampLegNote,
+  rampLegTimeLeft,
   rampLegTitle,
+  rampNextApproval,
+  rampStepStatusText,
+  rampStepTitle,
   rampFieldError,
   rampFieldValid,
   rampNoRouteText,
@@ -236,6 +240,24 @@ export interface RampWidgetTemplateProps {
 }
 
 /** Renders again at `at` (ms since epoch), so what lapses then (a signature's button) goes then, not at the next read. */
+const timeLeftText = (seconds: number) =>
+  seconds <= 0
+    ? 'Taking a little longer than usual'
+    : seconds < 60
+      ? `About ${seconds}s left`
+      : `About ${Math.ceil(seconds / 60)} min left`;
+
+/** The current time, every second while `running`: what a countdown reads. */
+function useNowEverySecond(running: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+  return now;
+}
+
 function useRenderAt(at: number | null) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -315,6 +337,10 @@ export function RampWidgetTemplate({
   const onramp = direction === 'ONRAMP';
   const view = order ? describeRampAction(order) : null;
   const settled = order ? ['completed', 'failed', 'refunded'].includes(order.state) : false;
+  // A leg running on its own (not waiting on the user) counts down its quoted time.
+  const running = order?.legs.find((leg) => rampLegStatus(leg) === 'active' && order.pendingAction?.legIndex !== leg.index);
+  const now = useNowEverySecond(step === 'status' && !settled && !!running && running.etaSeconds !== null);
+  const nextApproval = order && !settled ? rampNextApproval(order) : null;
   // Held (no next read) or final: the order no longer moves on its own.
   const stopped = order ? rampOrderStopped(order) : false;
   const receive = order ? rampOrderReceive(order) : null;
@@ -632,14 +658,39 @@ export function RampWidgetTemplate({
                 </View>
               );
               const note = rampLegNote(leg);
-              if (!note) return row;
+              const steps = status === 'active' && !settled ? leg.steps : [];
+              const timeLeft = running === leg && !settled ? rampLegTimeLeft(leg, now) : null;
+              if (!note && !steps.length && timeLeft === null) return row;
               return (
                 <View key={leg.index}>
                   {row}
-                  <Text style={[styles.legNote, { color: colors.muted }]}>{note}</Text>
+                  {note && <Text style={[styles.legNote, { color: colors.muted }]}>{note}</Text>}
+                  {steps.map((s) => (
+                    <View key={s.kind} style={styles.legStep}>
+                      <Text style={{ flex: 1, fontSize: 13, color: s.status === 'pending' ? colors.muted : colors.text }}>
+                        {rampStepTitle(s, leg)}
+                      </Text>
+                      {s.status === 'confirming' && <ActivityIndicator size="small" color={accentColor} />}
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: s.status === 'awaiting_approval' ? accentColor : colors.muted,
+                          fontWeight: s.status === 'awaiting_approval' ? '600' : '400',
+                        }}
+                      >
+                        {rampStepStatusText(s)}
+                      </Text>
+                    </View>
+                  ))}
+                  {timeLeft !== null && <Text style={[styles.legNote, { color: colors.muted }]}>{timeLeftText(timeLeft)}</Text>}
                 </View>
               );
             })}
+            {nextApproval && !order.pendingAction && (
+              <Text style={[styles.note, { color: colors.muted }]}>
+                Next: {nextApproval}. You approve it on this device when it comes up.
+              </Text>
+            )}
 
             {receive &&
               copyRow(
@@ -740,6 +791,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     setRamp: save,
     styles: pollarStyles,
     openCosignModal,
+    setCosignNextStep,
     openRecoveryModal,
     recovery,
     recoveryLocked,
@@ -895,6 +947,13 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
       .catch(() => undefined)
       .then(() => openCosignModal());
   }, [approval, client, openCosignModal]);
+
+  // The approval prompt stays up between two approvals of the order instead of closing and reopening.
+  const nextApproval = step === 'status' && order ? rampNextApproval(order) : null;
+  useEffect(() => {
+    setCosignNextStep(nextApproval);
+  }, [nextApproval, setCosignNextStep]);
+  useEffect(() => () => setCosignNextStep(null), [setCosignNextStep]);
 
   /** Runs the user's held order again, then follows it. */
   async function handleRetryOrder() {
@@ -1422,6 +1481,14 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     borderWidth: 2,
+  },
+  // Indented like the note: past the dot (10) and the row gap (8).
+  legStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 18,
+    marginBottom: 6,
   },
   // Indented past the dot (10) and the row gap (8), under the title.
   legNote: {

@@ -9,8 +9,12 @@ import { CosignModalTemplate } from './CosignModalUI';
 const CLOSE_AFTER_SECONDS = 3;
 /** A sent transaction stays up longer, so its hash can be read or copied. */
 const CLOSE_AFTER_SENT_SECONDS = 5;
+/** How often the prompt looks for the next request while a flow says one is coming. */
+const NEXT_REQUEST_EVERY_MS = 2_000;
 
 interface CosignModalProps {
+  /** The approval a flow asks for next (`setCosignNextStep`); the prompt waits for it instead of closing. */
+  nextStep?: string | null;
   onClose: () => void;
 }
 
@@ -18,7 +22,7 @@ interface CosignModalProps {
  * The approval prompt of a Turnkey co-signed wallet. Verifies each request
  * against Turnkey before enabling Approve.
  */
-export function CosignModal({ onClose }: CosignModalProps) {
+export function CosignModal({ nextStep = null, onClose }: CosignModalProps) {
   const { getClient, styles, cosign, copyText } = usePollar();
   const { theme = 'light', accentColor = '#005DB4' } = styles;
   const { pending, lastResolved } = cosign;
@@ -44,7 +48,20 @@ export function CosignModal({ onClose }: CosignModalProps) {
     pending.length === 0 &&
     (lastResolved ? lastResolved.status === 'APPROVED' && !lastResolved.submit?.hash && !lastResolved.signedXdr : loaded);
   const sent = pending.length === 0 && lastResolved?.status === 'APPROVED' && !!lastResolved.submit?.hash;
-  const closeAfter = sent ? CLOSE_AFTER_SENT_SECONDS : silent ? CLOSE_AFTER_SECONDS : null;
+  // A flow with another approval coming keeps the prompt up and shows that request when it arrives.
+  const awaitingNext = sent && !!nextStep;
+  const closeAfter = awaitingNext ? null : sent ? CLOSE_AFTER_SENT_SECONDS : silent ? CLOSE_AFTER_SECONDS : null;
+  useEffect(() => {
+    if (!awaitingNext) return;
+    const timer = setInterval(
+      () =>
+        void getClient()
+          .cosign.pending()
+          .catch(() => undefined),
+      NEXT_REQUEST_EVERY_MS,
+    );
+    return () => clearInterval(timer);
+  }, [awaitingNext, getClient]);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const [closesIn, setClosesIn] = useState<number | null>(null);
@@ -150,6 +167,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
         error={error}
         {...(lastResolved ? { lastResolved } : {})}
         closesIn={closesIn}
+        nextStep={awaitingNext ? nextStep : null}
         copied={copied}
         onCopyHash={copyHash}
         onSelect={(r) => setSelectedId(r.id)}

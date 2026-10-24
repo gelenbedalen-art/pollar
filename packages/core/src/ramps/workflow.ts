@@ -6,6 +6,7 @@ import type {
   RampFiat,
   RampOrder,
   RampOrderLeg,
+  RampOrderLegStep,
   RampPendingAction,
   RampQuote,
   RampQuoteRejection,
@@ -110,6 +111,72 @@ export function rampLegNote(leg: Pick<RampOrderLeg, 'kind' | 'to' | 'fundsLocati
   const delivered = leg.fundsLocation.asset;
   if (delivered.toUpperCase() === leg.to.code.toUpperCase()) return null;
   return `The provider sent ${delivered} instead of ${leg.to.code}. It is converted to ${leg.to.code} in the next step, so nothing is lost.`;
+}
+
+const chainName = (chain: string) => CHAIN_NAME[chain] ?? chain;
+
+/** A chain step of a swap or bridge leg, in the user's terms: "Approve USDT", "Circle confirms the transfer". */
+export function rampStepTitle(step: Pick<RampOrderLegStep, 'kind'>, leg: Pick<RampOrderLeg, 'from' | 'to'>): string {
+  const from = leg.from.kind === 'asset' ? leg.from : null;
+  const to = leg.to.kind === 'asset' ? leg.to : null;
+  switch (step.kind) {
+    case 'approve':
+      return `Allow ${from?.code ?? 'the asset'} to be moved`;
+    case 'swap':
+      return `Swap ${from?.code ?? ''} to ${to?.code ?? ''}`.replace(/\s+/g, ' ').trim();
+    case 'burn':
+      return `Send from ${from ? chainName(from.chain) : 'your wallet'}`;
+    case 'attestation':
+      return 'Circle confirms the transfer';
+    case 'mint':
+      return `Arrives on ${to ? chainName(to.chain) : 'the destination'}`;
+  }
+}
+
+/** What a step is doing now, for the line beside its title. */
+export function rampStepStatusText(step: Pick<RampOrderLegStep, 'status' | 'signs'>): string {
+  switch (step.status) {
+    case 'done':
+      return 'Done';
+    case 'awaiting_approval':
+      return 'Waiting for your approval';
+    case 'confirming':
+      return step.signs ? 'Confirming on chain' : 'In progress';
+    default:
+      return step.signs ? 'You approve this next' : 'Waiting';
+  }
+}
+
+const SIGNING_MODES = new Set(['COSIGNED', 'SELF_CUSTODY', 'EXTERNAL', 'APP_CUSTODY']);
+
+/**
+ * The next approval the order will ask for after the one it waits on now, as
+ * a title, or null when none is left. A swap or bridge that has not planned
+ * its steps yet counts once, by what it does. Every transaction is still
+ * approved on its own: this only tells the user one more is coming.
+ */
+export function rampNextApproval(order: Pick<RampOrder, 'legs'>): string | null {
+  for (const leg of order.legs) {
+    if (leg.status === 'COMPLETED' || ['HELD', 'FAILED', 'CANCELLED'].includes(leg.status)) continue;
+    if (leg.steps.length) {
+      const next = leg.steps.find((step) => step.signs && step.status === 'pending');
+      if (next) return rampStepTitle(next, leg);
+      continue;
+    }
+    if (leg.kind === 'PROVIDER_ONRAMP' || leg.kind === 'PROVIDER_OFFRAMP') continue;
+    if (leg.signingMode && SIGNING_MODES.has(leg.signingMode)) return rampLegTitle(leg);
+  }
+  return null;
+}
+
+/**
+ * Seconds the running leg should still take by its quote, or null without an
+ * estimate; 0 once it is late (the caller says it takes longer than usual).
+ */
+export function rampLegTimeLeft(leg: Pick<RampOrderLeg, 'etaSeconds' | 'startedAt'>, now = Date.now()): number | null {
+  if (leg.etaSeconds === null || !leg.startedAt) return null;
+  const elapsed = (now - Date.parse(leg.startedAt)) / 1000;
+  return Math.max(0, Math.ceil(leg.etaSeconds - elapsed));
 }
 
 // So an invalid address never round-trips to the provider, which rejects it with a generic VALIDATION_ERROR.

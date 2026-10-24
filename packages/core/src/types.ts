@@ -1236,6 +1236,7 @@ export type RampOrderRequest = NonNullable<pollarPaths['/ramps/orders']['post'][
 /** An order with every leg, what it waits for (`pendingAction`) and when to read it again (`nextPollAfter`). */
 export type RampOrder = RampsGet<'/ramps/orders/{id}'>;
 export type RampOrderLeg = RampOrder['legs'][number];
+export type RampOrderLegStep = RampOrderLeg['steps'][number];
 export type RampPendingAction = NonNullable<RampOrder['pendingAction']>;
 export type RampSignatureAction = Extract<RampPendingAction, { kind: 'SIGNATURE' }>;
 /** How to pay the fiat side: a QR (its code already rendered in `scannable`) or bank coordinates. */

@@ -14581,6 +14581,16 @@ export interface operations {
                                         resolutionAction: string;
                                         detail: string | null;
                                     } | null;
+                                    steps: {
+                                        /** @enum {string} */
+                                        kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                        /** @enum {string} */
+                                        status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                        signs: boolean;
+                                        hash: string | null;
+                                    }[];
+                                    etaSeconds: number | null;
+                                    startedAt: string | null;
                                 }[];
                                 pendingAction: ({
                                     /** @constant */
@@ -14799,6 +14809,16 @@ export interface operations {
                                     resolutionAction: string;
                                     detail: string | null;
                                 } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
                             }[];
                             pendingAction: ({
                                 /** @constant */
@@ -15053,6 +15073,16 @@ export interface operations {
                                     resolutionAction: string;
                                     detail: string | null;
                                 } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
                             }[];
                             pendingAction: ({
                                 /** @constant */
@@ -15262,6 +15292,16 @@ export interface operations {
                                     resolutionAction: string;
                                     detail: string | null;
                                 } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
                             }[];
                             pendingAction: ({
                                 /** @constant */
@@ -15479,6 +15519,16 @@ export interface operations {
                                     resolutionAction: string;
                                     detail: string | null;
                                 } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
                             }[];
                             pendingAction: ({
                                 /** @constant */
@@ -15718,6 +15768,16 @@ export interface operations {
                                     resolutionAction: string;
                                     detail: string | null;
                                 } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
                             }[];
                             pendingAction: ({
                                 /** @constant */

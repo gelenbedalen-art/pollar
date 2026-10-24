@@ -14,6 +14,8 @@ export interface CosignModalTemplateProps {
   lastResolved?: CosignRequest;
   /** Seconds until the modal closes on its own, while what it shows needs nothing from the user. */
   closesIn?: number | null;
+  /** The approval coming next in the same flow, shown while the modal waits for it. */
+  nextStep?: string | null;
   /** The transaction hash was just copied. */
   copied?: boolean;
   onCopyHash: (hash: string) => void;
@@ -86,6 +88,7 @@ export function CosignModalTemplate({
   error,
   lastResolved,
   closesIn = null,
+  nextStep = null,
   copied = false,
   onCopyHash,
   onSelect,
@@ -136,6 +139,12 @@ export function CosignModalTemplate({
                 >
                   <Text style={{ color: accentColor, fontWeight: '600' }}>{copied ? 'Copied' : 'Copy'}</Text>
                 </TouchableOpacity>
+              </View>
+            )}
+            {nextStep && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color={accentColor} />
+                <Text style={{ color: colors.text, fontSize: 13 }}>Next: {nextStep}. It appears here in a few seconds.</Text>
               </View>
             )}
             {closesIn !== null && <Text style={{ color: colors.muted, fontSize: 12 }}>Closing in {closesIn}s</Text>}

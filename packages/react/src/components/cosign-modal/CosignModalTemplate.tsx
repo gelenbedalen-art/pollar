@@ -26,6 +26,8 @@ export interface CosignModalTemplateProps {
   explorerUrl?: string | null;
   /** Seconds until the modal closes on its own, while what it shows needs nothing from the user. */
   closesIn?: number | null;
+  /** The approval coming next in the same flow, shown while the modal waits for it. */
+  nextStep?: string | null;
   onSelect: (request: CosignRequest) => void;
   onApprove: (request: CosignRequest) => void;
   onReject: (request: CosignRequest) => void;
@@ -113,6 +115,7 @@ export function CosignModalTemplate({
   lastResolved,
   explorerUrl,
   closesIn = null,
+  nextStep = null,
   onSelect,
   onApprove,
   onReject,
@@ -190,6 +193,12 @@ export function CosignModalTemplate({
             </>
           ) : (
             <p className="pollar-cosign-muted">Nothing waits for your approval.</p>
+          )}
+          {nextStep && (
+            <p className="pollar-cosign-next">
+              <span className="pollar-spinner pollar-spinner-sm" aria-hidden /> Next: {nextStep}. It appears here in a few
+              seconds.
+            </p>
           )}
           {closesIn !== null && <p className="pollar-cosign-muted pollar-cosign-closing">Closing in {closesIn}s</p>}
         </div>
