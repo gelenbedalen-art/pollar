@@ -297,7 +297,7 @@ npm install @pollar/privy-adapter @pollar/core @stellar/stellar-sdk @privy-io/re
 
 ### [`@pollar/privy-server-adapter`](./packages/privy-server-adapter)
 
-**Version:** `0.11.2` &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/privy-server-adapter)
+**Version:** `0.10.0-rc.10` (published on npm as `latest`) &nbsp;|&nbsp; **Registry:** [npm](https://www.npmjs.com/package/@pollar/privy-server-adapter)
 
 Server-side Privy adapter. A stateless HTTP proxy that lets Pollar sign Stellar or Solana transactions through your **Privy**
 server-wallet account without your `PRIVY_APP_SECRET` ever leaving your infrastructure. You run it in your own backend

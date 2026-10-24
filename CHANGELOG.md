@@ -4,8 +4,8 @@
 
 > `@pollar/core`, `@pollar/react`, `@pollar/react-native`,
 > `@pollar/solana-wallet-standard-adapter` and
-> `@pollar/stellar-wallets-kit-adapter`. `0.12.0-rc.2` was published on the
-> `next` tag; `0.12.0-rc.1` was never published.
+> `@pollar/stellar-wallets-kit-adapter`. `0.12.0-rc.2` and `0.12.0-rc.5` were
+> published on the `next` tag; `0.12.0-rc.1` was never published.
 >
 > **API v3, ramps as orders, and wallets the user holds.** The SDK calls
 > sdk-api `/v3`. A ramp is an order of legs that Pollar runs server-side. A
