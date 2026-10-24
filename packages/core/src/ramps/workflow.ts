@@ -100,6 +100,18 @@ export function rampLegTitle(leg: Pick<RampOrderLeg, 'kind' | 'from' | 'to'>): s
   return `Send to ${leg.to.kind === 'asset' ? (CHAIN_NAME[leg.to.chain] ?? leg.to.chain) : nodeName(leg.to)}`;
 }
 
+/**
+ * A line under a leg's title when the provider paid out an accepted substitute
+ * (Stereum's USDT for USDC): the swap after it converts the funds, and the user
+ * should not read the other asset as a loss. Null when the leg delivered what it planned.
+ */
+export function rampLegNote(leg: Pick<RampOrderLeg, 'kind' | 'to' | 'fundsLocation'>): string | null {
+  if (leg.kind !== 'PROVIDER_ONRAMP' || leg.to.kind !== 'asset' || !leg.fundsLocation) return null;
+  const delivered = leg.fundsLocation.asset;
+  if (delivered.toUpperCase() === leg.to.code.toUpperCase()) return null;
+  return `The provider sent ${delivered} instead of ${leg.to.code}. It is converted to ${leg.to.code} in the next step, so nothing is lost.`;
+}
+
 // So an invalid address never round-trips to the provider, which rejects it with a generic VALIDATION_ERROR.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

@@ -468,6 +468,7 @@
 
 .pollar-ramp-leg {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.625rem;
   font-size: 0.875rem;
@@ -507,6 +508,15 @@
 .pollar-ramp-leg-title {
   flex: 1;
   min-width: 0;
+}
+
+/* Indented past the dot (0.625rem) and the gap (0.625rem), under the title. */
+.pollar-ramp-leg-note {
+  flex-basis: 100%;
+  padding-left: 1.25rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--pollar-muted);
 }
 
 .pollar-ramp-leg-link {

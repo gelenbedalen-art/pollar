@@ -18,6 +18,7 @@ import type {
 import {
   describeRampAction,
   rampLegStatus,
+  rampLegNote,
   rampLegTitle,
   rampFieldError,
   rampFieldValid,
@@ -618,6 +619,7 @@ export function RampWidgetTemplate({
                   <span className="pollar-ramp-leg-dot" aria-hidden />
                   <span className="pollar-ramp-leg-title">{rampLegTitle(leg)}</span>
                   {status === 'active' && !settled && (
+              const note = rampLegNote(leg);
                     <span className="pollar-spinner pollar-spinner-sm" aria-label="In progress" />
                   )}
                   {hash && (
@@ -635,6 +637,7 @@ export function RampWidgetTemplate({
             })}
           </ol>
 
+                  {note && <span className="pollar-ramp-leg-note">{note}</span>}
           {receive && (
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">{order.state === 'completed' ? 'You received' : 'You receive'}</span>

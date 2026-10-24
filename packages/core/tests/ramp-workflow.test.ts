@@ -4,6 +4,7 @@ import {
   describeRampAction,
   rampFieldError,
   rampFieldValid,
+  rampLegNote,
   rampLegStatus,
   rampOrderReceive,
   rampOrderResolutionText,
@@ -195,4 +196,14 @@ test('a wallet with no way to be recovered asks for recovery, on a dropped route
     busyLabel: 'Opening…',
   });
   assert.match(rampOrderResolutionText({ failure, legs: [{ status: 'HELD' }] } as never)!, /recovered/);
+});
+
+test('a provider leg that paid out a substitute says so, and why the next step converts it', () => {
+  const usdcPolygon = { kind: 'asset' as const, code: 'USDC', identifier: '0x3c49', chain: 'POLYGON' as const };
+  const funds = (asset: string) => ({ chain: 'POLYGON', address: '0x8FD8', asset, amount: '1.98' });
+  const leg = (kind: string, fundsLocation: unknown) => ({ kind, to: usdcPolygon, fundsLocation }) as never;
+  assert.match(rampLegNote(leg('PROVIDER_ONRAMP', funds('USDT')))!, /sent USDT instead of USDC.*nothing is lost/);
+  assert.equal(rampLegNote(leg('PROVIDER_ONRAMP', funds('USDC'))), null);
+  assert.equal(rampLegNote(leg('PROVIDER_ONRAMP', null)), null);
+  assert.equal(rampLegNote(leg('SWAP', funds('USDT'))), null);
 });

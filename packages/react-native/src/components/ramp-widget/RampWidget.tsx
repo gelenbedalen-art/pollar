@@ -34,6 +34,7 @@ import {
   isPollarApiError,
   rampCountries,
   rampLegStatus,
+  rampLegNote,
   rampLegTitle,
   rampFieldError,
   rampFieldValid,
@@ -603,7 +604,7 @@ export function RampWidgetTemplate({
           <>
             {order.legs.map((leg) => {
               const status = rampLegStatus(leg);
-              return (
+              const row = (
                 <View key={leg.index} style={[styles.row, { alignItems: 'center', marginBottom: 6 }]}>
                   <View
                     style={[
@@ -630,6 +631,14 @@ export function RampWidgetTemplate({
             {receive &&
               copyRow(
                 order.state === 'completed' ? 'You received' : 'You receive',
+              const note = rampLegNote(leg);
+              if (!note) return row;
+              return (
+                <View key={leg.index}>
+                  {row}
+                  <Text style={[styles.legNote, { color: colors.muted }]}>{note}</Text>
+                </View>
+              );
                 `${receive.estimated ? '~' : ''}${receive.amount} ${receive.unit}`,
               )}
             {order.failure && (
@@ -1395,3 +1404,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+  // Indented past the dot (10) and the row gap (8), under the title.
+  legNote: {
+    fontSize: 12,
+    lineHeight: 16,
+    paddingLeft: 18,
+    marginTop: -2,
+    marginBottom: 6,
+  },

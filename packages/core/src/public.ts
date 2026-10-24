@@ -99,6 +99,7 @@ export {
   rampCountries,
   rampFieldError,
   rampFieldValid,
+  rampLegNote,
   rampLegStatus,
   rampOrderReceive,
   rampOrderResolutionText,
