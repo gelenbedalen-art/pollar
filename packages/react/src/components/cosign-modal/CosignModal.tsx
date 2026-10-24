@@ -12,6 +12,8 @@ import { modalChrome } from '../modal-theme';
 
 /** How long an outcome that needs nothing from the user stays up before the modal closes. */
 const CLOSE_AFTER_SECONDS = 3;
+/** A sent transaction stays up longer, so its hash can be read, copied or opened. */
+const CLOSE_AFTER_SENT_SECONDS = 5;
 
 interface CosignModalProps {
   onClose: () => void;
@@ -87,17 +89,20 @@ export function CosignModal({ onClose }: CosignModalProps) {
     });
   }, [getClient]);
 
-  // Nothing left to vote on and nothing to read (no transaction, no signature): count down and close.
+  // Nothing left to vote on and nothing to read (no transaction, no signature), or a sent transaction:
+  // count down and close. A signed XDR the app still has to send stays up until closed.
   const silent =
     pending.length === 0 &&
     (lastResolved ? lastResolved.status === 'APPROVED' && !lastResolved.submit?.hash && !lastResolved.signedXdr : loaded);
+  const sent = pending.length === 0 && lastResolved?.status === 'APPROVED' && !!lastResolved.submit?.hash;
+  const closeAfter = sent ? CLOSE_AFTER_SENT_SECONDS : silent ? CLOSE_AFTER_SECONDS : null;
   const [closesIn, setClosesIn] = useState<number | null>(null);
   useEffect(() => {
-    if (!silent) {
+    if (closeAfter === null) {
       setClosesIn(null);
       return;
     }
-    let left = CLOSE_AFTER_SECONDS;
+    let left = closeAfter;
     setClosesIn(left);
     const timer = setInterval(() => {
       left -= 1;
@@ -108,7 +113,7 @@ export function CosignModal({ onClose }: CosignModalProps) {
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [silent, lastResolved?.id]);
+  }, [closeAfter, lastResolved?.id]);
 
   const run = useCallback(
     async (kind: 'approving' | 'rejecting', request: CosignRequest, action: (r: CosignRequest) => Promise<CosignRequest>) => {

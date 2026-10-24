@@ -35,6 +35,11 @@
   text-decoration: underline;
 }
 
+.pollar-cosign-copy {
+  margin-left: 0.15rem;
+  vertical-align: middle;
+}
+
 .pollar-cosign-closing {
   margin-top: 0.75rem;
   font-size: 0.75rem;

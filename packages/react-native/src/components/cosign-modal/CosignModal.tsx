@@ -1,11 +1,14 @@
 import type { CosignRequest, CosignVerification } from '@pollar/core';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
 import { usePollar } from '../../context';
 import { PollarOverlay } from '../commons';
 import { CosignModalTemplate } from './CosignModalUI';
 
 /** How long an outcome that needs nothing from the user stays up before the modal closes. */
 const CLOSE_AFTER_SECONDS = 3;
+/** A sent transaction stays up longer, so its hash can be read or copied. */
+const CLOSE_AFTER_SENT_SECONDS = 5;
 
 interface CosignModalProps {
   onClose: () => void;
@@ -16,7 +19,7 @@ interface CosignModalProps {
  * against Turnkey before enabling Approve.
  */
 export function CosignModal({ onClose }: CosignModalProps) {
-  const { getClient, styles, cosign } = usePollar();
+  const { getClient, styles, cosign, copyText } = usePollar();
   const { theme = 'light', accentColor = '#005DB4' } = styles;
   const { pending, lastResolved } = cosign;
 
@@ -35,19 +38,22 @@ export function CosignModal({ onClose }: CosignModalProps) {
       .finally(() => setLoaded(true));
   }, [getClient]);
 
-  // Nothing left to vote on and nothing to read (no transaction, no signature): count down and close.
+  // Nothing left to vote on and nothing to read (no transaction, no signature), or a sent transaction:
+  // count down and close. A signed XDR the app still has to send stays up until closed.
   const silent =
     pending.length === 0 &&
     (lastResolved ? lastResolved.status === 'APPROVED' && !lastResolved.submit?.hash && !lastResolved.signedXdr : loaded);
+  const sent = pending.length === 0 && lastResolved?.status === 'APPROVED' && !!lastResolved.submit?.hash;
+  const closeAfter = sent ? CLOSE_AFTER_SENT_SECONDS : silent ? CLOSE_AFTER_SECONDS : null;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const [closesIn, setClosesIn] = useState<number | null>(null);
   useEffect(() => {
-    if (!silent) {
+    if (closeAfter === null) {
       setClosesIn(null);
       return;
     }
-    let left = CLOSE_AFTER_SECONDS;
+    let left = closeAfter;
     setClosesIn(left);
     const timer = setInterval(() => {
       left -= 1;
@@ -58,7 +64,23 @@ export function CosignModal({ onClose }: CosignModalProps) {
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [silent, lastResolved?.id]);
+  }, [closeAfter, lastResolved?.id]);
+
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
+  const copyHash = useCallback(
+    (hash: string) => {
+      copyText(hash)
+        .then(() => {
+          setCopied(true);
+          clearTimeout(copiedTimer.current);
+          copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+        })
+        .catch((err: unknown) => Alert.alert('Copy failed', String(err)));
+    },
+    [copyText],
+  );
 
   // The quorum as this device read it from Turnkey, once per open; a bad
   // reading fails every verification so nothing is approved on it.
@@ -128,6 +150,8 @@ export function CosignModal({ onClose }: CosignModalProps) {
         error={error}
         {...(lastResolved ? { lastResolved } : {})}
         closesIn={closesIn}
+        copied={copied}
+        onCopyHash={copyHash}
         onSelect={(r) => setSelectedId(r.id)}
         onApprove={(r) => void run('approving', r)}
         onReject={(r) => void run('rejecting', r)}

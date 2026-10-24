@@ -1,7 +1,7 @@
 'use client';
 
 import { type CosignRequest, type CosignVerification, fromBaseUnits } from '@pollar/core';
-import { cropAddress, PollarModalFooter } from '../commons';
+import { CopyButton, cropAddress, PollarModalFooter } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
 export interface CosignModalTemplateProps {
@@ -162,6 +162,11 @@ export function CosignModalTemplate({
                     ) : (
                       cropAddress(lastResolved.submit.hash)
                     )}
+                    <CopyButton
+                      value={lastResolved.submit.hash}
+                      label="Copy transaction hash"
+                      className="pollar-copy-btn-sm pollar-cosign-copy"
+                    />
                   </>
                 ) : lastResolved.signedXdr ? (
                   'Signed. The app will send it.'

@@ -14,6 +14,9 @@ export interface CosignModalTemplateProps {
   lastResolved?: CosignRequest;
   /** Seconds until the modal closes on its own, while what it shows needs nothing from the user. */
   closesIn?: number | null;
+  /** The transaction hash was just copied. */
+  copied?: boolean;
+  onCopyHash: (hash: string) => void;
   onSelect: (request: CosignRequest) => void;
   onApprove: (request: CosignRequest) => void;
   onReject: (request: CosignRequest) => void;
@@ -83,6 +86,8 @@ export function CosignModalTemplate({
   error,
   lastResolved,
   closesIn = null,
+  copied = false,
+  onCopyHash,
   onSelect,
   onApprove,
   onReject,
@@ -120,7 +125,15 @@ export function CosignModalTemplate({
                 : 'Nothing waits for your approval.'}
             </Text>
             {lastResolved?.submit?.hash && (
-              <Text style={{ color: colors.muted }}>Sent. Transaction {crop(lastResolved.submit.hash)}</Text>
+              <View style={styles.hashRow}>
+                <Text style={{ color: colors.muted }}>Sent. Transaction {crop(lastResolved.submit.hash)}</Text>
+                <TouchableOpacity
+                  onPress={() => onCopyHash(lastResolved.submit!.hash)}
+                  accessibilityLabel={copied ? 'Copied' : 'Copy transaction hash'}
+                >
+                  <Text style={{ color: accentColor, fontWeight: '600' }}>{copied ? 'Copied' : 'Copy'}</Text>
+                </TouchableOpacity>
+              </View>
             )}
             {closesIn !== null && <Text style={{ color: colors.muted, fontSize: 12 }}>Closing in {closesIn}s</Text>}
           </View>
@@ -202,6 +215,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   title: { fontSize: 17, fontWeight: '600' },
   empty: { paddingVertical: 24, alignItems: 'center', gap: 6 },
+  hashRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   item: {
     flexDirection: 'row',
     justifyContent: 'space-between',
