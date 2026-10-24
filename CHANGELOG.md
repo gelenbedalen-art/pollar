@@ -75,6 +75,60 @@
   regular expression the whole value must match). `rampFieldValid` checks it,
   and `rampFieldError(field, value)` says what is wrong with a filled-in value;
   the widgets show it under the field. React Native checks email fields too.
+- `client.checkRampOrder(id)` asks the provider about an order's fiat payment
+  now instead of at the next recheck (at most once every 10 seconds per order)
+  and returns the order. The widgets' "I've paid" calls it at once and every 10
+  seconds for two minutes.
+- A ramp payment can carry the provider's own page: `describeRampAction`
+  returns its `link` and `linkLabel` for a QR or bank payment too, and a payment
+  that has only the page is paid there. It also returns `codeMissing` (a QR
+  payment that arrived without its rendered code, which the widgets say instead
+  of showing an empty screen), `paymentClosed` (the window has closed, so the
+  code, details and page are hidden) and `note` (what the provider asks, for a
+  verification step with nothing to open). A rendered QR can be a JPEG, GIF or
+  WebP image besides SVG and PNG.
+- A route or a held order that waits on the wallet's recovery offers "Set up
+  recovery": `rampWalletStep` returns the `set_up_recovery` step, and
+  `client.runRampWalletStep` reports `recoveryRequired` for it without doing
+  anything else. The widgets open the recovery modal, then quote again or try
+  the order again; a held order hides the button once the wallet has a method,
+  keeps Try again disabled until then, and retries by itself when recovery is
+  set up. `RampWalletStep['action']` gains `'set_up_recovery'`, so an
+  exhaustive switch over it needs the new case.
+- Quoted and planned output amounts read as estimates with a leading `~` (route
+  cards, swap output, the order's You receive). `rampOrderReceive` returns
+  `estimated`, true until the last leg reports what arrived.
+- `rampLegNote(leg)` says when a provider leg paid out an accepted substitute
+  (Stereum's USDT for USDC) and that the next step converts it; the widgets
+  show it under the leg's title.
+- A ramp order shows its chain steps live: each step of a swap or bridge leg
+  (approve, swap, send, Circle's confirmation, arrival) with what it is doing,
+  the running leg's time left and the approval that comes next
+  (`rampStepTitle`, `rampStepStatusText`, `rampLegTimeLeft`,
+  `rampNextApproval`). The approval prompt stays open between two approvals of
+  an order and shows the next request when it arrives (`setCosignNextStep` in
+  the React and React Native context); every transaction is still approved on
+  its own.
+- `rampNoRouteText` reads the routes' `requirement` too: when every route waits
+  on a verification the user cannot act on (under review or rejected), the note
+  says so instead of asking to complete it.
+- Confirming a recovery email works when the wallet already holds that address
+  unconfirmed (the sign-in email it was created with). `cosignRefusalMessage(error)`
+  gives the text for `SDK_COSIGN_TURNKEY_REJECTED` with Turnkey's own reason,
+  and `<RecoveryModal>` shows it instead of "The signing service didn't answer".
+- The approval modal shows the Turnkey check as a chip next to the request title
+  (Checking..., then Verified) and spells out what was verified when the chip is
+  clicked; a failed check stays written out, since it says why Approve is off. A
+  sent transaction's hash has a copy button, and the modal closes on its own
+  after a 5-second countdown.
+- The ramp widget's step bar names each step and goes back to an earlier one,
+  in place of the Cancel and Back buttons, and React Native titles each step
+  like the web. Send, Ramp, Earn and Card share one amount field with the
+  balance and Max inside, read per chain and token; selling shows the wallet's
+  balance of the asset.
+- `@pollar/react`: inputs, selects and the send asset picker take the
+  dashboard's button radius (`--pollar-input-border-radius`, which defaults to
+  `--pollar-buttons-border-radius`).
 - `setTrustline` on a co-signed wallet settles the request its device approves
   (the 202 `SDK_COSIGN_PENDING`) like any co-signed send, and answers
   `cosign_pending` under `cosignManual`. A failed `TrustlineOutcome` carries
