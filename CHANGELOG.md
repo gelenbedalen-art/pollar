@@ -203,10 +203,12 @@
   `'auto'`, `'prompt'` or `{ window: { seconds, maxUsd } }`; set, the stricter
   of it and the dashboard applies. A ramp leg always asks. See
   [UPGRADE.md](./UPGRADE.md#signature-confirmation).
-- `setTrustline` on an embedded wallet goes through the same confirmation,
-  sponsored or not; a decline returns `SDK_CONFIRMATION_DECLINED` without
-  calling the server. A swap or an earn deposit that adds the trustline first
-  asks twice. Approving a co-signed wallet's account creation or one of its
+- A wallet's setup goes through the same confirmation: `setTrustline`,
+  sponsored or not, on any wallet, and `createAccount` on an external one. A
+  decline returns `SDK_CONFIRMATION_DECLINED` in `code`; an embedded trustline
+  then never calls the server, and an external wallet signs and sends nothing.
+  An adapter whose wallet shows its own approval (Freighter) asks twice, and a
+  swap or an earn deposit that adds the trustline first asks twice. Approving a co-signed wallet's account creation or one of its
   trustlines reads the pending requests at once, so the trustline for the next
   asset the app enables is prompted right away; a co-sign request the client
   votes itself no longer opens the prompt.
