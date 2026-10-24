@@ -2646,9 +2646,13 @@ export class PollarClient {
       // Sponsor-signed when the app covers it, plain self-pay otherwise; sign + submit either.
       const xdr = data?.content?.sponsorSignedXdr ?? data?.content?.unsignedXdr;
       if (error || !data?.success || !xdr) return this._trustlineError(error);
-      const signed = await this._signTx(xdr, undefined, false);
+      const signed = await this._signTx(xdr, undefined, true);
       if (signed.status === 'error') {
-        return { status: 'error', ...(signed.details && { details: signed.details }) };
+        return {
+          status: 'error',
+          ...(signed.details && { details: signed.details }),
+          ...(signed.code && { code: signed.code }),
+        };
       }
       if (signed.status === 'cosign_pending') return { status: 'cosign_pending', request: signed.request };
       return this.submitTx(signed.signedXdr);
@@ -2695,9 +2699,13 @@ export class PollarClient {
         const details = apiErrorFields(error).details ?? apiErrorFields(error).code;
         return { status: 'error', ...(details && { details }) };
       }
-      const signed = await this._signTx(data.content.sponsorSignedXdr, undefined, false);
+      const signed = await this._signTx(data.content.sponsorSignedXdr, undefined, true);
       if (signed.status === 'error') {
-        return { status: 'error', ...(signed.details && { details: signed.details }) };
+        return {
+          status: 'error',
+          ...(signed.details && { details: signed.details }),
+          ...(signed.code && { code: signed.code }),
+        };
       }
       if (signed.status === 'cosign_pending') return { status: 'cosign_pending', request: signed.request };
       return this.submitTx(signed.signedXdr);

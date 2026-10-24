@@ -156,3 +156,67 @@ test('nothing is read after a failed setup step, any other send, or for an app t
   manual.client._noteCosignRequest(landed({ id: 'trust-usdc' }));
   assert.equal(manual.pendingReads(), 0);
 });
+
+// An adapter that signs without a UI of its own (an embedded Privy wallet)
+// signs whatever reaches it, so the wallet's own setup asks before it too.
+function externalClient(confirm: { ok: boolean; code?: string; details?: string }) {
+  const client = new PollarClient({ apiKey: 'pub_testnet_probe' } as never) as unknown as Probe & {
+    _walletAdapter: unknown;
+    createAccount: PollarClient['createAccount'];
+    submitTx: (xdr: string) => Promise<unknown>;
+  };
+  client._session = { wallet: { type: 'external', address: 'GUSER' } };
+  const signed: string[] = [];
+  const submitted: string[] = [];
+  const asked: Array<Record<string, unknown>> = [];
+  client._walletAdapter = {
+    type: 'probe',
+    signTransaction: async (xdr: string) => {
+      signed.push(xdr);
+      return { signedTxXdr: `${xdr}+user` };
+    },
+  };
+  client._api = {
+    POST: async (path) =>
+      path === '/wallet/account/create/build'
+        ? { data: { success: true, content: { sponsorSignedXdr: 'ACCOUNT_XDR' } } }
+        : { data: { success: true, content: { sponsorSignedXdr: 'TRUST_XDR' } } },
+  };
+  client._confirm = async (input) => {
+    asked.push(input);
+    return confirm;
+  };
+  client.submitTx = async (xdr) => {
+    submitted.push(xdr);
+    return { status: 'success', hash: 'h' };
+  };
+  return { client, signed, submitted, asked };
+}
+
+const declined = { ok: false, code: 'SDK_CONFIRMATION_DECLINED', details: 'the user declined the transaction' };
+
+test("an external wallet's trustline and account creation ask before the adapter signs", async () => {
+  const { client, signed, submitted, asked } = externalClient({ ok: true });
+
+  assert.equal((await client.setTrustline(USDC)).status, 'success');
+  assert.equal((await client.createAccount()).status, 'success');
+
+  assert.deepEqual(
+    asked.map((a) => a.unsignedXdr),
+    ['TRUST_XDR', 'ACCOUNT_XDR'],
+  );
+  assert.deepEqual(signed, ['TRUST_XDR', 'ACCOUNT_XDR']);
+  assert.deepEqual(submitted, ['TRUST_XDR+user', 'ACCOUNT_XDR+user']);
+});
+
+test('a declined external setup step is never signed nor sent, and says it was declined', async () => {
+  const { client, signed, submitted } = externalClient(declined);
+
+  const trust = await client.setTrustline(USDC);
+  const account = await client.createAccount();
+
+  assert.equal((trust as { code?: string }).code, 'SDK_CONFIRMATION_DECLINED');
+  assert.equal((account as { code?: string }).code, 'SDK_CONFIRMATION_DECLINED');
+  assert.deepEqual(signed, []);
+  assert.deepEqual(submitted, []);
+});
