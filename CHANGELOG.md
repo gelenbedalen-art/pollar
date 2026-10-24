@@ -78,7 +78,10 @@
 - `client.checkRampOrder(id)` asks the provider about an order's fiat payment
   now instead of at the next recheck (at most once every 10 seconds per order)
   and returns the order. The widgets' "I've paid" calls it at once and every 10
-  seconds for two minutes.
+  seconds for two minutes. It has a 30s request budget instead of the 10s
+  default. In `<RampWidget>` a check that times out shows no error (the server
+  still runs it and the periodic checks carry on), and a failed check's message
+  clears once the order is past the payment.
 - A ramp payment can carry the provider's own page: `describeRampAction`
   returns its `link` and `linkLabel` for a QR or bank payment too, and a payment
   that has only the page is paid there. It also returns `codeMissing` (a QR
@@ -203,6 +206,15 @@
   `'auto'`, `'prompt'` or `{ window: { seconds, maxUsd } }`; set, the stricter
   of it and the dashboard applies. A ramp leg always asks. See
   [UPGRADE.md](./UPGRADE.md#signature-confirmation).
+- A wallet's setup goes through the same confirmation: `setTrustline`,
+  sponsored or not, on any wallet, and `createAccount` on an external one. A
+  decline returns `SDK_CONFIRMATION_DECLINED` in `code`; an embedded trustline
+  then never calls the server, and an external wallet signs and sends nothing.
+  An adapter whose wallet shows its own approval (Freighter) asks twice, and a
+  swap or an earn deposit that adds the trustline first asks twice. Approving a co-signed wallet's account creation or one of its
+  trustlines reads the pending requests at once, so the trustline for the next
+  asset the app enables is prompted right away; a co-sign request the client
+  votes itself no longer opens the prompt.
 - **Self-custody and co-signed Turnkey wallets.** `createWallet({ custody })`
   carries the user's choice for an app whose custody mode is `USER_CHOICE`
   (which creates no wallet at login); the React wallet button and the React
@@ -249,7 +261,12 @@
 - `@pollar/solana-wallet-standard-adapter`: a session restored after a reload
   signs without reconnecting, and a wallet without `solana:signIn` logs in
   through `signMessage`. The core peer range is `^0.11.2 || ^0.12.0`, as in
-  `@pollar/stellar-wallets-kit-adapter`, which has no other change.
+  `@pollar/stellar-wallets-kit-adapter`.
+- `@pollar/stellar-wallets-kit-adapter`: `KitPickerOptions` keeps the options
+  the factory reads (`wallets`, `labels`, `groupLabel`); `order`,
+  `showInstalledOnly`, `layout` and `theme` are gone, since nothing read them.
+- `PollarFlowError` is exported as a value, so `instanceof PollarFlowError`
+  works at runtime and not only in the types.
 - **Branding follows the host page.** In `@pollar/react` the dashboard's
   Branding is written as private `--pollar-brand-*` variables mapped onto the
   public `--pollar-*` ones at zero specificity, so a host stylesheet beats the
@@ -265,7 +282,10 @@
 - An app with an overdue Pollar statement (402 `SDK_BILLING_OVERDUE`) reads as
   the same `appUnavailableMessage` as an app out of credits.
 - `rampResolutionText` covers `add_trustline`, the action of a route refused
-  because the Stellar wallet does not trust USDC.
+  because the Stellar wallet does not trust USDC, and `fund_gas_wallet` and
+  `enable_signing_mode`: routes only the app can fix (its gas wallet, its
+  allowed signing modes) read as not available instead of asking the user to
+  contact support with an order id.
 - **New `@pollar/core/ramps` subpath** for a server-side ramp provider adapter
   registered with Pollar. Its contract is version 2: `actor` and
   `wallet.signingMode` in the user context, `prebuiltPayload` and `expiresAt`
