@@ -670,7 +670,7 @@ export function RampWidgetTemplate({
                     </a>
                   )}
                   {note && <span className="pollar-ramp-leg-note">{note}</span>}
-                  {status === 'active' && !settled && leg.steps.length > 0 && (
+                  {status === 'active' && !settled && !!leg.steps?.length && (
                     <ol className="pollar-ramp-steps">
                       {leg.steps.map((s) => (
                         <li key={s.kind} className="pollar-ramp-step" data-status={s.status}>

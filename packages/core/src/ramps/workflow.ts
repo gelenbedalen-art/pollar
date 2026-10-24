@@ -158,7 +158,8 @@ const SIGNING_MODES = new Set(['COSIGNED', 'SELF_CUSTODY', 'EXTERNAL', 'APP_CUST
 export function rampNextApproval(order: Pick<RampOrder, 'legs'>): string | null {
   for (const leg of order.legs) {
     if (leg.status === 'COMPLETED' || ['HELD', 'FAILED', 'CANCELLED'].includes(leg.status)) continue;
-    if (leg.steps.length) {
+    // An sdk-api that predates chain steps answers legs without `steps`.
+    if (leg.steps?.length) {
       const next = leg.steps.find((step) => step.signs && step.status === 'pending');
       if (next) return rampStepTitle(next, leg);
       continue;

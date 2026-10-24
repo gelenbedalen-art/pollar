@@ -658,7 +658,7 @@ export function RampWidgetTemplate({
                 </View>
               );
               const note = rampLegNote(leg);
-              const steps = status === 'active' && !settled ? leg.steps : [];
+              const steps = (status === 'active' && !settled ? leg.steps : null) ?? [];
               const timeLeft = running === leg && !settled ? rampLegTimeLeft(leg, now) : null;
               if (!note && !steps.length && timeLeft === null) return row;
               return (
