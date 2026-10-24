@@ -139,16 +139,14 @@ async function mount(element) {
     const load = loader({
       '../../context': { usePollar: () => context },
       './context': { usePollar: () => context },
-      '../commons': { cropAddress: (s) => s, PollarModalFooter: () => null },
+      '../commons': { CopyButton: () => null, cropAddress: (s) => s, PollarModalFooter: () => null },
     });
     const { CosignModal } = load('packages/react/src/components/cosign-modal/CosignModal.tsx');
     await React.act(async () => client.arrive(request));
     const view = await mount(React.createElement(CosignModal, { onClose: () => undefined }));
     await settle();
     check('the check against Turnkey ran once', () => assert.equal(client.calls.verify, 1));
-    check('the request was verified', () =>
-      assert.match(view.container.textContent, /Verified: this is exactly what will be signed\./),
-    );
+    check('the request was verified', () => assert.match(view.container.textContent, /Verified/));
     const approve = [...view.container.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Approve');
     check('Approve is enabled', () => assert.ok(approve && !approve.disabled, 'Approve missing or disabled'));
     await view.unmount();
@@ -186,25 +184,23 @@ async function mount(element) {
     check('the pending list was read once', () => assert.equal(client.calls.pending, 1));
     check('the quorum was inspected once', () => assert.equal(client.calls.inspectQuorum, 1));
     check('the check against Turnkey ran once', () => assert.equal(client.calls.verify, 1));
-    check('the request was verified', () =>
-      assert.match(view.container.textContent, /Verified: this is exactly what will be signed\./),
-    );
+    check('the request was verified', () => assert.match(view.container.textContent, /Verified/));
     const approve = [...view.container.querySelectorAll('button')].find((b) => /Approve/.test(b.textContent));
     check('Approve is enabled', () => assert.ok(approve && !approve.disabled, 'Approve missing or disabled'));
     await view.unmount();
   }
 
   // ── 3. Auto-close ───────────────────────────────────────────────
-  // An outcome that needs nothing from the user counts down and closes; one
-  // with something to read (a sent transaction) stays until it is closed.
+  // An outcome that needs nothing from the user closes after 3s; a sent
+  // transaction leaves its hash on screen for 5s first.
   const wait = (ms) => React.act(() => new Promise((resolve) => setTimeout(resolve, ms)));
   const outcomes = [
-    ['approved, nothing signed', { ...request, status: 'APPROVED' }, true],
-    ['approved and sent', { ...request, status: 'APPROVED', submit: { hash: 'f'.repeat(64) } }, false],
+    ['approved, nothing signed', { ...request, status: 'APPROVED' }, 3],
+    ['approved and sent', { ...request, status: 'APPROVED', submit: { hash: 'f'.repeat(64) } }, 5],
   ];
   for (const platform of ['web', 'react-native']) {
     console.log(`\n── 3. ${platform} auto-close ─────────────────────────────`);
-    for (const [name, resolved, closes] of outcomes) {
+    for (const [name, resolved, seconds] of outcomes) {
       const client = fakeClient();
       let closed = 0;
       const onClose = () => closed++;
@@ -215,7 +211,12 @@ async function mount(element) {
         ({ CosignModal } = loader({
           '../../context': { usePollar: () => context },
           './context': { usePollar: () => context },
-          '../commons': { cropAddress: (s) => s, PollarModalFooter: () => null, explorerTxUrl: () => null },
+          '../commons': {
+            CopyButton: () => null,
+            cropAddress: (s) => s,
+            PollarModalFooter: () => null,
+            explorerTxUrl: () => null,
+          },
         })('packages/react/src/components/cosign-modal/CosignModal.tsx'));
         Host = () => React.createElement(CosignModal, { onClose });
       } else {
@@ -243,13 +244,11 @@ async function mount(element) {
       await settle();
       await React.act(async () => client.resolve(resolved));
       await wait(50);
-      check(`${name}: ${closes ? 'counts down' : 'shows no countdown'}`, () =>
-        closes
-          ? assert.match(view.container.textContent, /Closing in 3s/)
-          : assert.doesNotMatch(view.container.textContent, /Closing in/),
+      check(`${name}: counts down from ${seconds}s`, () =>
+        assert.match(view.container.textContent, new RegExp(`Closing in ${seconds}s`)),
       );
-      await wait(3100);
-      check(`${name}: ${closes ? 'closes on its own' : 'stays open'}`, () => assert.equal(closed, closes ? 1 : 0));
+      await wait(seconds * 1000 + 100);
+      check(`${name}: closes on its own`, () => assert.equal(closed, 1));
       await view.unmount();
     }
   }

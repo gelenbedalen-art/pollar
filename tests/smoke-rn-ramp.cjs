@@ -53,6 +53,9 @@ const pollarContext = {
   copyText: async () => {},
   cosign: { pending: [] },
   openCosignModal() {},
+  setCosignNextStep() {},
+  walletBalance: { step: 'loaded', data: { balances: [] } },
+  refreshWalletBalance: async () => {},
   get ramp() {
     return saved;
   },
@@ -76,7 +79,7 @@ function load(file) {
         return null;
       };
     if (id === 'react-native-svg') return { SvgXml: () => null };
-    if (id === '../../context') return { usePollar: () => pollarContext };
+    if (id === '../../context' || id === './context') return { usePollar: () => pollarContext };
     if (id === '../commons') return { PollarOverlay: passthrough };
     if (id.startsWith('.')) {
       const base = path.join(path.dirname(file), id);
@@ -177,6 +180,8 @@ const order = (pendingAction, patch = {}) => ({
       signingMode: null,
       fundsLocation: null,
       failure: null,
+      steps: [],
+      startedAt: null,
     },
   ],
   pendingAction,
@@ -261,7 +266,7 @@ const order = (pendingAction, patch = {}) => ({
       .find((i) => i.keyboardType === 'decimal-pad')
       .onChangeText('100'),
   );
-  await press('Find routes');
+  await press('Find best route');
   assert.deepEqual(calls[1], ['quoteRamp', '100']);
   await press('100 BOB');
   await rerender(() => inputs.at(-1).onChangeText('Ana Perez'));
@@ -329,7 +334,7 @@ const order = (pendingAction, patch = {}) => ({
         .find((i) => i.keyboardType === 'decimal-pad')
         .onChangeText('100'),
     );
-    await press('Find routes');
+    await press('Find best route');
     await press('100 BOB');
     assert.match(shown(), /Approve the new account on your device\. The order starts once it is approved\./);
     assert.doesNotMatch(shown(), /then try again/, 'waiting on the device is not an error');
@@ -375,7 +380,7 @@ const order = (pendingAction, patch = {}) => ({
         .find((i) => i.keyboardType === 'decimal-pad')
         .onChangeText('100'),
     );
-    await press('Find routes');
+    await press('Find best route');
     await press('100 BOB');
     await rerender(() => new Promise((r) => setTimeout(r, 20)));
     assert.equal(

@@ -75,6 +75,9 @@ const order = (pendingAction, patch = {}) => ({
       signingMode: null,
       fundsLocation: null,
       failure: null,
+      etaSeconds: null,
+      steps: [],
+      startedAt: null,
     },
   ],
   pendingAction,
@@ -224,7 +227,7 @@ async function mount(client, application = {}) {
         amount: { value: '100', denomination: 'in' },
       },
     ]);
-    assert.match(ui.container.textContent, /100 BOB → 14.2 USDC/);
+    assert.match(ui.container.textContent, /100 BOB → ~14.2 USDC/);
     await ui.click(ui.container.querySelector('.pollar-ramp-route-card'));
     assert.match(ui.container.textContent, /Full name/, 'a quote that asks for fields opens the details step');
     assert.equal(calls.length, 2, 'no order before the details are in');
@@ -470,7 +473,7 @@ async function mount(client, application = {}) {
       await new Promise((r) => setTimeout(r, 20));
     });
     assert.equal(calls.filter(([name]) => name === 'quoteRamp').length, 2, 'quoted again once trusted');
-    assert.match(ui.container.textContent, /100 BOB → 14.2 USDC/);
+    assert.match(ui.container.textContent, /100 BOB → ~14.2 USDC/);
     await ui.unmount();
     client.destroy();
   }
@@ -555,7 +558,7 @@ async function mount(client, application = {}) {
           await new Promise((r) => setTimeout(r, 20));
         });
         assert.equal(calls.filter(([name]) => name === 'quoteRamp').length, 2, 'quoted again once the wallet exists');
-        assert.match(ui.container.textContent, /100 BOB → 14.2 USDC/);
+        assert.match(ui.container.textContent, /100 BOB → ~14.2 USDC/);
       }
       await ui.unmount();
       client.destroy();
@@ -667,7 +670,7 @@ async function mount(client, application = {}) {
     assert.deepEqual(listQueries[0], { open: 'true', limit: 5 }, 'resume lists every order not final yet');
     await ui.click(ui.button('Resume purchase'));
     assert.match(ui.container.textContent, /Pay before/);
-    assert.match(ui.container.textContent, /You receive14.2 USDC/);
+    assert.match(ui.container.textContent, /You receive~14.2 USDC/);
     await ui.unmount();
     client.destroy();
   }
