@@ -1,5 +1,5 @@
 import { type CosignRequest, type CosignVerification, fromBaseUnits } from '@pollar/core';
-import React from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PollarModalFooter } from '../commons';
 
@@ -104,6 +104,9 @@ export function CosignModalTemplate({
     okText: isDark ? '#4ade80' : '#15803d',
   };
   const canVote = !!current && verification?.ok === true && !busy;
+  // Keyed by request id, so the explanation folds back when another request is shown.
+  const [verifiedOpenFor, setVerifiedOpenFor] = useState<string | null>(null);
+  const verifiedOpen = !!current && verifiedOpenFor === current.id;
 
   return (
     <View style={[styles.card, { backgroundColor: colors.bg, borderColor: colors.border }]}>
@@ -153,7 +156,28 @@ export function CosignModalTemplate({
 
         {current && (
           <View style={[styles.detail, { borderColor: colors.border }]}>
-            <Text style={[styles.detailTitle, { color: colors.text }]}>{labelOf(current)}</Text>
+            <View style={styles.detailHead}>
+              <Text style={[styles.detailTitle, { color: colors.text, flexShrink: 1 }]}>{labelOf(current)}</Text>
+              {!verification && (
+                <View style={[styles.chip, { borderColor: colors.border }]}>
+                  <ActivityIndicator size="small" color={accentColor} />
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Checking...</Text>
+                </View>
+              )}
+              {verification?.ok && (
+                <TouchableOpacity
+                  onPress={() => setVerifiedOpenFor(verifiedOpen ? null : current.id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: verifiedOpen }}
+                  style={[styles.chip, { borderColor: colors.okText }]}
+                >
+                  <View style={[styles.okDot, { backgroundColor: colors.okText }]}>
+                    <View style={styles.okMark} />
+                  </View>
+                  <Text style={{ color: colors.okText, fontSize: 12, fontWeight: '600' }}>Verified</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             {current.summary ? <Text style={{ color: colors.muted }}>{current.summary}</Text> : null}
             {detailRows(current).map(([k, v]) => (
               <View key={k} style={styles.row}>
@@ -162,21 +186,19 @@ export function CosignModalTemplate({
               </View>
             ))}
 
-            <View style={[styles.verify, { borderColor: colors.border }]}>
-              {!verification && <ActivityIndicator size="small" color={accentColor} />}
-              <Text
-                style={{
-                  color: verification ? (verification.ok ? colors.okText : colors.errorText) : colors.muted,
-                  flexShrink: 1,
-                }}
-              >
-                {!verification
-                  ? 'Checking the transaction against Turnkey...'
-                  : verification.ok
-                    ? 'Verified: this is exactly what will be signed.'
-                    : `Not verified: ${verification.reason}`}
-              </Text>
-            </View>
+            {verification?.ok && verifiedOpen && (
+              <View style={[styles.verify, { borderColor: colors.okText }]}>
+                <Text style={{ color: colors.okText, flexShrink: 1 }}>
+                  Checked against Turnkey: this is exactly what will be signed.
+                </Text>
+              </View>
+            )}
+            {/* A failed check stays spelled out: it is the only place the user learns why Approve is off. */}
+            {verification && !verification.ok && (
+              <View style={[styles.verify, { backgroundColor: colors.errorBg, borderColor: colors.errorText }]}>
+                <Text style={{ color: colors.errorText, flexShrink: 1 }}>Not verified: {verification.reason}</Text>
+              </View>
+            )}
 
             {error ? (
               <View style={[styles.verify, { backgroundColor: colors.errorBg, borderColor: colors.errorText }]}>
@@ -225,7 +247,27 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   detail: { borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 },
+  detailHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   detailTitle: { fontSize: 16, fontWeight: '600' },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
+    borderWidth: 1,
+    borderRadius: 999,
+  },
+  okDot: { width: 14, height: 14, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+  okMark: {
+    width: 4,
+    height: 7,
+    marginTop: -2,
+    borderColor: '#fff',
+    borderRightWidth: 1.5,
+    borderBottomWidth: 1.5,
+    transform: [{ rotate: '45deg' }],
+  },
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   verify: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, padding: 10 },
   actions: { flexDirection: 'row', gap: 8, marginTop: 4 },

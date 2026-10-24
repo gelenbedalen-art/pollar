@@ -87,6 +87,37 @@
   border-radius: calc(var(--pollar-card-border-radius, 10px) + 2px);
 }
 
+.pollar-cosign-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pollar-cosign-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--pollar-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pollar-muted);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.pollar-cosign-chip-ok {
+  cursor: pointer;
+  color: var(--pollar-success-text, #15803d);
+  border-color: color-mix(in srgb, var(--pollar-success-text, #15803d) 40%, var(--pollar-border));
+}
+
+.pollar-cosign-chip-ok:hover {
+  background: color-mix(in srgb, var(--pollar-success-text, #15803d) 8%, transparent);
+}
+
 .pollar-cosign-detail-title {
   margin: 0;
   font-size: 1.05rem;

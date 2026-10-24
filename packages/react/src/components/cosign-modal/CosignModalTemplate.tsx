@@ -1,6 +1,7 @@
 'use client';
 
 import { type CosignRequest, type CosignVerification, fromBaseUnits } from '@pollar/core';
+import { useState } from 'react';
 import { CopyButton, cropAddress, PollarModalFooter } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
@@ -90,6 +91,15 @@ function CloseIcon() {
   );
 }
 
+function VerifiedIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <circle cx="7" cy="7" r="7" fill="currentColor" />
+      <path d="M3.5 7l2.5 2.5 4.5-5" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function CosignModalTemplate({
   theme,
   accentColor,
@@ -111,6 +121,9 @@ export function CosignModalTemplate({
   const cssVars = buildModalCssVars(theme, accentColor, styleOverrides);
   const verified = verification?.ok === true;
   const canVote = !!current && verified && !busy && !approveBlocked;
+  // Keyed by request id, so the explanation folds back when another request is shown.
+  const [verifiedOpenFor, setVerifiedOpenFor] = useState<string | null>(null);
+  const verifiedOpen = !!current && verifiedOpenFor === current.id;
 
   return (
     <div
@@ -201,7 +214,26 @@ export function CosignModalTemplate({
 
       {current && (
         <div className="pollar-cosign-detail">
-          <p className="pollar-cosign-detail-title">{labelOf(current)}</p>
+          <div className="pollar-cosign-detail-head">
+            <p className="pollar-cosign-detail-title">{labelOf(current)}</p>
+            {!verification && (
+              <span className="pollar-cosign-chip">
+                <span className="pollar-spinner pollar-spinner-sm" aria-hidden />
+                Checking...
+              </span>
+            )}
+            {verification?.ok && (
+              <button
+                type="button"
+                className="pollar-cosign-chip pollar-cosign-chip-ok"
+                aria-expanded={verifiedOpen}
+                onClick={() => setVerifiedOpenFor(verifiedOpen ? null : current.id)}
+              >
+                <VerifiedIcon />
+                Verified
+              </button>
+            )}
+          </div>
           {current.summary && <p className="pollar-cosign-muted">{current.summary}</p>}
           <dl className="pollar-cosign-rows">
             {detailRows(current).map(([k, v]) => (
@@ -216,13 +248,15 @@ export function CosignModalTemplate({
             </div>
           </dl>
 
-          <div
-            className={`pollar-cosign-verify pollar-cosign-verify-${verification ? (verification.ok ? 'ok' : 'bad') : 'pending'}`}
-          >
-            {!verification && 'Checking the transaction against Turnkey...'}
-            {verification?.ok && 'Verified: this is exactly what will be signed.'}
-            {verification && !verification.ok && `Not verified: ${verification.reason}`}
-          </div>
+          {verification?.ok && verifiedOpen && (
+            <div className="pollar-cosign-verify pollar-cosign-verify-ok">
+              Checked against Turnkey: this is exactly what will be signed.
+            </div>
+          )}
+          {/* A failed check stays spelled out: it is the only place the user learns why Approve is off. */}
+          {verification && !verification.ok && (
+            <div className="pollar-cosign-verify pollar-cosign-verify-bad">Not verified: {verification.reason}</div>
+          )}
 
           {error && <div className="pollar-cosign-error">{error}</div>}
 
