@@ -28,10 +28,8 @@
 }
 
 .pollar-ramp-steps-label {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   color: var(--pollar-muted);
 }
 
@@ -110,51 +108,17 @@
   margin-bottom: 1rem;
 }
 
-.pollar-ramp-label-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.pollar-ramp-balance {
-  min-width: 0;
-  margin: 0 0 0.375rem;
-  padding: 0;
-  overflow: hidden;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 0.8125rem;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--pollar-accent);
-  cursor: pointer;
-}
-
-.pollar-ramp-balance:not(:disabled):hover {
-  text-decoration: underline;
-}
-
-.pollar-ramp-balance:disabled {
-  color: var(--pollar-muted);
-  cursor: default;
-}
-
-.pollar-ramp-balance:focus-visible {
-  outline: 2px solid var(--pollar-accent);
-  outline-offset: 2px;
-  border-radius: 0.25rem;
-}
-
 .pollar-ramp-label {
   display: block;
   margin-bottom: 0.375rem;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--pollar-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+}
+
+/* The field's error sits right under the input, so the amount field gives up its own gap. */
+.pollar-ramp-field > .pollar-send-field {
+  margin-bottom: 0;
 }
 
 .pollar-ramp-input {
@@ -330,11 +294,9 @@
 }
 
 .pollar-ramp-route-badge {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: var(--pollar-accent);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* --- Payment instructions ---------------------------------------------------- */
@@ -407,8 +369,6 @@
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--pollar-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   margin: 0;
 }
 

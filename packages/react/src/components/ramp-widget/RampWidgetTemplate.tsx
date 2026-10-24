@@ -30,6 +30,7 @@ import {
 } from '@pollar/core';
 import { formLanguage } from '../requirement-form-modal/form-fields';
 import { RejectedRouteDisplay, RouteDisplay } from './RouteDisplay';
+import { AmountField } from '../AmountField';
 import { CopyButton } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
@@ -117,8 +118,8 @@ interface RampWidgetTemplateProps {
   assets: RampAsset[];
   asset: RampAsset | null;
   amount: string;
-  /** What the wallet holds of the asset being sold; null hides it (buying, or balances not read yet). */
-  sellBalance?: RampAssetBalance | null;
+  /** What the wallet can spend of the asset being sold, as `useWalletAvailable` reads it; undefined hides it. */
+  sellAvailable?: string | null | undefined;
   quotes: RampQuote[];
   rejected: RampQuoteRejection[];
   /** Quote whose order request is in flight, so its row can show it. */
@@ -189,19 +190,6 @@ function trustKey(rejection: RampQuoteRejection): string | null {
   return asset ? `${asset.code}:${asset.issuer}` : null;
 }
 
-/** A wallet's spendable amount of a ramp asset; `amount` is null when its chain could not be read. */
-export interface RampAssetBalance {
-  amount: string | null;
-  decimals?: number | undefined;
-}
-
-// An unreadable chain shows a dash, never 0: a wallet that failed to load must not look empty.
-function formatRampBalance({ amount, decimals = 7 }: RampAssetBalance): string {
-  if (amount === null) return '—';
-  const n = parseFloat(amount);
-  return isNaN(n) ? amount : n.toLocaleString(undefined, { maximumFractionDigits: Math.min(decimals, 7) });
-}
-
 const LOADING_STEPS = ['Checking routes…', 'Quoting each step…', 'Route found!'];
 
 /** Renders again at `at` (ms since epoch), so what lapses then (a signature's button) goes then, not at the next read. */
@@ -231,7 +219,7 @@ export function RampWidgetTemplate({
   assets,
   asset,
   amount,
-  sellBalance = null,
+  sellAvailable,
   quotes,
   rejected,
   startingQuoteId,
@@ -470,32 +458,13 @@ export function RampWidgetTemplate({
               </div>
 
               <div className="pollar-ramp-field">
-                <div className="pollar-ramp-label-row">
-                  <label className="pollar-ramp-label" htmlFor="pollar-ramp-amount">
-                    {onramp ? 'You pay' : 'You sell'}
-                    {sendUnit ? ` (${sendUnit})` : ''}
-                  </label>
-                  {!onramp && sellBalance && (
-                    <button
-                      type="button"
-                      className="pollar-ramp-balance"
-                      disabled={!(parseFloat(sellBalance.amount ?? '0') > 0)}
-                      onClick={() => sellBalance.amount && onAmountChange(sellBalance.amount)}
-                      title="Sell the whole balance"
-                    >
-                      Balance: {formatRampBalance(sellBalance)} {asset?.code}
-                    </button>
-                  )}
-                </div>
-                <input
+                <AmountField
                   id="pollar-ramp-amount"
-                  type="number"
-                  inputMode="decimal"
-                  className="pollar-ramp-input"
-                  placeholder="0.00"
+                  label={onramp ? 'You pay' : 'You sell'}
                   value={amount}
-                  min="0"
-                  onChange={(e) => onAmountChange(e.target.value)}
+                  onChange={onAmountChange}
+                  unit={sendUnit}
+                  available={onramp ? undefined : sellAvailable}
                 />
                 {errorMsg && <span className="pollar-ramp-field-error">{errorMsg}</span>}
               </div>

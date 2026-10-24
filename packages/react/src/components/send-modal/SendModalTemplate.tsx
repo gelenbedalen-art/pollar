@@ -2,6 +2,7 @@
 
 import { TransactionState, WalletBalanceRecord, WalletChain, WalletId } from '@pollar/core';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { AmountField } from '../AmountField';
 import { ChainSelect } from '../ChainSelect';
 import { PollarModalFooter, RefreshIcon } from '../commons';
 import { TxStatusView } from '../transaction-modal/TxStatusView';
@@ -369,38 +370,15 @@ export function SendModalTemplate({
           />
 
           {/* Amount */}
-          <div className="pollar-send-field">
-            <div className="pollar-send-label-row">
-              <label className="pollar-send-label">Amount</label>
-              {selectedAsset && (
-                <span className="pollar-send-hint">
-                  Available: {formatBalance(selectedAsset.available)} {selectedAsset.code}
-                </span>
-              )}
-            </div>
-            <div className="pollar-send-input-shell">
-              <input
-                className="pollar-input pollar-send-amount-input"
-                type="text"
-                inputMode="decimal"
-                placeholder="0.00"
-                value={amount}
-                onChange={(e) => onAmountChange(e.target.value)}
-                aria-label="Amount"
-              />
-              <div className="pollar-send-input-suffix">
-                <button
-                  type="button"
-                  className="pollar-send-inline-action"
-                  onClick={onMax}
-                  disabled={!selectedAsset?.available}
-                >
-                  Max
-                </button>
-                <span>{selectedAsset?.code ?? ''}</span>
-              </div>
-            </div>
-          </div>
+          <AmountField
+            id="pollar-send-amount"
+            label="Amount"
+            value={amount}
+            onChange={onAmountChange}
+            unit={selectedAsset?.code}
+            available={selectedAsset ? selectedAsset.available : undefined}
+            onMax={onMax}
+          />
 
           {/* Destination */}
           <div className="pollar-send-field">

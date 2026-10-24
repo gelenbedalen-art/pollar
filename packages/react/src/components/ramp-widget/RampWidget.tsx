@@ -11,7 +11,6 @@ import type {
   RampRoute,
   RampSigningHandler,
   RampWalletStep,
-  WalletBalanceRecord,
 } from '@pollar/core';
 import {
   appUnavailableMessage,
@@ -23,8 +22,8 @@ import {
 } from '@pollar/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePollar } from '../../context';
-import { resolveChain } from '../ChainSelect';
-import type { RampAssetBalance, RampStep } from './RampWidgetTemplate';
+import { useWalletAvailable } from '../../useWalletAvailable';
+import type { RampStep } from './RampWidgetTemplate';
 import { assetKey, fiatKey, RampWidgetTemplate } from './RampWidgetTemplate';
 import '../shared.css';
 import './RampWidget.css';
@@ -62,23 +61,6 @@ function rampErrorMessage(error: unknown, fallback: string): string {
     if (typeof message === 'string' && message && !/^[A-Z0-9_]+$/.test(message)) return message;
   }
   return fallback;
-}
-
-/**
- * What the wallet can spend of a ramp asset on its chain. The route names a Stellar
- * asset by issuer and a token by its contract, `null` for the native coin.
- */
-function rampAssetBalance(balances: WalletBalanceRecord[], asset: RampRoute['asset']): RampAssetBalance {
-  const record = balances.find(
-    (b) =>
-      resolveChain(b.chain) === asset.chain &&
-      b.code === asset.code &&
-      (asset.identifier === null
-        ? b.type === 'native' || !b.issuer
-        : !b.issuer || b.issuer.toLowerCase() === asset.identifier.toLowerCase()),
-  );
-  // No record is an asset the wallet does not hold (no trustline yet): nothing to sell.
-  return { amount: record ? record.available : '0', decimals: record?.decimals };
 }
 
 /** A route's identity across quotes: quoting again gives the same route a new quote id. */
@@ -138,17 +120,8 @@ async function signLegWithWallet(client: PollarClient, orderId: string, actionId
 }
 
 export function RampWidget({ onClose }: RampWidgetProps) {
-  const {
-    getClient,
-    styles,
-    network,
-    openCosignModal,
-    openRecoveryModal,
-    appConfig,
-    cosign,
-    walletBalance,
-    refreshWalletBalance,
-  } = usePollar();
+  const { getClient, styles, network, openCosignModal, openRecoveryModal, appConfig, cosign, refreshWalletBalance } =
+    usePollar();
   const client = getClient();
   const { theme, accentColor, styleOverrides, overlayStyle } = modalChrome(styles);
 
@@ -205,10 +178,9 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   }, [routes, country, fiat]);
   const asset = assets.find((a) => assetKey(a) === assetChoice) ?? assets[0] ?? null;
   const fields = selected ? rampQuoteFields(selected) : [];
-  const sellBalance =
-    direction === 'OFFRAMP' && asset && walletBalance.step === 'loaded'
-      ? rampAssetBalance(walletBalance.data.balances, asset)
-      : null;
+  const sellAvailable = useWalletAvailable(
+    direction === 'OFFRAMP' && asset ? { chain: asset.chain, code: asset.code, issuer: asset.identifier } : null,
+  );
 
   useEffect(() => {
     if (direction === 'OFFRAMP') void refreshWalletBalance();
@@ -659,7 +631,7 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         assets={assets}
         asset={asset}
         amount={amount}
-        sellBalance={sellBalance}
+        sellAvailable={sellAvailable}
         quotes={quotes}
         rejected={rejected}
         startingQuoteId={startingQuoteId}
