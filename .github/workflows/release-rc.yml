@@ -3,7 +3,6 @@ name: Release candidate
 on:
   push:
     tags: ['v*-rc*']
-    branches: ['v*-rc*']
   workflow_dispatch:
     inputs:
       version:
@@ -44,7 +43,25 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Set the version
-        run: npm version "$VERSION" --no-git-tag-version --allow-same-version $(printf -- '-w packages/%s ' $PACKAGES)
+        run: |
+          # An rc never satisfies a range on its own stable (0.12.0-rc.5 is outside ^0.12.0), so the
+          # internal @pollar/core ranges have to name the rc, or npm goes to the registry for a
+          # stable that is not published yet. Peer ranges keep their stable lines and gain the rc.
+          for pkg in $PACKAGES; do
+            node -e '
+              const fs = require("fs");
+              const [file, version] = process.argv.slice(1);
+              const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+              const range = `^${version}`;
+              for (const field of ["dependencies", "devDependencies"]) {
+                if (pkg[field]?.["@pollar/core"]) pkg[field]["@pollar/core"] = range;
+              }
+              const peer = pkg.peerDependencies?.["@pollar/core"];
+              if (peer) pkg.peerDependencies["@pollar/core"] = `${peer} || ${range}`;
+              fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+            ' "packages/$pkg/package.json" "$VERSION"
+          done
+          npm version "$VERSION" --no-git-tag-version --allow-same-version $(printf -- '-w packages/%s ' $PACKAGES)
 
       - name: Install
         run: npm ci
