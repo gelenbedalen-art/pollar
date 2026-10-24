@@ -181,7 +181,14 @@ export function rampLegTimeLeft(leg: Pick<RampOrderLeg, 'etaSeconds' | 'startedA
 }
 
 // So an invalid address never round-trips to the provider, which rejects it with a generic VALIDATION_ERROR.
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// One "@", a local part, and a dot inside the domain; read by index, since a
+// backtracking pattern over user input is quadratic on a long one.
+function isEmail(value: string): boolean {
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf('@');
+  if (at < 1 || at !== value.lastIndexOf('@')) return false;
+  return value.slice(at + 2, -1).includes('.');
+}
 
 /**
  * A field a quote asks for is complete when it is filled and, for an email,
@@ -190,7 +197,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function rampFieldValid(field: Pick<RampField, 'type' | 'optional' | 'pattern'>, raw: string | undefined): boolean {
   const value = (raw ?? '').trim();
   if (!value) return field.optional === true;
-  if (field.type === 'email' && !EMAIL_RE.test(value)) return false;
+  if (field.type === 'email' && !isEmail(value)) return false;
   return matchesWhole(field.pattern, value);
 }
 

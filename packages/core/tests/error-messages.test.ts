@@ -57,6 +57,14 @@ test("the wallet provider's refusal shows its own reason, without the provider's
     cosignRefusalMessage(refused('Turnkey error 3: email is already set to user@fixture.invalid (Details: [])')),
     'The wallet provider refused the request: email is already set to user@fixture.invalid.',
   );
+  assert.equal(
+    cosignRefusalMessage(refused('Turnkey error 7: quorum not met  (Details: [])  ')),
+    'The wallet provider refused the request: quorum not met.',
+  );
+  // Linear on a long hostile input (the pattern CodeQL flagged: many spaces).
+  const started = Date.now();
+  cosignRefusalMessage(refused('x' + ' '.repeat(50_000) + 'y'));
+  assert.ok(Date.now() - started < 100);
   assert.equal(cosignRefusalMessage(refused()), transactionErrorMessage('SDK_COSIGN_TURNKEY_REJECTED'));
   assert.equal(cosignRefusalMessage({ code: 'SDK_COSIGN_UPSTREAM_ERROR', body: { message: 'x' } }), null);
   assert.equal(cosignRefusalMessage(new Error('x')), null);

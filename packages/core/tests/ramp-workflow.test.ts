@@ -52,6 +52,22 @@ test('a field is complete when filled and, for an email, well-formed; an optiona
   assert.equal(rampFieldValid({ type: 'text', optional: true }, ''), true);
   assert.equal(rampFieldValid({ type: 'email' }, 'ana@pollar.xyz'), true);
   assert.equal(rampFieldValid({ type: 'email', optional: true }, 'not-an-email'), false);
+  for (const bad of [
+    '@pollar.xyz',
+    'ana@',
+    'ana@pollar',
+    'ana@.xyz',
+    'ana@pollar.',
+    'a@b@pollar.xyz',
+    'ana maria@pollar.xyz',
+  ]) {
+    assert.equal(rampFieldValid({ type: 'email' }, bad), false, bad);
+  }
+  assert.equal(rampFieldValid({ type: 'email' }, 'ana.maria+ramps@mail.pollar.xyz'), true);
+  // Linear on a long hostile input (the pattern CodeQL flagged: "!@!." then many "!.").
+  const started = Date.now();
+  rampFieldValid({ type: 'email' }, '!@!.' + '!.'.repeat(50_000));
+  assert.ok(Date.now() - started < 100);
 });
 
 test('a field with a pattern is complete only when the whole value matches it; one this runtime cannot read checks nothing', () => {

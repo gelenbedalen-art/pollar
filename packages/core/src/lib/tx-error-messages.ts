@@ -108,15 +108,16 @@ export function transactionErrorMessage(code?: string | null, details?: string |
  * The text for the wallet provider refusing a request (`SDK_COSIGN_TURNKEY_REJECTED`),
  * with the provider's own reason when it gave one; null for any other error.
  */
+const EMPTY_DETAILS = '(Details: [])';
+
 export function cosignRefusalMessage(error: unknown): string | null {
   if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'SDK_COSIGN_TURNKEY_REJECTED')
     return null;
   const body = 'body' in error && typeof error.body === 'object' && error.body !== null ? error.body : null;
   const raw = body && 'message' in body && typeof body.message === 'string' ? body.message : '';
-  const reason = raw
-    .replace(/^Turnkey error \d+:\s*/i, '')
-    .replace(/\s*\(Details: \[\]\)\s*$/, '')
-    .trim();
+  let reason = raw.replace(/^Turnkey error \d+:\s*/i, '').trimEnd();
+  if (reason.endsWith(EMPTY_DETAILS)) reason = reason.slice(0, -EMPTY_DETAILS.length);
+  reason = reason.trim();
   return reason ? `The wallet provider refused the request: ${reason}.` : (MESSAGES.SDK_COSIGN_TURNKEY_REJECTED ?? GENERIC);
 }
 
