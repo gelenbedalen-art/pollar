@@ -452,6 +452,26 @@ npm run lint
 npm run clean
 ```
 
+### Release a candidate
+
+```bash
+npm run release:rc -- 0.12.0-rc.5
+```
+
+Tags the current commit as `v0.12.0-rc.5` and pushes the tag, which runs
+`.github/workflows/release-rc.yml` (build, unit + smoke tests, publish every SDK package to npm
+on the `next` dist-tag) and `e2e-rc.yml`. Nothing is published from your machine.
+
+The script refuses to tag unless:
+
+- the version is `X.Y.Z-rc.N` and `X.Y.Z` matches `packages/core/package.json` on this commit
+- the working tree is clean
+- `HEAD` is already on a remote branch (push it first)
+- the tag does not exist locally or on `origin`
+
+The workflow can also be started by hand from the Actions tab (`workflow_dispatch` with a
+`version` input).
+
 ---
 
 ## License
