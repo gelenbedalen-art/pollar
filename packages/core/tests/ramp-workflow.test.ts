@@ -6,6 +6,7 @@ import {
   rampFieldValid,
   rampLegNote,
   rampLegStatus,
+  rampNoRouteText,
   rampOrderReceive,
   rampOrderResolutionText,
   rampOrderStopped,
@@ -206,4 +207,21 @@ test('a provider leg that paid out a substitute says so, and why the next step c
   assert.equal(rampLegNote(leg('PROVIDER_ONRAMP', funds('USDC'))), null);
   assert.equal(rampLegNote(leg('PROVIDER_ONRAMP', null)), null);
   assert.equal(rampLegNote(leg('SWAP', funds('USDT'))), null);
+});
+
+test('no route: a verification the user cannot act on says it waits, never asks to verify', () => {
+  const failure = { resolutionAction: 'complete_verification' };
+  const kyc = (status: string, reviewReason?: string) =>
+    ({ failure, requirement: { type: 'KYC', status, ...(reviewReason ? { reviewReason } : {}) } }) as never;
+  const verify = 'Complete the identity verification to continue.';
+  const review = 'Your verification is under review. You do not need to do anything; refresh later to check again.';
+
+  assert.equal(rampNoRouteText([kyc('pending', 'DUPLICATE_DOCUMENT'), kyc('pending', 'DUPLICATE_DOCUMENT')]), review);
+  assert.equal(rampNoRouteText([kyc('pending', 'DUPLICATE_DOCUMENT'), kyc('rejected')]), review);
+  assert.equal(
+    rampNoRouteText([kyc('rejected'), kyc('rejected')]),
+    'Your identity verification was not approved, so no route is available.',
+  );
+  assert.equal(rampNoRouteText([kyc('none'), kyc('pending', 'DUPLICATE_DOCUMENT')]), verify);
+  assert.equal(rampNoRouteText([{ failure } as never]), verify);
 });

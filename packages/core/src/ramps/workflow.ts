@@ -299,8 +299,20 @@ export function rampTrustlineErrorText(outcome: { code?: string }, assetCode: st
   return `Could not add the ${assetCode} trustline. Please try again.`;
 }
 
-/** Why no route was offered: the fix every rejected route shares, else a change of amount. */
-export function rampNoRouteText(rejected: Array<Pick<RampQuoteRejection, 'failure'>>): string {
+/**
+ * Why no route was offered: the fix every rejected route shares, else a change of
+ * amount. When every route waits on a verification the user cannot act on (under
+ * review or refused), it says so instead of asking them to verify.
+ */
+export function rampNoRouteText(
+  rejected: Array<Pick<RampQuoteRejection, 'failure'> & Partial<Pick<RampQuoteRejection, 'requirement'>>>,
+): string {
+  const requirements = rejected.map((r) => r.requirement);
+  if (requirements.length && requirements.every((req) => req && rampRequirementCopy(req).action === null)) {
+    return requirements.every((req) => req!.status === 'rejected')
+      ? 'Your identity verification was not approved, so no route is available.'
+      : 'Your verification is under review. You do not need to do anything; refresh later to check again.';
+  }
   const actions = [...new Set(rejected.map((r) => r.failure.resolutionAction))];
   return actions.length === 1
     ? rampResolutionText({ resolutionAction: actions[0]! })
