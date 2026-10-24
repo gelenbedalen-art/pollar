@@ -36,6 +36,10 @@ interface RampWidgetProps {
   onClose: () => void;
 }
 
+/** After "I've paid", the payment is checked this often for this long, then the order goes back to the server's pace. */
+const PAYMENT_CHECK_EVERY_MS = 10_000;
+const PAYMENT_CHECK_WINDOW_MS = 2 * 60_000;
+
 /** Ramp failures a user can act on, by API code. */
 const RAMP_ERROR_MESSAGES: Record<string, string> = {
   SDK_RAMPS_QUOTE_EXPIRED: 'This quote expired. Find a route again.',
@@ -150,6 +154,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
   const [pollTrouble, setPollTrouble] = useState(false);
   // Bumped to start following the order again (after a retry or refresh of one that had stopped).
   const [pollKey, setPollKey] = useState(0);
+  // Until when the payment the user says they made is checked at PAYMENT_CHECK_EVERY_MS.
+  const [paymentCheckUntil, setPaymentCheckUntil] = useState<number | null>(null);
   // The approval the user was last prompted for, so each new one prompts once.
   const promptedApproval = useRef<string | null>(null);
   // An app that leaves the custody to the user: the user picks it for each wallet step.
@@ -225,6 +231,29 @@ export function RampWidget({ onClose }: RampWidgetProps) {
       });
     return () => controller.abort();
   }, [client, step, orderId, pollKey]);
+
+  // The polling sleeps through the fiat payment's long wait, so once a check sees
+  // the order past it, the polling starts again at the pace of the next step.
+  const awaitingPayment = step === 'status' && order?.pendingAction?.kind === 'FIAT_PAYMENT';
+  useEffect(() => {
+    if (paymentCheckUntil === null || !orderId) return;
+    if (!awaitingPayment) {
+      setPaymentCheckUntil(null);
+      setPollKey((key) => key + 1);
+      return;
+    }
+    const timer = setInterval(() => {
+      if (Date.now() >= paymentCheckUntil) {
+        setPaymentCheckUntil(null);
+        return;
+      }
+      client
+        .checkRampOrder(orderId)
+        .then(setOrder)
+        .catch(() => undefined);
+    }, PAYMENT_CHECK_EVERY_MS);
+    return () => clearInterval(timer);
+  }, [client, orderId, awaitingPayment, paymentCheckUntil]);
 
   // A co-signed step of the order waits on the user's device: bring its request up the moment it appears.
   const approval = order?.pendingAction?.kind === 'COSIGN_APPROVAL' ? order.pendingAction.actionId : null;
@@ -478,6 +507,19 @@ export function RampWidget({ onClose }: RampWidgetProps) {
     setStep(step === 'contact' ? 'select_route' : 'input');
   }
 
+  /** The user says they paid: the payment is checked now, then often for a while. */
+  async function handleCheckPayment() {
+    if (!order || paymentCheckUntil !== null) return;
+    setErrorMsg(null);
+    setPaymentCheckUntil(Date.now() + PAYMENT_CHECK_WINDOW_MS);
+    try {
+      setOrder(await client.checkRampOrder(order.id));
+    } catch (error) {
+      setPaymentCheckUntil(null);
+      setErrorMsg(rampErrorMessage(error, 'Could not check the payment. Please try again.'));
+    }
+  }
+
   /** Runs the user's held order again, then follows it. */
   async function handleRetryOrder() {
     if (!order || retrying) return;
@@ -617,6 +659,8 @@ export function RampWidget({ onClose }: RampWidgetProps) {
         retrying={retrying}
         onRetryOrder={() => void handleRetryOrder()}
         pollTrouble={pollTrouble}
+        checkingPayment={paymentCheckUntil !== null}
+        onCheckPayment={() => void handleCheckPayment()}
         onResumeOrder={(id) => void handleResumeOrder(id)}
         onNewOrder={handleNewOrder}
         onBack={handleBack}

@@ -162,6 +162,10 @@ interface RampWidgetTemplateProps {
   onRetryOrder?: (() => void) | undefined;
   /** Reading the order keeps failing and polling is retrying. */
   pollTrouble?: boolean;
+  /** The fiat payment the user says they made is being checked. */
+  checkingPayment?: boolean;
+  /** Checks the fiat payment now; absent, the order only updates at its usual pace. */
+  onCheckPayment?: (() => void) | undefined;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -238,6 +242,8 @@ export function RampWidgetTemplate({
   noChains = false,
   retrying = false,
   onRetryOrder,
+  checkingPayment = false,
+  onCheckPayment,
   pollTrouble = false,
   onFieldChange,
   onContactContinue,
@@ -706,6 +712,18 @@ export function RampWidgetTemplate({
                 </div>
               </div>
             ))}
+
+          {!settled && view.action?.kind === 'FIAT_PAYMENT' && onCheckPayment && (
+            <button type="button" className="pollar-btn-primary" disabled={checkingPayment} onClick={onCheckPayment}>
+              {checkingPayment ? (
+                <>
+                  <span className="pollar-spinner pollar-spinner-sm" /> Checking your payment...
+                </>
+              ) : (
+                "I've paid"
+              )}
+            </button>
+          )}
 
           {!settled && view.canSign && (
             <button type="button" className="pollar-btn-primary" disabled={signing} onClick={onSign}>

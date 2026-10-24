@@ -72,6 +72,17 @@ export async function getRampOrder(api: PollarApiClient, id: string): Promise<Ra
 }
 
 /**
+ * POST /ramps/orders/{id}/check: for a user who says they paid, asks the provider
+ * about the fiat payment now instead of at the next recheck (at most once every
+ * 10 seconds per order), and answers the order after it.
+ */
+export async function checkRampOrder(api: PollarApiClient, id: string): Promise<RampOrder> {
+  const { data, error } = await api.POST('/ramps/orders/{id}/check', { params: { path: { id } } });
+  if (!data?.content || error) throw rampApiError(error, 'Failed to check the ramp order');
+  return data.content;
+}
+
+/**
  * POST /ramps/orders/{id}/retry: runs a held order again from where it stopped,
  * when the user is the one who resolves it (an approval to give again).
  */

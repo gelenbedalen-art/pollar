@@ -52,6 +52,7 @@ import {
   createRampOrder,
   getRampOrder,
   retryRampOrder,
+  checkRampOrder,
   setUpRampWallet,
   getRampRoutes,
   listRampOrders,
@@ -4516,6 +4517,11 @@ export class PollarClient {
 
   getRampOrder(id: string): Promise<RampOrder> {
     return getRampOrder(this._api, id);
+  }
+
+  /** Asks about the order's fiat payment now, for a user who says they paid. */
+  checkRampOrder(id: string): Promise<RampOrder> {
+    return checkRampOrder(this._api, id);
   }
 
   /** Runs the user's held order again from where it stopped (their failure to resolve, e.g. an approval). */
