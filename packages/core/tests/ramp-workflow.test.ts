@@ -23,13 +23,14 @@ test('a leg retrying on its own is active; only a leg that stopped is failed', (
   assert.equal(rampLegStatus({ status: 'PENDING', failure: null } as never), 'pending');
 });
 
-test('what the user receives is the last leg, as received once it is, else as planned', () => {
+test('what the user receives is the last leg, as received once it is, else as planned and marked estimated', () => {
   const leg = (amountOutActual: string | null) => ({ to: usdc, amountOutPlanned: '14.2', amountOutActual });
-  assert.deepEqual(rampOrderReceive({ legs: [leg(null)] } as never), { amount: '14.2', unit: 'USDC' });
-  assert.deepEqual(rampOrderReceive({ legs: [leg('14.19')] } as never), { amount: '14.19', unit: 'USDC' });
+  assert.deepEqual(rampOrderReceive({ legs: [leg(null)] } as never), { amount: '14.2', unit: 'USDC', estimated: true });
+  assert.deepEqual(rampOrderReceive({ legs: [leg('14.19')] } as never), { amount: '14.19', unit: 'USDC', estimated: false });
   assert.deepEqual(rampOrderReceive({ legs: [{ to: bob, amountOutPlanned: '100', amountOutActual: null }] } as never), {
     amount: '100',
     unit: 'BOB',
+    estimated: true,
   });
   assert.equal(rampOrderReceive({ legs: [] } as never), null);
 });

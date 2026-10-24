@@ -49,8 +49,8 @@ export function RouteDisplay({ quote, best = false, busy = false, disabled = fal
       <div className="pollar-ramp-route-left">
         <span className="pollar-ramp-route-provider">
           {first && last
-            ? `${quote.amountIn} ${assetOf(first.from)} → ${quote.amountOut} ${assetOf(last.to)}`
-            : quote.amountOut}
+            ? `${quote.amountIn} ${assetOf(first.from)} → ~${quote.amountOut} ${assetOf(last.to)}`
+            : `~${quote.amountOut}`}
         </span>
         <span className="pollar-ramp-route-meta">
           {busy

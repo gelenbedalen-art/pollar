@@ -628,7 +628,10 @@ export function RampWidgetTemplate({
             })}
 
             {receive &&
-              copyRow(order.state === 'completed' ? 'You received' : 'You receive', `${receive.amount} ${receive.unit}`)}
+              copyRow(
+                order.state === 'completed' ? 'You received' : 'You receive',
+                `${receive.estimated ? '~' : ''}${receive.amount} ${receive.unit}`,
+              )}
             {order.failure && (
               <>
                 <Text style={[styles.note, { color: colors.text }]}>{rampOrderResolutionText(order)}</Text>

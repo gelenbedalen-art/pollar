@@ -896,7 +896,7 @@ export function RampPanel() {
           {quotes.map((q) => (
             <View key={q.quoteId} style={{ gap: 8 }}>
               <Label>
-                {q.amountIn} → {q.amountOut} · {q.legs.map((leg) => rampLegTitle(leg)).join(' · ')}
+                {q.amountIn} → ~{q.amountOut} · {q.legs.map((leg) => rampLegTitle(leg)).join(' · ')}
               </Label>
               <ActionButton
                 title={q.quoteId === quoteId ? 'Selected' : 'Select this route'}

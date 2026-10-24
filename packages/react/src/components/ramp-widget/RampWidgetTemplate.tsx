@@ -639,6 +639,7 @@ export function RampWidgetTemplate({
             <div className="pollar-ramp-payment-field">
               <span className="pollar-ramp-payment-label">{order.state === 'completed' ? 'You received' : 'You receive'}</span>
               <div className="pollar-ramp-payment-value">
+                {receive.estimated && '~'}
                 {receive.amount} {receive.unit}
               </div>
             </div>

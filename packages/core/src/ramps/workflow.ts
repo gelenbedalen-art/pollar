@@ -146,13 +146,17 @@ export function rampLegStatus(leg: Pick<RampOrderLeg, 'status' | 'failure'>): 'p
   return leg.status === 'PENDING' ? 'pending' : 'active';
 }
 
-/** What the user ends with: the last leg's output, as received or else as planned. */
-export function rampOrderReceive(order: Pick<RampOrder, 'legs'>): { amount: string; unit: string } | null {
+/**
+ * What the user ends with: the last leg's output, as received or else as planned.
+ * `estimated` is true while only the planned amount is known.
+ */
+export function rampOrderReceive(order: Pick<RampOrder, 'legs'>): { amount: string; unit: string; estimated: boolean } | null {
   const last = order.legs[order.legs.length - 1];
   if (!last) return null;
+  const estimated = !last.amountOutActual;
   const amount = last.amountOutActual ?? last.amountOutPlanned;
   const unit = last.to.kind === 'fiat' ? last.to.currency : last.to.code;
-  return amount ? { amount, unit } : null;
+  return amount ? { amount, unit, estimated } : null;
 }
 
 /** The order no longer moves on its own: final, or held until someone resolves it (no next read suggested). */

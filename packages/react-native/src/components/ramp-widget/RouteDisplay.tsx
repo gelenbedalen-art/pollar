@@ -28,8 +28,8 @@ export function RouteDisplay({ quote, best = false, disabled = false, onSelect }
       <View style={styles.left}>
         <Text style={styles.provider}>
           {first && last
-            ? `${quote.amountIn} ${assetOf(first.from)} → ${quote.amountOut} ${assetOf(last.to)}`
-            : quote.amountOut}
+            ? `${quote.amountIn} ${assetOf(first.from)} → ~${quote.amountOut} ${assetOf(last.to)}`
+            : `~${quote.amountOut}`}
         </Text>
         <Text style={styles.meta}>{quote.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</Text>
       </View>
