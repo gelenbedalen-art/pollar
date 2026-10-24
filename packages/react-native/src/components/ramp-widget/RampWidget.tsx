@@ -65,6 +65,14 @@ function trustKey(rejection: RampQuoteRejection): string | null {
   return asset ? `${asset.code}:${asset.issuer}` : null;
 }
 
+/** "a", "a and b", "a, b and c" - for naming what a step is asking for. */
+function listOf(items: string[]): string {
+  const last = items[items.length - 1];
+  if (last === undefined) return 'a few details';
+  if (items.length === 1) return last;
+  return `${items.slice(0, -1).join(', ')} and ${last}`;
+}
+
 /** Ramp failures a user can act on, by API code. */
 const RAMP_ERROR_MESSAGES: Record<string, string> = {
   SDK_RAMPS_QUOTE_EXPIRED: 'This quote expired. Find a route again.',
@@ -360,13 +368,30 @@ export function RampWidgetTemplate({
       </TouchableOpacity>
     </View>
   );
+  const stepTitle: Record<RampStep, string> = {
+    input: onramp ? 'Buy crypto' : 'Sell crypto',
+    loading_quote: 'Finding the best route',
+    select_route: 'Choose a route',
+    contact: 'Your details',
+    status: order?.state === 'completed' ? 'Transfer completed' : onramp ? 'Your purchase' : 'Your sale',
+    error: 'Something went wrong',
+  };
+  const stepSubtitle: Record<RampStep, string> = {
+    input: onramp ? 'Pick what you receive and how much you pay' : 'Pick what you sell and how much',
+    loading_quote: 'Comparing routes in real time…',
+    select_route: 'All amounts include fees',
+    contact: `This route needs ${listOf(fields.filter((f) => !f.optional).map((f) => f.label.toLowerCase()))} to continue`,
+    status: view?.title ?? 'Processing',
+    error: 'Please try again',
+  };
   const errorLine = errorMsg ? <Text style={[styles.note, { color: colors.error }]}>{errorMsg}</Text> : null;
   const scannable = view?.scannable ?? null;
 
   return (
     <View style={[styles.card, { backgroundColor: colors.bg, borderColor: colors.border }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.text }]}>{onramp ? 'Add funds' : 'Cash out'}</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{stepTitle[step]}</Text>
+        <Text style={[styles.subtitle, { color: colors.muted }]}>{stepSubtitle[step]}</Text>
       </View>
 
       <TouchableOpacity
@@ -488,7 +513,7 @@ export function RampWidgetTemplate({
               placeholder="25.00"
             />
             {errorLine}
-            {primary('Find routes', onFindRoute, !canFind)}
+            {primary('Find best route', onFindRoute, !canFind)}
           </>
         )}
 
@@ -576,7 +601,6 @@ export function RampWidgetTemplate({
 
         {step === 'status' && order && view && (
           <>
-            <Text style={[styles.label, { color: colors.text }]}>{view.title}</Text>
             {order.legs.map((leg) => {
               const status = rampLegStatus(leg);
               return (
@@ -1239,12 +1263,19 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   header: {
+    gap: 4,
     marginBottom: 16,
     marginTop: 10,
+    // Clear of the close button in the corner.
+    paddingRight: 40,
   },
   title: {
     fontSize: 22,
     fontWeight: '700',
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   iconButton: {
     position: 'absolute',
