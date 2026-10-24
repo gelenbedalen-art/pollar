@@ -80,7 +80,8 @@
   --pollar-buttons-border-radius: var(--pollar-brand-buttons-border-radius, 6px);
   --pollar-buttons-height: 44px;
   --pollar-input-height: 44px;
-  --pollar-input-border-radius: 0.5rem;
+  /* Inputs sit in the same column as the buttons, so they share the dashboard's button radius. */
+  --pollar-input-border-radius: var(--pollar-buttons-border-radius);
   --pollar-card-border-radius: 10px;
   --pollar-modal-padding: var(--pollar-brand-modal-padding);
   --pollar-modal-heading-size: var(--pollar-brand-modal-heading-size);
