@@ -117,6 +117,8 @@ interface RampWidgetTemplateProps {
   assets: RampAsset[];
   asset: RampAsset | null;
   amount: string;
+  /** What the wallet holds of the asset being sold; null hides it (buying, or balances not read yet). */
+  sellBalance?: RampAssetBalance | null;
   quotes: RampQuote[];
   rejected: RampQuoteRejection[];
   /** Quote whose order request is in flight, so its row can show it. */
@@ -174,6 +176,8 @@ interface RampWidgetTemplateProps {
   onNewOrder: () => void;
   /** Step back, keeping what was entered. */
   onBack: () => void;
+  /** Returns to an earlier step of `flowSteps`, keeping what was entered; absent, the step bar only shows progress. */
+  onStepSelect?: ((label: string) => void) | undefined;
   onRetry: () => void;
   onRefresh: () => void;
   onClose: () => void;
@@ -183,6 +187,19 @@ interface RampWidgetTemplateProps {
 function trustKey(rejection: RampQuoteRejection): string | null {
   const asset = rampTrustlineAsset(rejection);
   return asset ? `${asset.code}:${asset.issuer}` : null;
+}
+
+/** A wallet's spendable amount of a ramp asset; `amount` is null when its chain could not be read. */
+export interface RampAssetBalance {
+  amount: string | null;
+  decimals?: number | undefined;
+}
+
+// An unreadable chain shows a dash, never 0: a wallet that failed to load must not look empty.
+function formatRampBalance({ amount, decimals = 7 }: RampAssetBalance): string {
+  if (amount === null) return '—';
+  const n = parseFloat(amount);
+  return isNaN(n) ? amount : n.toLocaleString(undefined, { maximumFractionDigits: Math.min(decimals, 7) });
 }
 
 const LOADING_STEPS = ['Checking routes…', 'Quoting each step…', 'Route found!'];
@@ -214,6 +231,7 @@ export function RampWidgetTemplate({
   assets,
   asset,
   amount,
+  sellBalance = null,
   quotes,
   rejected,
   startingQuoteId,
@@ -252,6 +270,7 @@ export function RampWidgetTemplate({
   onResumeOrder,
   onNewOrder,
   onBack,
+  onStepSelect,
   onRetry,
   onRefresh,
   onClose,
@@ -266,6 +285,14 @@ export function RampWidgetTemplate({
   const receive = order ? rampOrderReceive(order) : null;
   const payBy = view?.action?.kind === 'FIAT_PAYMENT' && view.expiresAt ? Date.parse(view.expiresAt) : null;
   useRenderAt(view?.canSign && view.expiresAt ? Date.parse(view.expiresAt) : null);
+  // Once the order exists, going back means a new order, which "New order" already starts.
+  const stepsOpen =
+    !!onStepSelect &&
+    step !== 'status' &&
+    !isLoading &&
+    startingQuoteId === null &&
+    trustingAsset === null &&
+    walletBusy === null;
 
   const stepTitle: Record<RampStep, string> = {
     input: onramp ? 'Buy crypto' : 'Sell crypto',
@@ -323,18 +350,22 @@ export function RampWidgetTemplate({
           <span className="pollar-ramp-steps-label">
             Step {flowStepIndex + 1} of {flowSteps.length}
           </span>
-          <div
-            className="pollar-ramp-steps-track"
-            role="progressbar"
-            aria-valuenow={flowStepIndex + 1}
-            aria-valuemin={1}
-            aria-valuemax={flowSteps.length}
-            aria-label={flowSteps[flowStepIndex]}
-          >
+          <ol className="pollar-ramp-steps-track">
             {flowSteps.map((label, i) => (
-              <span key={label} className="pollar-ramp-steps-segment" data-done={i <= flowStepIndex || undefined} />
+              <li key={label} className="pollar-ramp-steps-item" aria-current={i === flowStepIndex ? 'step' : undefined}>
+                <button
+                  type="button"
+                  className="pollar-ramp-steps-step"
+                  data-done={i <= flowStepIndex || undefined}
+                  disabled={!stepsOpen || i >= flowStepIndex}
+                  onClick={() => onStepSelect?.(label)}
+                >
+                  <span className="pollar-ramp-steps-segment" />
+                  <span className="pollar-ramp-steps-name">{label}</span>
+                </button>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       )}
 
@@ -439,10 +470,23 @@ export function RampWidgetTemplate({
               </div>
 
               <div className="pollar-ramp-field">
-                <label className="pollar-ramp-label" htmlFor="pollar-ramp-amount">
-                  {onramp ? 'You pay' : 'You sell'}
-                  {sendUnit ? ` (${sendUnit})` : ''}
-                </label>
+                <div className="pollar-ramp-label-row">
+                  <label className="pollar-ramp-label" htmlFor="pollar-ramp-amount">
+                    {onramp ? 'You pay' : 'You sell'}
+                    {sendUnit ? ` (${sendUnit})` : ''}
+                  </label>
+                  {!onramp && sellBalance && (
+                    <button
+                      type="button"
+                      className="pollar-ramp-balance"
+                      disabled={!(parseFloat(sellBalance.amount ?? '0') > 0)}
+                      onClick={() => sellBalance.amount && onAmountChange(sellBalance.amount)}
+                      title="Sell the whole balance"
+                    >
+                      Balance: {formatRampBalance(sellBalance)} {asset?.code}
+                    </button>
+                  )}
+                </div>
                 <input
                   id="pollar-ramp-amount"
                   type="number"
@@ -459,9 +503,6 @@ export function RampWidgetTemplate({
           )}
 
           <div className="pollar-modal-actions">
-            <button type="button" className="pollar-btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
             <button
               type="button"
               className="pollar-btn-primary"
@@ -524,13 +565,12 @@ export function RampWidgetTemplate({
               {errorMsg}
             </p>
           )}
-          <button
-            type="button"
-            className={errorMsg || !quotes.length ? 'pollar-btn-primary' : 'pollar-btn-secondary'}
-            onClick={onBack}
-          >
-            Back
-          </button>
+          {/* A dead end keeps a button out: the step bar alone is too quiet as the only way forward. */}
+          {(errorMsg || !quotes.length) && (
+            <button type="button" className="pollar-btn-primary" onClick={onBack}>
+              Back
+            </button>
+          )}
         </>
       )}
 
@@ -576,9 +616,6 @@ export function RampWidgetTemplate({
           {errorMsg && <p className="pollar-ramp-field-error">{errorMsg}</p>}
 
           <div className="pollar-modal-actions">
-            <button type="button" className="pollar-btn-secondary" onClick={onBack}>
-              Back
-            </button>
             <button
               type="button"
               className="pollar-btn-primary"
