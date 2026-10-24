@@ -47,6 +47,8 @@ import {
   rampTrustlineErrorText,
 } from '@pollar/core';
 import { usePollar } from '../../context';
+import { useWalletAvailable } from '../../useWalletAvailable';
+import { AmountField } from '../AmountField';
 import { PollarOverlay } from '../commons';
 import { formLanguage } from '../requirement-form-modal/form-fields';
 import { RejectedRouteDisplay, RouteDisplay } from './RouteDisplay';
@@ -149,6 +151,10 @@ export interface RampWidgetTemplateProps {
   theme?: string;
   accentColor?: string;
   step: RampStep;
+  /** Labels of the steps this run goes through: 'Details' only when the route asks for fields. */
+  flowSteps?: string[];
+  /** Index into `flowSteps`, or -1 outside the flow (the error step). */
+  flowStepIndex?: number;
   direction: RampDirection;
   routesLoading: boolean;
   countries: Array<{ country: string; fiats: RampFiat[] }>;
@@ -158,6 +164,8 @@ export interface RampWidgetTemplateProps {
   assets: RampAsset[];
   asset: RampAsset | null;
   amount: string;
+  /** What the wallet can spend of the asset being sold, as `useWalletAvailable` reads it; undefined hides it. */
+  sellAvailable?: string | null | undefined;
   quotes: RampQuote[];
   rejected: RampQuoteRejection[];
   startingQuoteId: string | null;
@@ -210,6 +218,8 @@ export interface RampWidgetTemplateProps {
   onResumeOrder: (id: string) => void;
   onNewOrder: () => void;
   onBack: () => void;
+  /** Returns to an earlier step of `flowSteps`, keeping what was entered; absent, the step bar only shows progress. */
+  onStepSelect?: ((label: string) => void) | undefined;
   onRetry: () => void;
   onClose: () => void;
 }
@@ -228,6 +238,8 @@ export function RampWidgetTemplate({
   theme = 'light',
   accentColor = '#005DB4',
   step,
+  flowSteps = [],
+  flowStepIndex = -1,
   direction,
   routesLoading,
   countries,
@@ -237,6 +249,7 @@ export function RampWidgetTemplate({
   assets,
   asset,
   amount,
+  sellAvailable,
   quotes,
   rejected,
   startingQuoteId,
@@ -274,6 +287,7 @@ export function RampWidgetTemplate({
   onResumeOrder,
   onNewOrder,
   onBack,
+  onStepSelect,
   onRetry,
   onClose,
 }: RampWidgetTemplateProps) {
@@ -295,6 +309,14 @@ export function RampWidgetTemplate({
   useRenderAt(view?.canSign && view.expiresAt ? Date.parse(view.expiresAt) : null);
   const missingField = fields.some((f) => !rampFieldValid(f, fieldValues[f.key]));
   const canFind = !!amount && Number(amount) > 0 && !!fiat && !!asset && !isLoading;
+  // Once the order exists, going back means a new order, which "New order" already starts.
+  const stepsOpen =
+    !!onStepSelect &&
+    step !== 'status' &&
+    !isLoading &&
+    startingQuoteId === null &&
+    trustingAsset === null &&
+    walletBusy === null;
 
   const primary = (label: string, onPress: () => void, disabled = false) => (
     <TouchableOpacity
@@ -354,6 +376,46 @@ export function RampWidgetTemplate({
       >
         <Text style={{ color: colors.muted, fontSize: 16 }}>✕</Text>
       </TouchableOpacity>
+
+      {flowStepIndex >= 0 && flowSteps.length > 0 && (
+        <View style={styles.steps}>
+          <Text style={[styles.stepsLabel, { color: colors.muted }]}>
+            Step {flowStepIndex + 1} of {flowSteps.length}
+          </Text>
+          <View style={styles.stepsTrack}>
+            {flowSteps.map((label, i) => {
+              const reachable = stepsOpen && i < flowStepIndex;
+              const current = i === flowStepIndex;
+              return (
+                <TouchableOpacity
+                  key={label}
+                  style={styles.stepsItem}
+                  disabled={!reachable}
+                  onPress={() => onStepSelect?.(label)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Go to ${label}`}
+                  accessibilityState={{ disabled: !reachable, selected: current }}
+                >
+                  <View style={[styles.stepsSegment, { backgroundColor: i <= flowStepIndex ? accentColor : colors.border }]} />
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.stepsName,
+                      {
+                        // No hover on a phone: a step that can be tapped says so in the accent colour.
+                        color: current ? colors.text : reachable ? accentColor : colors.muted,
+                        fontWeight: current ? '600' : '400',
+                      },
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
         {step === 'input' && (
@@ -415,17 +477,15 @@ export function RampWidgetTemplate({
                 )}
               </>
             )}
-            <Text style={[styles.label, { color: colors.text }]}>
-              {onramp ? 'You pay' : 'You sell'}
-              {(onramp ? fiat?.currency : asset?.code) ? ` (${onramp ? fiat?.currency : asset?.code})` : ''}
-            </Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.text }]}
-              placeholder="25.00"
-              placeholderTextColor={colors.muted}
-              keyboardType="decimal-pad"
+            <AmountField
+              theme={theme}
+              accentColor={accentColor}
+              label={onramp ? 'You pay' : 'You sell'}
               value={amount}
-              onChangeText={onAmountChange}
+              onChange={onAmountChange}
+              unit={onramp ? fiat?.currency : asset?.code}
+              available={onramp ? undefined : sellAvailable}
+              placeholder="25.00"
             />
             {errorLine}
             {primary('Find routes', onFindRoute, !canFind)}
@@ -473,7 +533,8 @@ export function RampWidgetTemplate({
               </View>
             )}
             {errorLine}
-            {secondary('Back', onBack)}
+            {/* A dead end keeps a button out: the step bar alone is too quiet as the only way forward. */}
+            {(errorMsg || !quotes.length) && primary('Back', onBack)}
           </>
         )}
 
@@ -510,7 +571,6 @@ export function RampWidgetTemplate({
             ))}
             {errorLine}
             {primary(isLoading ? 'Starting…' : 'Continue', onContactContinue, missingField || isLoading)}
-            {secondary('Back', onBack)}
           </>
         )}
 
@@ -634,6 +694,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     openRecoveryModal,
     appConfig,
     cosign,
+    refreshWalletBalance,
   } = usePollar();
   const { theme = 'light', accentColor = '#005DB4' } = pollarStyles;
   const client = getClient();
@@ -694,6 +755,27 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   }, [routes, country, fiat]);
   const asset = assets.find((a) => assetKey(a) === assetChoice) ?? assets[0] ?? null;
   const fields = selected ? rampQuoteFields(selected) : [];
+  const sellAvailable = useWalletAvailable(
+    direction === 'OFFRAMP' && asset ? { chain: asset.chain, code: asset.code, issuer: asset.identifier } : null,
+  );
+
+  useEffect(() => {
+    if (direction === 'OFFRAMP') void refreshWalletBalance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction]);
+
+  const flowSteps =
+    fields.length || quotes.some((q) => rampQuoteFields(q).length)
+      ? ['Amount', 'Route', 'Details', 'Complete']
+      : ['Amount', 'Route', 'Complete'];
+  const stepLabel: Partial<Record<RampStep, string>> = {
+    input: 'Amount',
+    loading_quote: 'Amount',
+    select_route: 'Route',
+    contact: 'Details',
+    status: 'Complete',
+  };
+  const flowLabel = stepLabel[step];
 
   useEffect(() => {
     let active = true;
@@ -1031,6 +1113,8 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           theme={theme}
           accentColor={accentColor}
           step={step}
+          flowSteps={flowSteps}
+          flowStepIndex={flowLabel ? flowSteps.indexOf(flowLabel) : -1}
           direction={direction}
           routesLoading={routesLoading}
           countries={countries}
@@ -1040,6 +1124,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           assets={assets}
           asset={asset}
           amount={amount}
+          sellAvailable={sellAvailable}
           quotes={quotes}
           rejected={rejected}
           startingQuoteId={startingQuoteId}
@@ -1107,6 +1192,12 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
             setAwaitingAccount(null);
             setStep(step === 'contact' ? 'select_route' : 'input');
           }}
+          onStepSelect={(target) => {
+            // Only Amount and Route sit before a step the user can leave; Complete is never left this way.
+            setErrorMsg(null);
+            setAwaitingAccount(null);
+            setStep(target === 'Route' ? 'select_route' : 'input');
+          }}
           onRetry={() => {
             setErrorMsg(null);
             setStep('input');
@@ -1171,6 +1262,30 @@ const styles = StyleSheet.create({
   },
   body: {
     marginVertical: 12,
+  },
+  steps: {
+    gap: 8,
+    marginTop: 4,
+  },
+  stepsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stepsTrack: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  stepsItem: {
+    flex: 1,
+    gap: 6,
+    paddingBottom: 2,
+  },
+  stepsSegment: {
+    height: 4,
+    borderRadius: 9999,
+  },
+  stepsName: {
+    fontSize: 12,
   },
   row: {
     flexDirection: 'row',
