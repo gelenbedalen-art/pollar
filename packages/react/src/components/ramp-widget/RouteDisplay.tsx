@@ -1,7 +1,9 @@
 'use client';
 
-import type { RampQuote, RampQuoteRejection, RampQuoteRequirement } from '@pollar/core';
-import { rampLegTitle, rampRequirementCopy, rampResolutionText, rampTrustlineAsset } from '@pollar/core';
+import type { CosignCustody, RampQuote, RampQuoteRejection, RampQuoteRequirement, RampWalletStep } from '@pollar/core';
+import { rampLegTitle, rampRequirementCopy, rampResolutionText, rampTrustlineAsset, rampWalletStep } from '@pollar/core';
+
+const CUSTODY_LABEL: Record<CosignCustody, string> = { COSIGNED: 'co-signed', SELF_CUSTODY: 'self-custody' };
 
 interface RouteDisplayProps {
   quote: RampQuote;
@@ -47,8 +49,8 @@ export function RouteDisplay({ quote, best = false, busy = false, disabled = fal
       <div className="pollar-ramp-route-left">
         <span className="pollar-ramp-route-provider">
           {first && last
-            ? `${quote.amountIn} ${assetOf(first.from)} → ${quote.amountOut} ${assetOf(last.to)}`
-            : quote.amountOut}
+            ? `${quote.amountIn} ${assetOf(first.from)} → ~${quote.amountOut} ${assetOf(last.to)}`
+            : `~${quote.amountOut}`}
         </span>
         <span className="pollar-ramp-route-meta">
           {busy
@@ -80,43 +82,53 @@ export function RejectedRouteDisplay({
   rejection,
   disabled = false,
   trusting = false,
-  creatingWallet = false,
+  walletBusy = false,
+  custodyChoice = false,
   onVerify,
   onTrust,
-  onCreateWallet,
+  onWalletStep,
 }: {
   rejection: RampQuoteRejection;
   /** A route is starting, a trustline or a wallet is being added, so nothing else opens meanwhile. */
   disabled?: boolean;
   /** This row's trustline is being added. */
   trusting?: boolean;
-  /** The user's wallet is being created. */
-  creatingWallet?: boolean;
+  /** The wallet step this route asks for is running. */
+  walletBusy?: boolean;
+  /** The app leaves the custody to the user: a wallet set up or moved here asks which. */
+  custodyChoice?: boolean;
   /** Without it, a verification step is described but offers no button. */
   onVerify?: ((requirement: RampQuoteRequirement) => void) | undefined;
   /** Without it, a missing trustline is described but offers no button. */
   onTrust?: ((asset: { code: string; issuer: string }) => void) | undefined;
-  /** Without it (an app that leaves the custody to the user), the wallet is created from the wallet menu. */
-  onCreateWallet?: (() => void) | undefined;
+  /**
+   * Runs the wallet step the route asks for (`rampWalletStep`: create, set up or move
+   * the wallet), with the user's custody pick when `custodyChoice`. An app that leaves
+   * the custody to the user creates the wallet from the wallet menu instead.
+   */
+  onWalletStep?: ((step: RampWalletStep, custody?: CosignCustody) => void) | undefined;
 }) {
   const requirement = rejection.requirement;
   const copy = requirement ? rampRequirementCopy(requirement) : null;
   const trustAsset = !requirement && onTrust ? rampTrustlineAsset(rejection) : null;
-  const toCreate = rejection.failure.resolutionAction === 'create_wallet';
+  const step = !requirement ? rampWalletStep(rejection) : null;
+  const fromMenu = step?.action === 'create_wallet' && custodyChoice;
+  const walletStep = onWalletStep && !fromMenu ? step : null;
+  // Only a step that creates or moves a wallet picks its custody; adding recovery does not.
+  const picks: Array<CosignCustody | undefined> =
+    custodyChoice && step?.action !== 'set_up_recovery' ? ['COSIGNED', 'SELF_CUSTODY'] : [undefined];
   const meta = copy
     ? copy.message
-    : toCreate && !onCreateWallet
+    : fromMenu
       ? 'You need a wallet to receive this. Create it from the wallet menu, then find the route again.'
       : rampResolutionText(rejection.failure);
-  const busy = trusting || (toCreate && creatingWallet);
+  const busy = trusting || (!!walletStep && walletBusy);
   return (
     <div
       className="pollar-ramp-route-card"
       data-locked
       data-kyc-status={requirement?.status}
-      data-disabled={
-        (!(copy?.action && onVerify) && !trustAsset && !(toCreate && onCreateWallet)) || (disabled && !busy) || undefined
-      }
+      data-disabled={(!(copy?.action && onVerify) && !trustAsset && !walletStep) || (disabled && !busy) || undefined}
     >
       <div className="pollar-ramp-route-left">
         <span className="pollar-ramp-route-provider">{rejection.legs.map((leg) => rampLegTitle(leg)).join(' · ')}</span>
@@ -141,23 +153,25 @@ export function RejectedRouteDisplay({
           </button>
         </div>
       )}
-      {toCreate && onCreateWallet && (
+      {walletStep && (
         <div className="pollar-ramp-route-right">
-          <button
-            type="button"
-            className="pollar-btn-secondary pollar-ramp-route-verify"
-            disabled={disabled}
-            aria-busy={creatingWallet}
-            onClick={onCreateWallet}
-          >
-            {creatingWallet ? (
-              <>
-                <span className="pollar-spinner pollar-spinner-sm" /> Creating…
-              </>
-            ) : (
-              'Create wallet'
-            )}
-          </button>
+          {walletBusy ? (
+            <button type="button" className="pollar-btn-secondary pollar-ramp-route-verify" disabled aria-busy>
+              <span className="pollar-spinner pollar-spinner-sm" /> {walletStep.busyLabel}
+            </button>
+          ) : (
+            picks.map((custody) => (
+              <button
+                key={custody ?? 'app'}
+                type="button"
+                className="pollar-btn-secondary pollar-ramp-route-verify"
+                disabled={disabled}
+                onClick={() => onWalletStep!(walletStep, custody)}
+              >
+                {custody ? `${walletStep.label} (${CUSTODY_LABEL[custody]})` : walletStep.label}
+              </button>
+            ))
+          )}
         </div>
       )}
       {requirement && copy?.action && onVerify && (

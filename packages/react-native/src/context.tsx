@@ -142,6 +142,12 @@ export type PollarContextValue = Methods &
     /** Open the approval prompt of a co-signed wallet. Opens by itself when a request arrives. */
     openCosignModal: () => void;
     /**
+     * The approval a flow will ask for next (a ramp's swap after its approve),
+     * or null. While one is coming, the approval prompt stays open after a sent
+     * transaction and shows the next request when it arrives, instead of closing.
+     */
+    setCosignNextStep: (next: string | null) => void;
+    /**
      * The recovery state of the user's Turnkey wallet: null until read, or for a
      * session without one. `recoveryLocked` is true while the wallet has no way
      * to be recovered without this device: it signs nothing but its own setup.
@@ -245,6 +251,7 @@ function ClientProvider({
   }>({});
   const [ramp, setRamp] = useState<NativeRampState | null>(null);
   const [cosignModalOpen, setCosignModalOpen] = useState(false);
+  const [cosignNextStep, setCosignNextStep] = useState<string | null>(null);
   const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   const [remote, setRemote] = useState<PollarConfig>(appConfig ?? emptyConfig);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(appConfig ? 'ready' : 'loading');
@@ -465,6 +472,7 @@ function ClientProvider({
     openDistributionRulesModal: () => open('distribution'),
     cosign,
     openCosignModal: () => setCosignModalOpen(true),
+    setCosignNextStep,
     recovery,
     recoveryLocked,
     refreshRecovery,
@@ -500,7 +508,7 @@ function ClientProvider({
         )}
         {cosignModalOpen && (
           <ModalErrorBoundary onClose={() => setCosignModalOpen(false)}>
-            <CosignModal onClose={() => setCosignModalOpen(false)} />
+            <CosignModal nextStep={cosignNextStep} onClose={() => setCosignModalOpen(false)} />
           </ModalErrorBoundary>
         )}
         {custodyMigration?.required && !custodyMigrationLater && (
@@ -522,7 +530,13 @@ function ClientProvider({
         )}
         {recoveryModalOpen && (
           <ModalErrorBoundary onClose={() => setRecoveryModalOpen(false)}>
-            <RecoveryModal onClose={() => setRecoveryModalOpen(false)} />
+            <RecoveryModal
+              onClose={() => {
+                setRecoveryModalOpen(false);
+                // A method added in the modal unlocks what waited on it (a held ramp order).
+                refreshRecovery();
+              }}
+            />
           </ModalErrorBoundary>
         )}
         {firstConfirmation && (

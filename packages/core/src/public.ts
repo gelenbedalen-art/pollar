@@ -8,7 +8,7 @@ export * from './ramps/index';
 export { POLLAR_CORE_VERSION } from './version';
 export { createLogger } from './lib/logger';
 export { toBaseUnits, fromBaseUnits } from './lib/units';
-export { appUnavailableMessage, transactionErrorMessage } from './lib/tx-error-messages';
+export { appUnavailableMessage, cosignRefusalMessage, transactionErrorMessage } from './lib/tx-error-messages';
 export type { LogLevel, PollarLogger } from './lib/logger';
 
 // --- Storage ------------------------------------------------------------------
@@ -97,7 +97,17 @@ export { getEarnProviders, getEarnOpportunities, getEarnPosition, buildEarnTx } 
 export {
   describeRampAction,
   rampCountries,
+  rampFieldError,
+  rampFieldValid,
+  rampLegNote,
   rampLegStatus,
+  rampLegTimeLeft,
+  rampNextApproval,
+  rampStepStatusText,
+  rampStepTitle,
+  rampOrderReceive,
+  rampOrderResolutionText,
+  rampOrderStopped,
   rampLegTitle,
   rampNoRouteText,
   rampQuoteFields,
@@ -105,8 +115,10 @@ export {
   rampRequirementCopy,
   rampResolutionText,
   rampTrustlineAsset,
+  rampTrustlineErrorText,
+  rampWalletStep,
 } from './ramps/workflow';
-export type { RampSigningHandler } from './ramps/workflow';
+export type { RampSigningHandler, RampWalletStep } from './ramps/workflow';
 export { assertRampStellarSigner } from './ramps/stellar-signing';
 // --- Cards endpoints ----------------------------------------------------------
 export {

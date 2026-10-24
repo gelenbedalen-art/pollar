@@ -1,4 +1,4 @@
-import { RampSigningRegistry, type RampSigningHandler } from '../ramps/workflow';
+import { RampSigningRegistry, type RampSigningHandler, type RampWalletStep } from '../ramps/workflow';
 import type {
   RampChain,
   RampDirection,
@@ -9,8 +9,10 @@ import type {
   RampQuoteRequest,
   RampQuotesResponse,
   RampRoutesResponse,
+  RampWalletSetup,
+  RampWalletSetupChain,
 } from '../types';
-import { createApiClient, fetchWithTimeout, PollarApiClient } from '../api/client';
+import { createApiClient, fetchWithTimeout, isRetryableTransportError, PollarApiClient } from '../api/client';
 import { claimDistributionRule, listDistributionRules } from '../api/endpoints/distribution';
 import { getSwapConfig, getSwapTokens, quoteSwap } from '../api/endpoints/swap';
 import { buildEarnTx, getEarnOpportunities, getEarnPosition, getEarnProviders } from '../api/endpoints/earn';
@@ -49,6 +51,9 @@ import {
 import {
   createRampOrder,
   getRampOrder,
+  retryRampOrder,
+  checkRampOrder,
+  setUpRampWallet,
   getRampRoutes,
   listRampOrders,
   pollRampOrder,
@@ -2536,8 +2541,10 @@ export class PollarClient {
    * mirroring the opt-out on the payment / swap / contract fee-bump surfaces. The
    * route is by wallet type, and each server endpoint sponsors-or-self-pays:
    *  - **Embedded** (internal wallet, no adapter) -> one call to
-   *    `/wallet/assets/trustline`: the server holds the trustor key and either
-   *    sponsors or self-pays, then submits, returning the refreshed asset list.
+   *    `/wallet/assets/trustline`: the server signs the way the wallet's signer
+   *    allows. A custodial wallet is sponsored or self-paid and submitted there,
+   *    returning the refreshed asset list; a co-signed one answers with the
+   *    request its device approves, settled like any other co-signed send.
    *  - **External/adapter** -> `/wallet/assets/trustline/build` returns a
    *    `changeTrust` XDR (sponsor-signed when covered, or a plain self-pay one
    *    otherwise); the user's own wallet adds the trustor signature and submits.
@@ -2600,7 +2607,12 @@ export class PollarClient {
         const { data, error } = await this._api.POST('/wallet/assets/trustline', {
           body: { code: asset.code, issuer: asset.issuer, ...(limit !== undefined && { limit }) },
         });
-        if (!error && data?.success) {
+        // Read before success: the 202 a co-signed wallet answers is a 2xx too.
+        const pendingRequest = this._cosignPendingOf(data);
+        if (pendingRequest) {
+          return this._settleCosign(pendingRequest, { intent: 'sign_and_send', phase: 'signing-submitting' });
+        }
+        if (!error && data?.code === 'SDK_WALLET_TRUSTLINE') {
           if (data.content) {
             // Bump the assets generation so a refreshAssets() that was in flight
             // can't clobber this post-trustline (fresher) snapshot.
@@ -2609,8 +2621,7 @@ export class PollarClient {
           }
           return { status: 'success' };
         }
-        const details = apiErrorFields(error).details ?? apiErrorFields(error).code;
-        return { status: 'error', ...(details && { details }) };
+        return this._trustlineError(error);
       } catch (err) {
         const details = err instanceof Error ? err.message : undefined;
         return { status: 'error', ...(details && { details }) };
@@ -2627,10 +2638,7 @@ export class PollarClient {
       });
       // Sponsor-signed when the app covers it, plain self-pay otherwise; sign + submit either.
       const xdr = data?.content?.sponsorSignedXdr ?? data?.content?.unsignedXdr;
-      if (error || !data?.success || !xdr) {
-        const details = apiErrorFields(error).details ?? apiErrorFields(error).code;
-        return { status: 'error', ...(details && { details }) };
-      }
+      if (error || !data?.success || !xdr) return this._trustlineError(error);
       const signed = await this._signTx(xdr, undefined, false);
       if (signed.status === 'error') {
         return { status: 'error', ...(signed.details && { details: signed.details }) };
@@ -2641,6 +2649,13 @@ export class PollarClient {
       const details = err instanceof Error ? err.message : undefined;
       return { status: 'error', ...(details && { details }) };
     }
+  }
+
+  /** A refused trustline call, with the API's code so a UI can say what to do about it. */
+  private _trustlineError(error: unknown): TrustlineOutcome {
+    const fields = apiErrorFields(error);
+    const details = fields.details ?? fields.message ?? fields.code;
+    return { status: 'error', ...(details && { details }), ...(fields.code && { code: fields.code }) };
   }
 
   /**
@@ -3416,6 +3431,16 @@ export class PollarClient {
       const resolved = await this.cosign.settle(await this.cosign.approve(request));
       return await this._outcomeOfCosign(resolved, ctx);
     } catch (err) {
+      // A call that never answered says nothing about the vote: it may have landed
+      // (Turnkey signed, Pollar voted, the transaction went out). The request says
+      // what happened; rejecting it here could report a send that succeeded as failed.
+      if (isRetryableTransportError(err)) {
+        try {
+          return await this._outcomeOfCosign(await this.cosign.settle(await this.cosign.get(request.id, { sync: true })), ctx);
+        } catch {
+          return { status: 'cosign_pending', request, ...(buildData && { buildData }) };
+        }
+      }
       const code = err instanceof PollarApiError ? err.code : undefined;
       let details = err instanceof Error ? err.message : undefined;
       if (err instanceof PollarApiError && code === 'SDK_COSIGN_VERIFICATION_FAILED') {
@@ -4494,15 +4519,73 @@ export class PollarClient {
     return getRampOrder(this._api, id);
   }
 
-  /** The user's orders, newest first; `pending: 'true'` keeps the ones waiting on the user. */
+  /** Asks about the order's fiat payment now, for a user who says they paid. */
+  checkRampOrder(id: string): Promise<RampOrder> {
+    return checkRampOrder(this._api, id);
+  }
+
+  /** Runs the user's held order again from where it stopped (their failure to resolve, e.g. an approval). */
+  retryRampOrder(id: string): Promise<RampOrder> {
+    return retryRampOrder(this._api, id);
+  }
+
+  /**
+   * Sets up the user's wallet on a chain a dropped route passes through
+   * (`set_up_wallet`, the chain in the failure's `detail`): a Turnkey wallet with
+   * this device as its first credential, in the app's custody. `custody` is the
+   * user's pick when the app leaves it to them. Like any new Turnkey wallet, it
+   * signs once it has a recovery method (`recoveryConfigured`); then quote again.
+   */
+  async setUpRampWallet(chain: RampWalletSetupChain, custody?: CosignCustody): Promise<RampWalletSetup> {
+    const devicePublicKey = await this.cosign.publicKeyHex();
+    const wallet = await setUpRampWallet(this._api, chain, { devicePublicKey, ...(custody ? { custody } : {}) });
+    await this.cosign
+      .inspectQuorum()
+      .catch((err: unknown) => this._log.warn('[PollarClient] could not read the quorum of the new wallet', err));
+    return wallet;
+  }
+
+  /**
+   * Runs the wallet step a dropped route asks for (`rampWalletStep`): creates the
+   * wallet on the app's chains, sets one up on the route's chain, or moves the
+   * wallets Pollar still holds to the app's custody. `custody` is the user's pick
+   * when the app leaves it to them. `recoveryRequired` when the Turnkey wallet it
+   * leaves needs a recovery method before it signs: the route quotes, but its
+   * steps would wait on it. A `set_up_recovery` step does nothing itself: its
+   * `recoveryRequired` tells the caller to open the recovery flow.
+   */
+  async runRampWalletStep(step: RampWalletStep, custody?: CosignCustody): Promise<{ recoveryRequired: boolean }> {
+    if (step.action === 'create_wallet') await this.createWallet(custody ? { custody } : undefined);
+    else if (step.action === 'set_up_wallet' && step.chain) await this.setUpRampWallet(step.chain, custody);
+    else if (step.action === 'migrate_custody') await this.cosign.migrateWallets(custody);
+    // Recovery is added in the recovery flow; the status below tells the caller to open it.
+    else if (step.action !== 'set_up_recovery')
+      throw new PollarApiError('VALIDATION_ERROR', { reason: `no wallet step ${step.action}` });
+    const recovery = await this.cosign.recovery.status().catch(() => null);
+    return { recoveryRequired: !!recovery?.required && !recovery.configured };
+  }
+
+  /**
+   * The user's orders, newest first; `pending: 'true'` keeps the ones waiting on the
+   * user, `open: 'true'` every one not final yet (what a client resumes).
+   */
   listRampOrders(query: Partial<RampOrdersQuery> = {}): Promise<RampOrdersPage> {
     return listRampOrders(this._api, query);
   }
 
-  /** Reads the order at the pace the server suggests until it settles (or `until` holds). */
+  /**
+   * Reads the order at the pace the server suggests until it settles (or `until`
+   * holds). A failed read goes to `onError` and is read again; only an order that
+   * no longer exists for this user ends it.
+   */
   pollRampOrder(
     id: string,
-    opts?: { signal?: AbortSignal; onUpdate?: (order: RampOrder) => void; until?: (order: RampOrder) => boolean },
+    opts?: {
+      signal?: AbortSignal;
+      onUpdate?: (order: RampOrder) => void;
+      onError?: (error: unknown) => void;
+      until?: (order: RampOrder) => boolean;
+    },
   ): Promise<RampOrder> {
     return pollRampOrder(this._api, id, opts);
   }

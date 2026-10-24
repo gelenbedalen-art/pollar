@@ -857,7 +857,7 @@ export type TrustlineOutcome =
   | { status: 'success'; hash?: string }
   | { status: 'pending'; hash?: string }
   | { status: 'cosign_pending'; request: CosignRequest; buildData?: TxBuildContent }
-  | { status: 'error'; details?: string };
+  | { status: 'error'; details?: string; code?: string };
 
 export const AUTH_ERROR_CODES = {
   SESSION_CREATE_FAILED: 'SESSION_CREATE_FAILED',
@@ -1236,6 +1236,7 @@ export type RampOrderRequest = NonNullable<pollarPaths['/ramps/orders']['post'][
 /** An order with every leg, what it waits for (`pendingAction`) and when to read it again (`nextPollAfter`). */
 export type RampOrder = RampsGet<'/ramps/orders/{id}'>;
 export type RampOrderLeg = RampOrder['legs'][number];
+export type RampOrderLegStep = RampOrderLeg['steps'][number];
 export type RampPendingAction = NonNullable<RampOrder['pendingAction']>;
 export type RampSignatureAction = Extract<RampPendingAction, { kind: 'SIGNATURE' }>;
 /** How to pay the fiat side: a QR (its code already rendered in `scannable`) or bank coordinates. */
@@ -1250,6 +1251,11 @@ export type RampScannable = NonNullable<Extract<RampFiatInstructions, { kind: 'q
 export type RampFailure = NonNullable<RampOrder['failure']>;
 export type RampOrdersQuery = NonNullable<pollarPaths['/ramps/orders']['get']['parameters']['query']>;
 export type RampOrdersPage = RampsGet<'/ramps/orders'>;
+/** A chain a route passes through where the user's device sets up their wallet (`set_up_wallet`). */
+export type RampWalletSetupChain = pollarPaths['/ramps/wallets/{chain}']['post']['parameters']['path']['chain'];
+/** The wallet the device set up; it signs once `recoveryConfigured`. */
+export type RampWalletSetup =
+  pollarPaths['/ramps/wallets/{chain}']['post']['responses'][200]['content']['application/json']['content'];
 /** The order lifecycle; `completed`, `failed` and `refunded` are final. */
 export type RampOrderState = NonNullable<RampOrdersQuery['state']>;
 

@@ -81,11 +81,21 @@ export type RampAdapterField = {
   placeholder?: string;
   placeholderFrom?: string;
   hint?: string;
+  /** A regular expression (JavaScript syntax, no flags) the whole value must match. */
+  pattern?: string;
 };
 export type RampAdapterAction =
   | { kind: 'collect_information'; fields: RampAdapterField[] }
   | { kind: 'hosted_redirect'; purpose: 'verification' | 'payment'; url: string; expiresAt: string | null }
-  | { kind: 'qr_payment'; payload: string; amount: RampDecimal; currency: string; expiresAt: string | null }
+  | {
+      kind: 'qr_payment';
+      payload: string;
+      amount: RampDecimal;
+      currency: string;
+      expiresAt: string | null;
+      /** The provider's own page for this payment: what a phone opens, since it cannot scan its own screen. */
+      link?: string | null;
+    }
   | {
       kind: 'bank_transfer';
       amount: RampDecimal;
@@ -93,6 +103,8 @@ export type RampAdapterAction =
       details: Array<{ label: string; value: string }>;
       reference: string | null;
       expiresAt: string | null;
+      /** The provider's own page for this payment, where its status can be followed. */
+      link?: string | null;
     }
   | { kind: 'user_ready'; purpose: 'create_order' | 'withdrawal_payment' | 'onramp_claim' }
   | {

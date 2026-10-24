@@ -278,7 +278,7 @@ export interface paths {
         put?: never;
         /**
          * Enable or remove a trustline for an enabled asset
-         * @description Establishes (no limit) or removes (limit '0') a trustline on the authenticated user's embedded wallet. When the asset is app-configured and sponsoring is on, the app wallets pay the reserve + fee; otherwise the server self-pays with the user's own wallet. Either way it submits server-side and returns the refreshed enabled-asset list. The wallet and network are derived from the session.
+         * @description Establishes (no limit) or removes (limit '0') a trustline on the authenticated user's embedded wallet. When the asset is app-configured and sponsoring is on, the app wallets pay the reserve + fee; otherwise the server self-pays with the user's own wallet. Either way it submits server-side and returns the refreshed enabled-asset list. A co-signed wallet answers 202 with the request its device approves; the trustline is submitted once approved. A wallet the user signs for (external) builds it with POST /wallet/assets/trustline/build instead. The wallet and network are derived from the session.
          */
         post: operations["postWalletAssetsTrustline"];
         delete?: never;
@@ -1988,6 +1988,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ramps/orders/{id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a fiat payment now
+         * @description For a user who says they paid: the provider is asked about the `FIAT_PAYMENT` pending action now instead of at its next recheck, at most once every 10 seconds per order. Any other order is answered as it stands.
+         */
+        post: operations["postRampsOrdersByIdCheck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ramps/orders/{id}/legs/{index}/signature": {
         parameters: {
             query?: never;
@@ -2002,6 +2022,46 @@ export interface paths {
          * @description The signature of a SIGNATURE pending action, for a wallet the user brings (EXTERNAL) or the app custodies (APP_CUSTODY). It must sign the action's payload unchanged; an action that changed since it was read answers SDK_RAMPS_ACTION_STALE.
          */
         post: operations["postRampsOrdersByIdLegsByIndexSignature"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ramps/orders/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry a held ramp order
+         * @description Runs the held leg again from where it stopped, when the user is the one who resolves its failure (`resolutionOwner: END_USER`, e.g. after approving again). A leg that failed before funds moved is not retried: quote again.
+         */
+        post: operations["postRampsOrdersByIdRetry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ramps/wallets/{chain}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set up my wallet on a chain a route passes through
+         * @description For a quote rejected with `set_up_wallet` (the chain is the failure's `detail`): creates my Turnkey wallet with this device as its first credential, holding only that chain's account, in the app's custody (`custody` is required when the app leaves it to me). A user who already has a Turnkey wallet gets the account derived in it, a request they approve (422 SDK_RAMPS_WALLET_NOT_READY until then). The wallet signs once it has a recovery method (`recoveryConfigured`). Then quote again.
+         */
+        post: operations["postRampsWalletsByChain"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4060,6 +4120,64 @@ export interface operations {
                                 enabledInApp: boolean;
                                 sponsored?: boolean;
                             }[];
+                        };
+                    };
+                };
+            };
+            /** @description Co-signed wallet: the request the user approves on their device */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_COSIGN_PENDING";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            pendingSignature: {
+                                /** @constant */
+                                kind: "cosign";
+                                request: {
+                                    id: string;
+                                    /** @enum {string} */
+                                    kind: "TX" | "SEP10" | "SEP53" | "AUTH_ENTRY" | "MESSAGE" | "ACCOUNT";
+                                    /** @enum {string} */
+                                    network: "STELLAR" | "POLYGON" | "SOLANA";
+                                    /** @enum {string} */
+                                    status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED" | "FAILED";
+                                    subOrgId: string;
+                                    activityId: string | null;
+                                    fingerprint: string | null;
+                                    signWith: string;
+                                    account?: string;
+                                    unsignedPayload: string;
+                                    payloadHash: string;
+                                    refreshable: boolean;
+                                    /** @enum {string} */
+                                    intent: "sign" | "sign_and_send" | "account_create" | "add_accounts";
+                                    operation?: string;
+                                    summary?: string;
+                                    details?: {
+                                        [key: string]: unknown;
+                                    };
+                                    stepKey?: string;
+                                    signedXdr?: string;
+                                    submit?: {
+                                        hash: string;
+                                        /** @enum {string} */
+                                        status: "PENDING" | "SUCCESS" | "FAILED";
+                                        resultCode?: string;
+                                        message?: string;
+                                    };
+                                    txRecordId?: string;
+                                    failureReason?: string;
+                                    expiresAt: string;
+                                    createdAt: string;
+                                    resolvedAt: string | null;
+                                };
+                            };
                         };
                     };
                 };
@@ -14260,6 +14378,7 @@ export interface operations {
                                         placeholder?: string;
                                         placeholderFrom?: string;
                                         hint?: string;
+                                        pattern?: string;
                                     }[];
                                 }[];
                             }[];
@@ -14376,6 +14495,7 @@ export interface operations {
             query?: {
                 state?: "created" | "awaiting_payment" | "processing" | "settling_onchain" | "completed" | "failed" | "refunded";
                 pending?: "true" | "false";
+                open?: "true" | "false";
                 since?: string;
                 limit?: number;
                 cursor?: string;
@@ -14461,6 +14581,16 @@ export interface operations {
                                         resolutionAction: string;
                                         detail: string | null;
                                     } | null;
+                                    steps: {
+                                        /** @enum {string} */
+                                        kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                        /** @enum {string} */
+                                        status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                        signs: boolean;
+                                        hash: string | null;
+                                    }[];
+                                    etaSeconds: number | null;
+                                    startedAt: string | null;
                                 }[];
                                 pendingAction: ({
                                     /** @constant */
@@ -14480,13 +14610,14 @@ export interface operations {
                                             payloadLabel: string | null;
                                             image: {
                                                 /** @enum {string} */
-                                                mediaType: "image/svg+xml" | "image/png";
+                                                mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                                 /** @enum {string} */
                                                 encoding: "utf8" | "base64";
                                                 data: string;
                                                 inlineSafe: boolean;
                                             };
                                         };
+                                        link?: string | null;
                                     } | {
                                         /** @constant */
                                         kind: "bank_transfer";
@@ -14497,6 +14628,13 @@ export interface operations {
                                             value: string;
                                         }[];
                                         reference: string | null;
+                                        link?: string | null;
+                                    } | {
+                                        /** @constant */
+                                        kind: "hosted";
+                                        url: string;
+                                        amount: string;
+                                        currency: string;
                                     };
                                     expiresAt: string | null;
                                 } | {
@@ -14671,6 +14809,16 @@ export interface operations {
                                     resolutionAction: string;
                                     detail: string | null;
                                 } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
                             }[];
                             pendingAction: ({
                                 /** @constant */
@@ -14690,13 +14838,14 @@ export interface operations {
                                         payloadLabel: string | null;
                                         image: {
                                             /** @enum {string} */
-                                            mediaType: "image/svg+xml" | "image/png";
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                             /** @enum {string} */
                                             encoding: "utf8" | "base64";
                                             data: string;
                                             inlineSafe: boolean;
                                         };
                                     };
+                                    link?: string | null;
                                 } | {
                                     /** @constant */
                                     kind: "bank_transfer";
@@ -14707,6 +14856,13 @@ export interface operations {
                                         value: string;
                                     }[];
                                     reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
                                 };
                                 expiresAt: string | null;
                             } | {
@@ -14917,6 +15073,16 @@ export interface operations {
                                     resolutionAction: string;
                                     detail: string | null;
                                 } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
                             }[];
                             pendingAction: ({
                                 /** @constant */
@@ -14936,13 +15102,14 @@ export interface operations {
                                         payloadLabel: string | null;
                                         image: {
                                             /** @enum {string} */
-                                            mediaType: "image/svg+xml" | "image/png";
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                             /** @enum {string} */
                                             encoding: "utf8" | "base64";
                                             data: string;
                                             inlineSafe: boolean;
                                         };
                                     };
+                                    link?: string | null;
                                 } | {
                                     /** @constant */
                                     kind: "bank_transfer";
@@ -14953,6 +15120,232 @@ export interface operations {
                                         value: string;
                                     }[];
                                     reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
+                                };
+                                expiresAt: string | null;
+                            } | {
+                                /** @constant */
+                                kind: "SIGNATURE";
+                                actionId: string;
+                                legIndex: number;
+                                /** @enum {string} */
+                                chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                payload: {
+                                    encoding: string;
+                                    value: string;
+                                };
+                                summary: string;
+                                expiresAt: string;
+                            } | {
+                                /** @constant */
+                                kind: "COSIGN_APPROVAL";
+                                actionId: string;
+                                legIndex: number;
+                                cosignRequestId: string;
+                                summary: string;
+                            } | {
+                                /** @constant */
+                                kind: "KYC";
+                                actionId: string;
+                                legIndex: number;
+                                steps: unknown;
+                                url: string | null;
+                            } | {
+                                /** @constant */
+                                kind: "NONE";
+                                actionId: string;
+                                legIndex: number;
+                            }) | null;
+                            failure: {
+                                legIndex: number;
+                                code: string;
+                                retryable: boolean;
+                                resolutionOwner: string;
+                                resolutionAction: string;
+                                detail: string | null;
+                            } | null;
+                            nextPollAfter: string | null;
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postRampsOrdersByIdCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The order after the check. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_RAMPS_ORDER";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            id: string;
+                            /** @enum {string} */
+                            direction: "ONRAMP" | "OFFRAMP";
+                            state: string;
+                            createdAt: string;
+                            updatedAt: string;
+                            legs: {
+                                index: number;
+                                /** @enum {string} */
+                                kind: "PROVIDER_ONRAMP" | "PROVIDER_OFFRAMP" | "SWAP" | "BRIDGE";
+                                status: string;
+                                from: {
+                                    /** @constant */
+                                    kind: "asset";
+                                    code: string;
+                                    identifier: string | null;
+                                    /** @enum {string} */
+                                    chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                } | {
+                                    /** @constant */
+                                    kind: "fiat";
+                                    currency: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
+                                    country: string;
+                                };
+                                to: {
+                                    /** @constant */
+                                    kind: "asset";
+                                    code: string;
+                                    identifier: string | null;
+                                    /** @enum {string} */
+                                    chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                } | {
+                                    /** @constant */
+                                    kind: "fiat";
+                                    currency: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
+                                    country: string;
+                                };
+                                amountInPlanned: string;
+                                amountOutPlanned: string;
+                                amountInActual: string | null;
+                                amountOutActual: string | null;
+                                onchainTxHash: string | null;
+                                signingMode: string | null;
+                                fundsLocation: {
+                                    /** @enum {string} */
+                                    chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                    address: string;
+                                    asset: string;
+                                    amount: string;
+                                } | null;
+                                failure: {
+                                    legIndex: number;
+                                    code: string;
+                                    retryable: boolean;
+                                    resolutionOwner: string;
+                                    resolutionAction: string;
+                                    detail: string | null;
+                                } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
+                            }[];
+                            pendingAction: ({
+                                /** @constant */
+                                kind: "FIAT_PAYMENT";
+                                actionId: string;
+                                legIndex: number;
+                                instructions: {
+                                    /** @constant */
+                                    kind: "qr";
+                                    payload: string;
+                                    amount: string;
+                                    currency: string;
+                                    scannable?: {
+                                        /** @enum {string} */
+                                        kind: "pix" | "stellar" | "url" | "opaque";
+                                        payload: string | null;
+                                        payloadLabel: string | null;
+                                        image: {
+                                            /** @enum {string} */
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+                                            /** @enum {string} */
+                                            encoding: "utf8" | "base64";
+                                            data: string;
+                                            inlineSafe: boolean;
+                                        };
+                                    };
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "bank_transfer";
+                                    amount: string;
+                                    currency: string;
+                                    details: {
+                                        label: string;
+                                        value: string;
+                                    }[];
+                                    reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
                                 };
                                 expiresAt: string | null;
                             } | {
@@ -15126,6 +15519,16 @@ export interface operations {
                                     resolutionAction: string;
                                     detail: string | null;
                                 } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
                             }[];
                             pendingAction: ({
                                 /** @constant */
@@ -15145,13 +15548,14 @@ export interface operations {
                                         payloadLabel: string | null;
                                         image: {
                                             /** @enum {string} */
-                                            mediaType: "image/svg+xml" | "image/png";
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                                             /** @enum {string} */
                                             encoding: "utf8" | "base64";
                                             data: string;
                                             inlineSafe: boolean;
                                         };
                                     };
+                                    link?: string | null;
                                 } | {
                                     /** @constant */
                                     kind: "bank_transfer";
@@ -15162,6 +15566,13 @@ export interface operations {
                                         value: string;
                                     }[];
                                     reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
                                 };
                                 expiresAt: string | null;
                             } | {
@@ -15257,6 +15668,358 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postRampsOrdersByIdRetry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The order after the retry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_RAMPS_ORDER_RETRIED";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            id: string;
+                            /** @enum {string} */
+                            direction: "ONRAMP" | "OFFRAMP";
+                            state: string;
+                            createdAt: string;
+                            updatedAt: string;
+                            legs: {
+                                index: number;
+                                /** @enum {string} */
+                                kind: "PROVIDER_ONRAMP" | "PROVIDER_OFFRAMP" | "SWAP" | "BRIDGE";
+                                status: string;
+                                from: {
+                                    /** @constant */
+                                    kind: "asset";
+                                    code: string;
+                                    identifier: string | null;
+                                    /** @enum {string} */
+                                    chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                } | {
+                                    /** @constant */
+                                    kind: "fiat";
+                                    currency: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
+                                    country: string;
+                                };
+                                to: {
+                                    /** @constant */
+                                    kind: "asset";
+                                    code: string;
+                                    identifier: string | null;
+                                    /** @enum {string} */
+                                    chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                } | {
+                                    /** @constant */
+                                    kind: "fiat";
+                                    currency: string;
+                                    /** @enum {string} */
+                                    rail: "SPEI" | "PIX" | "PSE" | "ACH" | "BREB" | "QR" | "BANK_TRANSFER" | "CASH" | "CARD" | "HOSTED";
+                                    country: string;
+                                };
+                                amountInPlanned: string;
+                                amountOutPlanned: string;
+                                amountInActual: string | null;
+                                amountOutActual: string | null;
+                                onchainTxHash: string | null;
+                                signingMode: string | null;
+                                fundsLocation: {
+                                    /** @enum {string} */
+                                    chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                    address: string;
+                                    asset: string;
+                                    amount: string;
+                                } | null;
+                                failure: {
+                                    legIndex: number;
+                                    code: string;
+                                    retryable: boolean;
+                                    resolutionOwner: string;
+                                    resolutionAction: string;
+                                    detail: string | null;
+                                } | null;
+                                steps: {
+                                    /** @enum {string} */
+                                    kind: "approve" | "swap" | "burn" | "attestation" | "mint";
+                                    /** @enum {string} */
+                                    status: "pending" | "awaiting_approval" | "confirming" | "done";
+                                    signs: boolean;
+                                    hash: string | null;
+                                }[];
+                                etaSeconds: number | null;
+                                startedAt: string | null;
+                            }[];
+                            pendingAction: ({
+                                /** @constant */
+                                kind: "FIAT_PAYMENT";
+                                actionId: string;
+                                legIndex: number;
+                                instructions: {
+                                    /** @constant */
+                                    kind: "qr";
+                                    payload: string;
+                                    amount: string;
+                                    currency: string;
+                                    scannable?: {
+                                        /** @enum {string} */
+                                        kind: "pix" | "stellar" | "url" | "opaque";
+                                        payload: string | null;
+                                        payloadLabel: string | null;
+                                        image: {
+                                            /** @enum {string} */
+                                            mediaType: "image/svg+xml" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+                                            /** @enum {string} */
+                                            encoding: "utf8" | "base64";
+                                            data: string;
+                                            inlineSafe: boolean;
+                                        };
+                                    };
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "bank_transfer";
+                                    amount: string;
+                                    currency: string;
+                                    details: {
+                                        label: string;
+                                        value: string;
+                                    }[];
+                                    reference: string | null;
+                                    link?: string | null;
+                                } | {
+                                    /** @constant */
+                                    kind: "hosted";
+                                    url: string;
+                                    amount: string;
+                                    currency: string;
+                                };
+                                expiresAt: string | null;
+                            } | {
+                                /** @constant */
+                                kind: "SIGNATURE";
+                                actionId: string;
+                                legIndex: number;
+                                /** @enum {string} */
+                                chain: "STELLAR" | "POLYGON" | "SOLANA";
+                                payload: {
+                                    encoding: string;
+                                    value: string;
+                                };
+                                summary: string;
+                                expiresAt: string;
+                            } | {
+                                /** @constant */
+                                kind: "COSIGN_APPROVAL";
+                                actionId: string;
+                                legIndex: number;
+                                cosignRequestId: string;
+                                summary: string;
+                            } | {
+                                /** @constant */
+                                kind: "KYC";
+                                actionId: string;
+                                legIndex: number;
+                                steps: unknown;
+                                url: string | null;
+                            } | {
+                                /** @constant */
+                                kind: "NONE";
+                                actionId: string;
+                                legIndex: number;
+                            }) | null;
+                            failure: {
+                                legIndex: number;
+                                code: string;
+                                retryable: boolean;
+                                resolutionOwner: string;
+                                resolutionAction: string;
+                                detail: string | null;
+                            } | null;
+                            nextPollAfter: string | null;
+                        };
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+        };
+    };
+    postRampsWalletsByChain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chain: "POLYGON" | "SOLANA";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    devicePublicKey: string;
+                    /** @enum {string} */
+                    custody?: "COSIGNED" | "SELF_CUSTODY";
+                };
+            };
+        };
+        responses: {
+            /** @description The wallet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "SDK_RAMPS_WALLET_SET_UP";
+                        /** @constant */
+                        success: true;
+                        content: {
+                            /** @enum {string} */
+                            chain: "POLYGON" | "SOLANA";
+                            address: string;
+                            /** @enum {string} */
+                            custody: "COSIGNED" | "SELF_CUSTODY";
+                            recoveryConfigured: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: false;
+                        code: string;
+                        message?: string;
+                        resultCode?: string;
+                    };
+                };
+            };
+            /** @description Unprocessable */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,7 +1,8 @@
 'use client';
 
 import { type CosignRequest, type CosignVerification, fromBaseUnits } from '@pollar/core';
-import { cropAddress, PollarModalFooter } from '../commons';
+import { useState } from 'react';
+import { CopyButton, cropAddress, PollarModalFooter } from '../commons';
 import { buildModalCssVars, type ModalStyleOverrides } from '../modal-theme';
 
 export interface CosignModalTemplateProps {
@@ -23,6 +24,10 @@ export interface CosignModalTemplateProps {
   lastResolved?: CosignRequest;
   /** Explorer page of {@link lastResolved}'s transaction, when it was sent. */
   explorerUrl?: string | null;
+  /** Seconds until the modal closes on its own, while what it shows needs nothing from the user. */
+  closesIn?: number | null;
+  /** The approval coming next in the same flow, shown while the modal waits for it. */
+  nextStep?: string | null;
   onSelect: (request: CosignRequest) => void;
   onApprove: (request: CosignRequest) => void;
   onReject: (request: CosignRequest) => void;
@@ -88,6 +93,15 @@ function CloseIcon() {
   );
 }
 
+function VerifiedIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <circle cx="7" cy="7" r="7" fill="currentColor" />
+      <path d="M3.5 7l2.5 2.5 4.5-5" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function CosignModalTemplate({
   theme,
   accentColor,
@@ -100,6 +114,8 @@ export function CosignModalTemplate({
   approveBlocked = false,
   lastResolved,
   explorerUrl,
+  closesIn = null,
+  nextStep = null,
   onSelect,
   onApprove,
   onReject,
@@ -108,6 +124,9 @@ export function CosignModalTemplate({
   const cssVars = buildModalCssVars(theme, accentColor, styleOverrides);
   const verified = verification?.ok === true;
   const canVote = !!current && verified && !busy && !approveBlocked;
+  // Keyed by request id, so the explanation folds back when another request is shown.
+  const [verifiedOpenFor, setVerifiedOpenFor] = useState<string | null>(null);
+  const verifiedOpen = !!current && verifiedOpenFor === current.id;
 
   return (
     <div
@@ -159,6 +178,11 @@ export function CosignModalTemplate({
                     ) : (
                       cropAddress(lastResolved.submit.hash)
                     )}
+                    <CopyButton
+                      value={lastResolved.submit.hash}
+                      label="Copy transaction hash"
+                      className="pollar-copy-btn-sm pollar-cosign-copy"
+                    />
                   </>
                 ) : lastResolved.signedXdr ? (
                   'Signed. The app will send it.'
@@ -170,6 +194,13 @@ export function CosignModalTemplate({
           ) : (
             <p className="pollar-cosign-muted">Nothing waits for your approval.</p>
           )}
+          {nextStep && (
+            <p className="pollar-cosign-next">
+              <span className="pollar-spinner pollar-spinner-sm" aria-hidden /> Next: {nextStep}. It appears here in a few
+              seconds.
+            </p>
+          )}
+          {closesIn !== null && <p className="pollar-cosign-muted pollar-cosign-closing">Closing in {closesIn}s</p>}
         </div>
       )}
 
@@ -192,7 +223,26 @@ export function CosignModalTemplate({
 
       {current && (
         <div className="pollar-cosign-detail">
-          <p className="pollar-cosign-detail-title">{labelOf(current)}</p>
+          <div className="pollar-cosign-detail-head">
+            <p className="pollar-cosign-detail-title">{labelOf(current)}</p>
+            {!verification && (
+              <span className="pollar-cosign-chip">
+                <span className="pollar-spinner pollar-spinner-sm" aria-hidden />
+                Checking...
+              </span>
+            )}
+            {verification?.ok && (
+              <button
+                type="button"
+                className="pollar-cosign-chip pollar-cosign-chip-ok"
+                aria-expanded={verifiedOpen}
+                onClick={() => setVerifiedOpenFor(verifiedOpen ? null : current.id)}
+              >
+                <VerifiedIcon />
+                Verified
+              </button>
+            )}
+          </div>
           {current.summary && <p className="pollar-cosign-muted">{current.summary}</p>}
           <dl className="pollar-cosign-rows">
             {detailRows(current).map(([k, v]) => (
@@ -207,13 +257,15 @@ export function CosignModalTemplate({
             </div>
           </dl>
 
-          <div
-            className={`pollar-cosign-verify pollar-cosign-verify-${verification ? (verification.ok ? 'ok' : 'bad') : 'pending'}`}
-          >
-            {!verification && 'Checking the transaction against Turnkey...'}
-            {verification?.ok && 'Verified: this is exactly what will be signed.'}
-            {verification && !verification.ok && `Not verified: ${verification.reason}`}
-          </div>
+          {verification?.ok && verifiedOpen && (
+            <div className="pollar-cosign-verify pollar-cosign-verify-ok">
+              Checked against Turnkey: this is exactly what will be signed.
+            </div>
+          )}
+          {/* A failed check stays spelled out: it is the only place the user learns why Approve is off. */}
+          {verification && !verification.ok && (
+            <div className="pollar-cosign-verify pollar-cosign-verify-bad">Not verified: {verification.reason}</div>
+          )}
 
           {error && <div className="pollar-cosign-error">{error}</div>}
 

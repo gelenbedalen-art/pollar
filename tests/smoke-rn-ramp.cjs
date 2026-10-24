@@ -51,7 +51,11 @@ const pollarContext = {
   styles: {},
   appConfig: { application: { name: 'Fixture', network: 'mainnet', chains: ['STELLAR'] } },
   copyText: async () => {},
+  cosign: { pending: [] },
   openCosignModal() {},
+  setCosignNextStep() {},
+  walletBalance: { step: 'loaded', data: { balances: [] } },
+  refreshWalletBalance: async () => {},
   get ramp() {
     return saved;
   },
@@ -75,7 +79,7 @@ function load(file) {
         return null;
       };
     if (id === 'react-native-svg') return { SvgXml: () => null };
-    if (id === '../../context') return { usePollar: () => pollarContext };
+    if (id === '../../context' || id === './context') return { usePollar: () => pollarContext };
     if (id === '../commons') return { PollarOverlay: passthrough };
     if (id.startsWith('.')) {
       const base = path.join(path.dirname(file), id);
@@ -176,6 +180,8 @@ const order = (pendingAction, patch = {}) => ({
       signingMode: null,
       fundsLocation: null,
       failure: null,
+      steps: [],
+      startedAt: null,
     },
   ],
   pendingAction,
@@ -260,7 +266,7 @@ const order = (pendingAction, patch = {}) => ({
       .find((i) => i.keyboardType === 'decimal-pad')
       .onChangeText('100'),
   );
-  await press('Find routes');
+  await press('Find best route');
   assert.deepEqual(calls[1], ['quoteRamp', '100']);
   await press('100 BOB');
   await rerender(() => inputs.at(-1).onChangeText('Ana Perez'));
@@ -285,7 +291,151 @@ const order = (pendingAction, patch = {}) => ({
   assert.equal(client.signers.size, 0, 'the widget releases the Stellar signer it lent to the user wallet');
   await unmount();
 
-  console.log('React Native RampWidget v3: route, quote, details, order, QR, kept order and explicit signature passed');
+  // A route whose Polygon account waits on the device: a notice, not an error; approved, the
+  // same route is quoted again and started.
+  {
+    const polygonUsdt = { kind: 'asset', code: 'USDT', identifier: '0xusdt', chain: 'POLYGON' };
+    const viaPolygon = (id) => ({
+      ...quote,
+      quoteId: id,
+      legs: [
+        { ...quote.legs[0], to: polygonUsdt, requiredFields: [] },
+        { ...quote.legs[0], index: 1, kind: 'BRIDGE', from: polygonUsdt, to: usdc, requiredFields: [] },
+      ],
+    });
+    const accountRequest = { id: 'acct-1', intent: 'add_accounts', status: 'PENDING', expiresAt: later(3600) };
+    let round = 0;
+    let rerenderHost;
+    calls.length = 0;
+    saved = null;
+    Object.assign(client, {
+      quoteRamp: async (body) => {
+        calls.push(['quoteRamp', body.amount.value]);
+        round++;
+        return { quotes: [viaPolygon(`p${round}`)], rejected: [] };
+      },
+      createRampOrder: async (body) => {
+        calls.push(['createRampOrder', body.quoteId]);
+        if (body.quoteId === 'p1')
+          throw new core.PollarApiError('SDK_RAMPS_WALLET_NOT_READY', { code: 'SDK_RAMPS_WALLET_NOT_READY' });
+        return order(null);
+      },
+      cosign: { pending: async () => [accountRequest] },
+    });
+    function Host() {
+      const [, set] = React.useState(0);
+      rerenderHost = () => set((n) => n + 1);
+      return React.createElement(RampWidget, { onClose() {} });
+    }
+    unmount = await render(React.createElement(Host));
+    await rerender(() =>
+      [...inputs]
+        .reverse()
+        .find((i) => i.keyboardType === 'decimal-pad')
+        .onChangeText('100'),
+    );
+    await press('Find best route');
+    await press('100 BOB');
+    assert.match(shown(), /Approve the new account on your device\. The order starts once it is approved\./);
+    assert.doesNotMatch(shown(), /then try again/, 'waiting on the device is not an error');
+    await rerender(() => {
+      pollarContext.cosign = { pending: [], lastResolved: { ...accountRequest, status: 'APPROVED' } };
+      rerenderHost();
+    });
+    await rerender(() => new Promise((r) => setTimeout(r, 20)));
+    assert.equal(
+      JSON.stringify(calls.filter(([name]) => name !== 'getRampRoutes')),
+      JSON.stringify([
+        ['quoteRamp', '100'],
+        ['createRampOrder', 'p1'],
+        ['quoteRamp', '100'],
+        ['createRampOrder', 'p2'],
+      ]),
+    );
+    await unmount();
+    pollarContext.cosign = { pending: [] };
+  }
+
+  // A lapsed quote is never sent: the same route on a new quote instead.
+  {
+    let round = 0;
+    calls.length = 0;
+    saved = null;
+    Object.assign(client, {
+      quoteRamp: async (body) => {
+        calls.push(['quoteRamp', body.amount.value]);
+        round++;
+        const legs = [{ ...quote.legs[0], requiredFields: [] }];
+        return { quotes: [{ ...quote, quoteId: `q${round}`, expiresAt: later(round === 1 ? -5 : 60), legs }], rejected: [] };
+      },
+      createRampOrder: async (body) => {
+        calls.push(['createRampOrder', body.quoteId]);
+        return order(null);
+      },
+    });
+    unmount = await render(React.createElement(RampWidget, { onClose() {} }));
+    await rerender(() =>
+      [...inputs]
+        .reverse()
+        .find((i) => i.keyboardType === 'decimal-pad')
+        .onChangeText('100'),
+    );
+    await press('Find best route');
+    await press('100 BOB');
+    await rerender(() => new Promise((r) => setTimeout(r, 20)));
+    assert.equal(
+      JSON.stringify(calls.filter(([name]) => name === 'createRampOrder')),
+      JSON.stringify([['createRampOrder', 'q2']]),
+    );
+    await unmount();
+  }
+
+  // A verification with nothing to open says what the provider asks for.
+  {
+    saved = {
+      direction: 'ONRAMP',
+      order: order({
+        kind: 'KYC',
+        actionId: 'kyc',
+        legIndex: 0,
+        url: null,
+        steps: [
+          { stepId: 'abroad-kyc', status: 'required', url: null, instructions: 'Complete verification directly with Abroad.' },
+        ],
+      }),
+    };
+    client.pollRampOrder = async () => new Promise(() => {});
+    texts = [];
+    unmount = await render(React.createElement(RampWidget, { onClose() {} }));
+    assert.match(shown(), /Complete verification directly with Abroad\./);
+    assert.doesNotMatch(shown(), /reviewing your details/);
+    await unmount();
+    saved = null;
+  }
+
+  // A QR payment whose code did not arrive rendered says so instead of an empty screen.
+  {
+    saved = {
+      direction: 'ONRAMP',
+      order: order({
+        kind: 'FIAT_PAYMENT',
+        actionId: 'pay',
+        legIndex: 0,
+        expiresAt: later(600),
+        instructions: { kind: 'qr', payload: '/9j/4AAQ', amount: '18', currency: 'BOB' },
+      }),
+    };
+    client.pollRampOrder = async () => new Promise(() => {});
+    texts = [];
+    unmount = await render(React.createElement(RampWidget, { onClose() {} }));
+    assert.match(shown(), /The payment code could not be shown/);
+    await unmount();
+    saved = null;
+  }
+
+  console.log(
+    'React Native RampWidget v3: route, quote, details, order, QR, kept order, explicit signature, account approval resume, lapsed quotes, a provider KYC note and a missing payment code passed',
+  );
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

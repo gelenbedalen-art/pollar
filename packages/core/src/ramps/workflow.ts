@@ -6,6 +6,7 @@ import type {
   RampFiat,
   RampOrder,
   RampOrderLeg,
+  RampOrderLegStep,
   RampPendingAction,
   RampQuote,
   RampQuoteRejection,
@@ -13,6 +14,7 @@ import type {
   RampRoute,
   RampScannable,
   RampSignatureAction,
+  RampWalletSetupChain,
 } from '../types';
 
 /**
@@ -99,11 +101,154 @@ export function rampLegTitle(leg: Pick<RampOrderLeg, 'kind' | 'from' | 'to'>): s
   return `Send to ${leg.to.kind === 'asset' ? (CHAIN_NAME[leg.to.chain] ?? leg.to.chain) : nodeName(leg.to)}`;
 }
 
-/** The step a leg is on, as a short status for a progress list. */
+/**
+ * A line under a leg's title when the provider paid out an accepted substitute
+ * (Stereum's USDT for USDC): the swap after it converts the funds, and the user
+ * should not read the other asset as a loss. Null when the leg delivered what it planned.
+ */
+export function rampLegNote(leg: Pick<RampOrderLeg, 'kind' | 'to' | 'fundsLocation'>): string | null {
+  if (leg.kind !== 'PROVIDER_ONRAMP' || leg.to.kind !== 'asset' || !leg.fundsLocation) return null;
+  const delivered = leg.fundsLocation.asset;
+  if (delivered.toUpperCase() === leg.to.code.toUpperCase()) return null;
+  return `The provider sent ${delivered} instead of ${leg.to.code}. It is converted to ${leg.to.code} in the next step, so nothing is lost.`;
+}
+
+const chainName = (chain: string) => CHAIN_NAME[chain] ?? chain;
+
+/** A chain step of a swap or bridge leg, in the user's terms: "Approve USDT", "Circle confirms the transfer". */
+export function rampStepTitle(step: Pick<RampOrderLegStep, 'kind'>, leg: Pick<RampOrderLeg, 'from' | 'to'>): string {
+  const from = leg.from.kind === 'asset' ? leg.from : null;
+  const to = leg.to.kind === 'asset' ? leg.to : null;
+  switch (step.kind) {
+    case 'approve':
+      return `Allow ${from?.code ?? 'the asset'} to be moved`;
+    case 'swap':
+      return `Swap ${from?.code ?? ''} to ${to?.code ?? ''}`.replace(/\s+/g, ' ').trim();
+    case 'burn':
+      return `Send from ${from ? chainName(from.chain) : 'your wallet'}`;
+    case 'attestation':
+      return 'Circle confirms the transfer';
+    case 'mint':
+      return `Arrives on ${to ? chainName(to.chain) : 'the destination'}`;
+  }
+}
+
+/** What a step is doing now, for the line beside its title. */
+export function rampStepStatusText(step: Pick<RampOrderLegStep, 'status' | 'signs'>): string {
+  switch (step.status) {
+    case 'done':
+      return 'Done';
+    case 'awaiting_approval':
+      return 'Waiting for your approval';
+    case 'confirming':
+      return step.signs ? 'Confirming on chain' : 'In progress';
+    default:
+      return step.signs ? 'You approve this next' : 'Waiting';
+  }
+}
+
+const SIGNING_MODES = new Set(['COSIGNED', 'SELF_CUSTODY', 'EXTERNAL', 'APP_CUSTODY']);
+
+/**
+ * The next approval the order will ask for after the one it waits on now, as
+ * a title, or null when none is left. A swap or bridge that has not planned
+ * its steps yet counts once, by what it does. Every transaction is still
+ * approved on its own: this only tells the user one more is coming.
+ */
+export function rampNextApproval(order: Pick<RampOrder, 'legs'>): string | null {
+  for (const leg of order.legs) {
+    if (leg.status === 'COMPLETED' || ['HELD', 'FAILED', 'CANCELLED'].includes(leg.status)) continue;
+    // An sdk-api that predates chain steps answers legs without `steps`.
+    if (leg.steps?.length) {
+      const next = leg.steps.find((step) => step.signs && step.status === 'pending');
+      if (next) return rampStepTitle(next, leg);
+      continue;
+    }
+    if (leg.kind === 'PROVIDER_ONRAMP' || leg.kind === 'PROVIDER_OFFRAMP') continue;
+    if (leg.signingMode && SIGNING_MODES.has(leg.signingMode)) return rampLegTitle(leg);
+  }
+  return null;
+}
+
+/**
+ * Seconds the running leg should still take by its quote, or null without an
+ * estimate; 0 once it is late (the caller says it takes longer than usual).
+ */
+export function rampLegTimeLeft(leg: Pick<RampOrderLeg, 'etaSeconds' | 'startedAt'>, now = Date.now()): number | null {
+  if (leg.etaSeconds === null || !leg.startedAt) return null;
+  const elapsed = (now - Date.parse(leg.startedAt)) / 1000;
+  return Math.max(0, Math.ceil(leg.etaSeconds - elapsed));
+}
+
+// So an invalid address never round-trips to the provider, which rejects it with a generic VALIDATION_ERROR.
+// One "@", a local part, and a dot inside the domain; read by index, since a
+// backtracking pattern over user input is quadratic on a long one.
+function isEmail(value: string): boolean {
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf('@');
+  if (at < 1 || at !== value.lastIndexOf('@')) return false;
+  return value.slice(at + 2, -1).includes('.');
+}
+
+/**
+ * A field a quote asks for is complete when it is filled and, for an email,
+ * well-formed. An optional field may stay blank, but what is typed must be well-formed.
+ */
+export function rampFieldValid(field: Pick<RampField, 'type' | 'optional' | 'pattern'>, raw: string | undefined): boolean {
+  const value = (raw ?? '').trim();
+  if (!value) return field.optional === true;
+  if (field.type === 'email' && !isEmail(value)) return false;
+  return matchesWhole(field.pattern, value);
+}
+
+/** What is wrong with a filled-in value, or null while it is blank or valid (`rampFieldValid` says when it is complete). */
+export function rampFieldError(
+  field: Pick<RampField, 'type' | 'label' | 'hint' | 'pattern'>,
+  raw: string | undefined,
+): string | null {
+  const value = (raw ?? '').trim();
+  if (!value || rampFieldValid({ ...field, optional: true }, value)) return null;
+  if (field.type === 'email') return 'Enter a valid email address.';
+  return field.hint ? `Check the ${field.label.toLowerCase()}: ${field.hint}` : `Check the ${field.label.toLowerCase()}.`;
+}
+
+/** Whether `value` matches the field's `pattern` whole; a pattern this runtime cannot read checks nothing. */
+function matchesWhole(pattern: string | undefined, value: string): boolean {
+  if (!pattern) return true;
+  try {
+    return new RegExp(`^(?:${pattern})$`).test(value);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The step a leg is on, as a short status for a progress list. A leg that is
+ * retrying on its own carries its last failure but is still running: only a
+ * leg that stopped (held, failed, cancelled) is failed.
+ */
 export function rampLegStatus(leg: Pick<RampOrderLeg, 'status' | 'failure'>): 'pending' | 'active' | 'done' | 'failed' {
   if (leg.status === 'COMPLETED') return 'done';
-  if (leg.failure || ['HELD', 'FAILED', 'CANCELLED'].includes(leg.status)) return 'failed';
+  if (['HELD', 'FAILED', 'CANCELLED'].includes(leg.status)) return 'failed';
   return leg.status === 'PENDING' ? 'pending' : 'active';
+}
+
+/**
+ * What the user ends with: the last leg's output, as received or else as planned.
+ * `estimated` is true while only the planned amount is known.
+ */
+export function rampOrderReceive(order: Pick<RampOrder, 'legs'>): { amount: string; unit: string; estimated: boolean } | null {
+  const last = order.legs[order.legs.length - 1];
+  if (!last) return null;
+  const estimated = !last.amountOutActual;
+  const amount = last.amountOutActual ?? last.amountOutPlanned;
+  const unit = last.to.kind === 'fiat' ? last.to.currency : last.to.code;
+  return amount ? { amount, unit, estimated } : null;
+}
+
+/** The order no longer moves on its own: final, or held until someone resolves it (no next read suggested). */
+export function rampOrderStopped(order: Pick<RampOrder, 'state' | 'nextPollAfter'>): boolean {
+  return ['completed', 'failed', 'refunded'].includes(order.state) || order.nextPollAfter === null;
 }
 
 /** What the user is asked to do about a failure, by its `resolutionAction`. */
@@ -117,6 +262,9 @@ const RESOLUTION: Record<string, string> = {
   correct_input: 'Some details were not accepted. Check them and start again.',
   link_wallet: 'This route needs a wallet on another network.',
   create_wallet: 'You need a wallet to receive this. Create one to continue.',
+  set_up_wallet: 'This route runs through another network. Set up your wallet there to continue.',
+  migrate_custody: "Your wallet is still held by Pollar alone. Move it to your app's secure wallet to continue.",
+  set_up_recovery: 'Your wallet needs a way to be recovered before it can sign. Add one, then try again.',
   add_trustline: 'Your Stellar wallet must trust USDC to receive it. Add the USDC trustline and try again.',
   sign_again: 'The signature expired. Sign the step again.',
   start_again: 'This transfer could not go through. Start a new one; nothing was charged.',
@@ -128,6 +276,42 @@ const RESOLUTION: Record<string, string> = {
 /** The text for a failure's `resolutionAction`; anything unknown asks the user to contact support. */
 export function rampResolutionText(failure: Pick<RampFailure, 'resolutionAction'>): string {
   return RESOLUTION[failure.resolutionAction] ?? RESOLUTION.contact_pollar!;
+}
+
+/** A wallet step a dropped route asks for, and the button that runs it (`PollarClient.runRampWalletStep`). */
+export interface RampWalletStep {
+  action: 'create_wallet' | 'set_up_wallet' | 'migrate_custody' | 'set_up_recovery';
+  /** The chain to set the wallet up on, for `set_up_wallet`. */
+  chain: RampWalletSetupChain | null;
+  label: string;
+  busyLabel: string;
+}
+
+/** The wallet step a dropped route asks the user for; null when it drops for another reason. */
+export function rampWalletStep(rejection: Pick<RampQuoteRejection, 'failure'>): RampWalletStep | null {
+  const { resolutionAction, detail } = rejection.failure;
+  if (resolutionAction === 'create_wallet')
+    return { action: resolutionAction, chain: null, label: 'Create wallet', busyLabel: 'Creating…' };
+  if (resolutionAction === 'set_up_wallet' && (detail === 'POLYGON' || detail === 'SOLANA'))
+    return { action: resolutionAction, chain: detail, label: 'Set up wallet', busyLabel: 'Setting up…' };
+  if (resolutionAction === 'migrate_custody')
+    return { action: resolutionAction, chain: null, label: 'Move wallet', busyLabel: 'Moving…' };
+  if (resolutionAction === 'set_up_recovery')
+    return { action: resolutionAction, chain: null, label: 'Set up recovery', busyLabel: 'Opening…' };
+  return null;
+}
+
+/** What a held order asks instead, where it differs: its funds moved and wait where they are. */
+const HELD_RESOLUTION: Record<string, string> = {
+  start_again:
+    'The provider order expired before the payment reached it. Your funds are safe in your wallet: try again to place a new order at the current price.',
+};
+
+/** The text for an order's failure, told apart when the order is held with its funds already moved. */
+export function rampOrderResolutionText(order: Pick<RampOrder, 'failure' | 'legs'>): string | null {
+  if (!order.failure) return null;
+  const held = order.legs.some((leg) => leg.status === 'HELD');
+  return (held ? HELD_RESOLUTION[order.failure.resolutionAction] : undefined) ?? rampResolutionText(order.failure);
 }
 
 /**
@@ -180,12 +364,46 @@ export function rampTrustlineAsset(rejection: Pick<RampQuoteRejection, 'legs' | 
   return { code: to.code, issuer: to.identifier };
 }
 
-/** Why no route was offered: the fix every rejected route shares, else a change of amount. */
-export function rampNoRouteText(rejected: Array<Pick<RampQuoteRejection, 'failure'>>): string {
+/** What a refused `setTrustline` tells the user, by the API's code; never the raw detail, which can carry an address. */
+export function rampTrustlineErrorText(outcome: { code?: string }, assetCode: string): string {
+  if (outcome.code === 'TX_LOW_RESERVE')
+    return `Your wallet needs about 0.5 XLM to add the ${assetCode} trustline. Add XLM, then try again.`;
+  if (outcome.code === 'TX_EXTERNAL_WALLET_SERVER_SIGN')
+    return `Your wallet adds the ${assetCode} trustline itself. Add it from your wallet, then find the route again.`;
+  if (outcome.code?.startsWith('SDK_COSIGN_')) return `The ${assetCode} trustline was not approved. Try again.`;
+  return `Could not add the ${assetCode} trustline. Please try again.`;
+}
+
+/**
+ * Why no route was offered: the fix every rejected route shares, else a change of
+ * amount. When every route waits on a verification the user cannot act on (under
+ * review or refused), it says so instead of asking them to verify.
+ */
+export function rampNoRouteText(
+  rejected: Array<Pick<RampQuoteRejection, 'failure'> & Partial<Pick<RampQuoteRejection, 'requirement'>>>,
+): string {
+  const requirements = rejected.map((r) => r.requirement);
+  if (requirements.length && requirements.every((req) => req && rampRequirementCopy(req).action === null)) {
+    return requirements.every((req) => req!.status === 'rejected')
+      ? 'Your identity verification was not approved, so no route is available.'
+      : 'Your verification is under review. You do not need to do anything; refresh later to check again.';
+  }
   const actions = [...new Set(rejected.map((r) => r.failure.resolutionAction))];
   return actions.length === 1
     ? rampResolutionText({ resolutionAction: actions[0]! })
     : 'No route can take this amount right now. Try another amount.';
+}
+
+/** What the provider says to do for the verification steps still on the user, joined; null when none says. */
+function kycNote(steps: unknown): string | null {
+  if (!Array.isArray(steps)) return null;
+  const said = steps
+    .filter((step): step is { status?: unknown; instructions: string } => {
+      const s = step as { status?: unknown; instructions?: unknown } | null;
+      return !!s && s.status === 'required' && typeof s.instructions === 'string' && s.instructions.trim() !== '';
+    })
+    .map((step) => step.instructions.trim());
+  return said.length ? said.join(' ') : null;
 }
 
 /** The action as a screen shows it; platforms supply the controls, links and QR rendering. */
@@ -195,21 +413,61 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
   canSign: boolean;
   canApprove: boolean;
   scannable: RampScannable | null;
+  /** A QR payment that arrived without its code rendered: there is nothing to pay with, and the screen says so. */
+  codeMissing: boolean;
   details: Array<{ label: string; value: string }>;
   link: string | null;
+  /** What the button that opens `link` says; null when there is no link. */
+  linkLabel: string | null;
+  /** The provider's own words on what the user does next, for a step with nothing to open. */
+  note: string | null;
+  /** A payment whose window has closed: its code, details and page are no longer shown. */
+  paymentClosed: boolean;
+  /** When the payment or signature must be done by; null when it does not lapse. */
+  expiresAt: string | null;
 } {
   const action = order.pendingAction;
-  const base = { action, title: 'Processing', canSign: false, canApprove: false, scannable: null, details: [], link: null };
+  const expiresAt = action && 'expiresAt' in action && typeof action.expiresAt === 'string' ? action.expiresAt : null;
+  const base = {
+    action,
+    title: 'Processing',
+    canSign: false,
+    canApprove: false,
+    scannable: null,
+    codeMissing: false,
+    details: [] as Array<{ label: string; value: string }>,
+    link: null as string | null,
+    linkLabel: null as string | null,
+    note: null as string | null,
+    paymentClosed: false,
+    expiresAt,
+  };
   if (order.state === 'completed') return { ...base, title: 'Transfer completed' };
   if (!action) return base;
   switch (action.kind) {
     case 'FIAT_PAYMENT': {
       const instructions = action.instructions;
       const title = `Pay ${instructions.amount} ${instructions.currency}`;
-      if (instructions.kind === 'qr') return { ...base, title, scannable: instructions.scannable ?? null };
+      // Past its window a code or account would take money the order no longer waits for.
+      if (expiresAt && Date.parse(expiresAt) <= Date.now()) return { ...base, title, paymentClosed: true };
+      if (instructions.kind === 'hosted') {
+        const link = safeRampUrl(instructions.url);
+        return { ...base, title, link, linkLabel: link ? 'Pay on the provider page' : null, codeMissing: !link };
+      }
+      const link = instructions.link ? safeRampUrl(instructions.link) : null;
+      const page = { link, linkLabel: link ? (instructions.kind === 'qr' ? 'Open payment page' : 'Open status page') : null };
+      if (instructions.kind === 'qr')
+        return {
+          ...base,
+          title,
+          ...page,
+          scannable: instructions.scannable ?? null,
+          codeMissing: !instructions.scannable && !link,
+        };
       return {
         ...base,
         title,
+        ...page,
         details: [
           ...instructions.details,
           ...(instructions.reference ? [{ label: 'Reference', value: instructions.reference }] : []),
@@ -220,12 +478,16 @@ export function describeRampAction(order: Pick<RampOrder, 'pendingAction' | 'sta
       return { ...base, title: 'Authorize your transfer', canSign: Date.parse(action.expiresAt) > Date.now() };
     case 'COSIGN_APPROVAL':
       return { ...base, title: 'Approve on your device', canApprove: true };
-    case 'KYC':
+    case 'KYC': {
+      const link = action.url ? safeRampUrl(action.url) : null;
       return {
         ...base,
         title: 'Complete verification',
-        link: action.url ? safeRampUrl(action.url) : null,
+        link,
+        linkLabel: link ? 'Complete verification' : null,
+        note: link ? null : kycNote(action.steps),
       };
+    }
     default:
       return base;
   }

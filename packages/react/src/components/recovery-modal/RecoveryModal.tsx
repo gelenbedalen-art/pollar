@@ -1,6 +1,12 @@
 'use client';
 
-import { type CosignDevicesContent, isPollarApiError, type RecoveryState, transactionErrorMessage } from '@pollar/core';
+import {
+  type CosignDevicesContent,
+  isPollarApiError,
+  type RecoveryState,
+  transactionErrorMessage,
+  cosignRefusalMessage,
+} from '@pollar/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
 import '../shared.css';
@@ -13,7 +19,10 @@ interface RecoveryModalProps {
 }
 
 function errorText(err: unknown): string {
-  return transactionErrorMessage(isPollarApiError(err) ? err.code : null, err instanceof Error ? err.message : null);
+  return (
+    cosignRefusalMessage(err) ??
+    transactionErrorMessage(isPollarApiError(err) ? err.code : null, err instanceof Error ? err.message : null)
+  );
 }
 
 /**

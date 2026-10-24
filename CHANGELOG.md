@@ -42,6 +42,102 @@
   `onVerify` and `onTrust` handlers of `RejectedRouteDisplay` and the matching
   `RampWidgetTemplate` props are optional: without one the row describes the
   fix and offers no button.
+- A route waiting on a wallet offers the fix from its row.
+  `rampWalletStep(rejection)` names the step and its button: create the wallet
+  (`create_wallet`), set one up on a chain the route passes through
+  (`set_up_wallet`, the chain in `failure.detail`), or move a wallet Pollar
+  still holds to the app's custody (`migrate_custody`).
+  `client.runRampWalletStep(step, custody?)` runs it with `createWallet`,
+  `setUpRampWallet(chain, custody?)` (a Turnkey wallet with this device as its
+  first credential) or `cosign.migrateWallets`, and reports `recoveryRequired`
+  when the Turnkey wallet it leaves needs a recovery method before it signs; the
+  widgets open the recovery modal then, and quote again otherwise. Under
+  `USER_CHOICE`, creating the wallet stays in the wallet menu, and setting one up
+  or moving it offers one button per custody. `RejectedRouteDisplay` and
+  `RampWidgetTemplate` take `onWalletStep`, `walletBusy` and `custodyChoice`
+  (`onCreateWallet` and `creatingWallet` in `0.12.0-rc.2`). An app with no
+  chains enabled says so (`noChains`) instead of showing an empty route list.
+- Following an order survives the network: `pollRampOrder` reports a failed
+  read to `onError` and reads again (1 second, doubling up to 60), ending only
+  when the order is gone (`SDK_RAMPS_TX_NOT_FOUND`).
+  `listRampOrders({ open: 'true' })` lists every order not final yet, so an
+  order already paid is resumed too. `client.retryRampOrder(id)` runs a held
+  order again when the user is the one who resolves it.
+  `rampOrderReceive(order)` gives what the user receives, `rampOrderStopped`
+  tells an order that no longer moves on its own, and
+  `rampOrderResolutionText(order)` the text for its failure (a held order whose
+  provider order lapsed says its funds are safe and a retry places a new one).
+  `describeRampAction` returns the action's `expiresAt`. The widgets show the
+  payment window and the amount, open the approval of each co-signed step,
+  offer Try again on a held order, and drop the Authorize button the moment a
+  signature lapses.
+- A provider field can carry a `pattern` (`RampAdapterField.pattern`, a
+  regular expression the whole value must match). `rampFieldValid` checks it,
+  and `rampFieldError(field, value)` says what is wrong with a filled-in value;
+  the widgets show it under the field. React Native checks email fields too.
+- `client.checkRampOrder(id)` asks the provider about an order's fiat payment
+  now instead of at the next recheck (at most once every 10 seconds per order)
+  and returns the order. The widgets' "I've paid" calls it at once and every 10
+  seconds for two minutes.
+- A ramp payment can carry the provider's own page: `describeRampAction`
+  returns its `link` and `linkLabel` for a QR or bank payment too, and a payment
+  that has only the page is paid there. It also returns `codeMissing` (a QR
+  payment that arrived without its rendered code, which the widgets say instead
+  of showing an empty screen), `paymentClosed` (the window has closed, so the
+  code, details and page are hidden) and `note` (what the provider asks, for a
+  verification step with nothing to open). A rendered QR can be a JPEG, GIF or
+  WebP image besides SVG and PNG.
+- A route or a held order that waits on the wallet's recovery offers "Set up
+  recovery": `rampWalletStep` returns the `set_up_recovery` step, and
+  `client.runRampWalletStep` reports `recoveryRequired` for it without doing
+  anything else. The widgets open the recovery modal, then quote again or try
+  the order again; a held order hides the button once the wallet has a method,
+  keeps Try again disabled until then, and retries by itself when recovery is
+  set up. `RampWalletStep['action']` gains `'set_up_recovery'`, so an
+  exhaustive switch over it needs the new case.
+- Quoted and planned output amounts read as estimates with a leading `~` (route
+  cards, swap output, the order's You receive). `rampOrderReceive` returns
+  `estimated`, true until the last leg reports what arrived.
+- `rampLegNote(leg)` says when a provider leg paid out an accepted substitute
+  (Stereum's USDT for USDC) and that the next step converts it; the widgets
+  show it under the leg's title.
+- A ramp order shows its chain steps live: each step of a swap or bridge leg
+  (approve, swap, send, Circle's confirmation, arrival) with what it is doing,
+  the running leg's time left and the approval that comes next
+  (`rampStepTitle`, `rampStepStatusText`, `rampLegTimeLeft`,
+  `rampNextApproval`). The approval prompt stays open between two approvals of
+  an order and shows the next request when it arrives (`setCosignNextStep` in
+  the React and React Native context); every transaction is still approved on
+  its own.
+- `rampNoRouteText` reads the routes' `requirement` too: when every route waits
+  on a verification the user cannot act on (under review or rejected), the note
+  says so instead of asking to complete it.
+- Confirming a recovery email works when the wallet already holds that address
+  unconfirmed (the sign-in email it was created with). `cosignRefusalMessage(error)`
+  gives the text for `SDK_COSIGN_TURNKEY_REJECTED` with Turnkey's own reason,
+  and `<RecoveryModal>` shows it instead of "The signing service didn't answer".
+- The approval modal shows the Turnkey check as a chip next to the request title
+  (Checking..., then Verified) and spells out what was verified when the chip is
+  clicked; a failed check stays written out, since it says why Approve is off. A
+  sent transaction's hash has a copy button, and the modal closes on its own
+  after a 5-second countdown.
+- The ramp widget's step bar names each step and goes back to an earlier one,
+  in place of the Cancel and Back buttons, and React Native titles each step
+  like the web. Send, Ramp, Earn and Card share one amount field with the
+  balance and Max inside, read per chain and token; selling shows the wallet's
+  balance of the asset.
+- `@pollar/react`: inputs, selects and the send asset picker take the
+  dashboard's button radius (`--pollar-input-border-radius`, which defaults to
+  `--pollar-buttons-border-radius`).
+- `setTrustline` on a co-signed wallet settles the request its device approves
+  (the 202 `SDK_COSIGN_PENDING`) like any co-signed send, and answers
+  `cosign_pending` under `cosignManual`. A failed `TrustlineOutcome` carries
+  the API `code`, and `rampTrustlineErrorText(outcome, assetCode)` turns it into
+  a message for the user.
+- A co-signed vote gets 60 seconds. If the connection drops while it settles,
+  the client reads the request back and reports it as it stands instead of
+  rejecting a send that may have landed; `reject` cancels a request only while
+  it is still pending.
 - Ramp quotes and order creation wait up to 30 seconds for the providers,
   instead of the 10-second default of every other call.
 - `<KycModal>` shows the session it is opening and keeps it while the list

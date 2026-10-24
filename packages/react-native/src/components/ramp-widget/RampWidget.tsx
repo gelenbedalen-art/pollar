@@ -13,9 +13,11 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import { SvgXml } from 'react-native-svg';
 import type {
+  CosignCustody,
   PollarClient,
   RampAsset,
   RampSigningHandler,
+  RampWalletStep,
   RampDirection,
   RampField,
   RampFiat,
@@ -32,14 +34,26 @@ import {
   isPollarApiError,
   rampCountries,
   rampLegStatus,
+  rampLegNote,
+  rampLegTimeLeft,
   rampLegTitle,
+  rampNextApproval,
+  rampStepStatusText,
+  rampStepTitle,
+  rampFieldError,
+  rampFieldValid,
   rampNoRouteText,
+  rampOrderReceive,
+  rampOrderStopped,
   rampQuoteFields,
   rampRailLabel,
-  rampResolutionText,
+  rampOrderResolutionText,
   rampTrustlineAsset,
+  rampTrustlineErrorText,
 } from '@pollar/core';
 import { usePollar } from '../../context';
+import { useWalletAvailable } from '../../useWalletAvailable';
+import { AmountField } from '../AmountField';
 import { PollarOverlay } from '../commons';
 import { formLanguage } from '../requirement-form-modal/form-fields';
 import { RejectedRouteDisplay, RouteDisplay } from './RouteDisplay';
@@ -54,6 +68,14 @@ export type RampStep = 'input' | 'loading_quote' | 'select_route' | 'contact' | 
 function trustKey(rejection: RampQuoteRejection): string | null {
   const asset = rampTrustlineAsset(rejection);
   return asset ? `${asset.code}:${asset.issuer}` : null;
+}
+
+/** "a", "a and b", "a, b and c" - for naming what a step is asking for. */
+function listOf(items: string[]): string {
+  const last = items[items.length - 1];
+  if (last === undefined) return 'a few details';
+  if (items.length === 1) return last;
+  return `${items.slice(0, -1).join(', ')} and ${last}`;
 }
 
 /** Ramp failures a user can act on, by API code. */
@@ -76,6 +98,13 @@ function rampErrorMessage(error: unknown, fallback: string): string {
     if (typeof message === 'string' && message && !/^[A-Z0-9_]+$/.test(message)) return message;
   }
   return fallback;
+}
+
+/** A route's identity across quotes: quoting again gives the same route a new quote id. */
+function routeKey(quote: RampQuote): string {
+  const node = (n: RampQuote['legs'][number]['from']) =>
+    n.kind === 'asset' ? `${n.code}:${n.chain}` : `${n.currency}:${n.rail}`;
+  return quote.legs.map((leg) => `${leg.kind}:${node(leg.from)}>${node(leg.to)}`).join('|');
 }
 
 /** An exact decimal, as the API takes amounts: "10", "10.5", never "1e3" or "-2". */
@@ -135,6 +164,10 @@ export interface RampWidgetTemplateProps {
   theme?: string;
   accentColor?: string;
   step: RampStep;
+  /** Labels of the steps this run goes through: 'Details' only when the route asks for fields. */
+  flowSteps?: string[];
+  /** Index into `flowSteps`, or -1 outside the flow (the error step). */
+  flowStepIndex?: number;
   direction: RampDirection;
   routesLoading: boolean;
   countries: Array<{ country: string; fiats: RampFiat[] }>;
@@ -144,6 +177,8 @@ export interface RampWidgetTemplateProps {
   assets: RampAsset[];
   asset: RampAsset | null;
   amount: string;
+  /** What the wallet can spend of the asset being sold, as `useWalletAvailable` reads it; undefined hides it. */
+  sellAvailable?: string | null | undefined;
   quotes: RampQuote[];
   rejected: RampQuoteRejection[];
   startingQuoteId: string | null;
@@ -154,6 +189,8 @@ export interface RampWidgetTemplateProps {
   isLoading: boolean;
   signing: boolean;
   errorMsg: string | null;
+  /** Progress the route waits on that is not a failure, shown with a spinner (an account the user approves on the device). */
+  notice?: string | null;
   onDirectionChange: (direction: RampDirection) => void;
   onCountryChange: (country: string) => void;
   onFiatChange: (key: string) => void;
@@ -167,12 +204,27 @@ export interface RampWidgetTemplateProps {
   trustingAsset?: string | null;
   /** Adds the trustline a dropped route needs, then quotes again. */
   onTrustAsset?: (asset: { code: string; issuer: string }) => void;
-  /** The user's wallet is being created. */
-  creatingWallet?: boolean;
-  /** Creates the user's wallet a dropped route needs, then quotes again; absent, the row points to the wallet menu. */
-  onCreateWallet?: (() => void) | undefined;
+  /** The dropped route (its index in `rejected`) whose wallet step is running; null when none is. */
+  walletBusy?: number | null;
+  /** The app leaves the custody to the user: a wallet set up or moved from a row asks which. */
+  custodyChoice?: boolean;
+  /**
+   * Runs the wallet step a dropped route asks for (create, set up or move the wallet),
+   * then quotes again; absent, the row only says what the user needs.
+   */
+  onWalletStep?: ((step: RampWalletStep, index: number, custody?: CosignCustody) => void) | undefined;
   /** The app serves no chain, so it has nothing to buy or sell. */
   noChains?: boolean;
+  /** A held order the user resolves is being run again. */
+  retrying?: boolean;
+  /** Runs the user's held order again; absent, a held order only says what happened. */
+  onRetryOrder?: (() => void) | undefined;
+  /** Opens the wallet's recovery setup, for an order held until the wallet has a way to be recovered. */
+  onSetUpRecovery?: (() => void) | undefined;
+  /** Whether the wallet still has no way to be recovered; null while its state is unread. */
+  recoveryMissing?: boolean | null;
+  /** Reading the order keeps failing and polling is retrying. */
+  pollTrouble?: boolean;
   onFieldChange: (key: string, value: string) => void;
   onContactContinue: () => void;
   onSign: () => void;
@@ -181,14 +233,46 @@ export interface RampWidgetTemplateProps {
   onResumeOrder: (id: string) => void;
   onNewOrder: () => void;
   onBack: () => void;
+  /** Returns to an earlier step of `flowSteps`, keeping what was entered; absent, the step bar only shows progress. */
+  onStepSelect?: ((label: string) => void) | undefined;
   onRetry: () => void;
   onClose: () => void;
+}
+
+/** Renders again at `at` (ms since epoch), so what lapses then (a signature's button) goes then, not at the next read. */
+const timeLeftText = (seconds: number) =>
+  seconds <= 0
+    ? 'Taking a little longer than usual'
+    : seconds < 60
+      ? `About ${seconds}s left`
+      : `About ${Math.ceil(seconds / 60)} min left`;
+
+/** The current time, every second while `running`: what a countdown reads. */
+function useNowEverySecond(running: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+  return now;
+}
+
+function useRenderAt(at: number | null) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (at === null) return;
+    const timer = setTimeout(() => setTick((n) => n + 1), Math.max(0, at - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [at]);
 }
 
 export function RampWidgetTemplate({
   theme = 'light',
   accentColor = '#005DB4',
   step,
+  flowSteps = [],
+  flowStepIndex = -1,
   direction,
   routesLoading,
   countries,
@@ -198,6 +282,7 @@ export function RampWidgetTemplate({
   assets,
   asset,
   amount,
+  sellAvailable,
   quotes,
   rejected,
   startingQuoteId,
@@ -208,6 +293,7 @@ export function RampWidgetTemplate({
   isLoading,
   signing,
   errorMsg,
+  notice = null,
   onDirectionChange,
   onCountryChange,
   onFiatChange,
@@ -218,9 +304,15 @@ export function RampWidgetTemplate({
   onVerifyRoute,
   trustingAsset = null,
   onTrustAsset,
-  creatingWallet = false,
-  onCreateWallet,
+  walletBusy = null,
+  custodyChoice = false,
+  onWalletStep,
   noChains = false,
+  retrying = false,
+  onRetryOrder,
+  onSetUpRecovery,
+  recoveryMissing = null,
+  pollTrouble = false,
   onFieldChange,
   onContactContinue,
   onSign,
@@ -229,6 +321,7 @@ export function RampWidgetTemplate({
   onResumeOrder,
   onNewOrder,
   onBack,
+  onStepSelect,
   onRetry,
   onClose,
 }: RampWidgetTemplateProps) {
@@ -244,8 +337,26 @@ export function RampWidgetTemplate({
   const onramp = direction === 'ONRAMP';
   const view = order ? describeRampAction(order) : null;
   const settled = order ? ['completed', 'failed', 'refunded'].includes(order.state) : false;
-  const missingField = fields.some((f) => !f.optional && !(fieldValues[f.key] ?? '').trim());
+  // A leg running on its own (not waiting on the user) counts down its quoted time.
+  const running = order?.legs.find((leg) => rampLegStatus(leg) === 'active' && order.pendingAction?.legIndex !== leg.index);
+  const now = useNowEverySecond(step === 'status' && !settled && !!running && running.etaSeconds !== null);
+  const nextApproval = order && !settled ? rampNextApproval(order) : null;
+  // Held (no next read) or final: the order no longer moves on its own.
+  const stopped = order ? rampOrderStopped(order) : false;
+  const receive = order ? rampOrderReceive(order) : null;
+  // A held order that waits on the wallet's recovery: retrying before it exists fails the same way.
+  const waitsOnRecovery = order?.failure?.resolutionAction === 'set_up_recovery';
+  useRenderAt(view?.canSign && view.expiresAt ? Date.parse(view.expiresAt) : null);
+  const missingField = fields.some((f) => !rampFieldValid(f, fieldValues[f.key]));
   const canFind = !!amount && Number(amount) > 0 && !!fiat && !!asset && !isLoading;
+  // Once the order exists, going back means a new order, which "New order" already starts.
+  const stepsOpen =
+    !!onStepSelect &&
+    step !== 'status' &&
+    !isLoading &&
+    startingQuoteId === null &&
+    trustingAsset === null &&
+    walletBusy === null;
 
   const primary = (label: string, onPress: () => void, disabled = false) => (
     <TouchableOpacity
@@ -289,13 +400,30 @@ export function RampWidgetTemplate({
       </TouchableOpacity>
     </View>
   );
+  const stepTitle: Record<RampStep, string> = {
+    input: onramp ? 'Buy crypto' : 'Sell crypto',
+    loading_quote: 'Finding the best route',
+    select_route: 'Choose a route',
+    contact: 'Your details',
+    status: order?.state === 'completed' ? 'Transfer completed' : onramp ? 'Your purchase' : 'Your sale',
+    error: 'Something went wrong',
+  };
+  const stepSubtitle: Record<RampStep, string> = {
+    input: onramp ? 'Pick what you receive and how much you pay' : 'Pick what you sell and how much',
+    loading_quote: 'Comparing routes in real time…',
+    select_route: 'All amounts include fees',
+    contact: `This route needs ${listOf(fields.filter((f) => !f.optional).map((f) => f.label.toLowerCase()))} to continue`,
+    status: view?.title ?? 'Processing',
+    error: 'Please try again',
+  };
   const errorLine = errorMsg ? <Text style={[styles.note, { color: colors.error }]}>{errorMsg}</Text> : null;
   const scannable = view?.scannable ?? null;
 
   return (
     <View style={[styles.card, { backgroundColor: colors.bg, borderColor: colors.border }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.text }]}>{onramp ? 'Add funds' : 'Cash out'}</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{stepTitle[step]}</Text>
+        <Text style={[styles.subtitle, { color: colors.muted }]}>{stepSubtitle[step]}</Text>
       </View>
 
       <TouchableOpacity
@@ -305,6 +433,46 @@ export function RampWidgetTemplate({
       >
         <Text style={{ color: colors.muted, fontSize: 16 }}>✕</Text>
       </TouchableOpacity>
+
+      {flowStepIndex >= 0 && flowSteps.length > 0 && (
+        <View style={styles.steps}>
+          <Text style={[styles.stepsLabel, { color: colors.muted }]}>
+            Step {flowStepIndex + 1} of {flowSteps.length}
+          </Text>
+          <View style={styles.stepsTrack}>
+            {flowSteps.map((label, i) => {
+              const reachable = stepsOpen && i < flowStepIndex;
+              const current = i === flowStepIndex;
+              return (
+                <TouchableOpacity
+                  key={label}
+                  style={styles.stepsItem}
+                  disabled={!reachable}
+                  onPress={() => onStepSelect?.(label)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Go to ${label}`}
+                  accessibilityState={{ disabled: !reachable, selected: current }}
+                >
+                  <View style={[styles.stepsSegment, { backgroundColor: i <= flowStepIndex ? accentColor : colors.border }]} />
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.stepsName,
+                      {
+                        // No hover on a phone: a step that can be tapped says so in the accent colour.
+                        color: current ? colors.text : reachable ? accentColor : colors.muted,
+                        fontWeight: current ? '600' : '400',
+                      },
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
         {step === 'input' && (
@@ -366,20 +534,18 @@ export function RampWidgetTemplate({
                 )}
               </>
             )}
-            <Text style={[styles.label, { color: colors.text }]}>
-              {onramp ? 'You pay' : 'You sell'}
-              {(onramp ? fiat?.currency : asset?.code) ? ` (${onramp ? fiat?.currency : asset?.code})` : ''}
-            </Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.text }]}
-              placeholder="25.00"
-              placeholderTextColor={colors.muted}
-              keyboardType="decimal-pad"
+            <AmountField
+              theme={theme}
+              accentColor={accentColor}
+              label={onramp ? 'You pay' : 'You sell'}
               value={amount}
-              onChangeText={onAmountChange}
+              onChange={onAmountChange}
+              unit={onramp ? fiat?.currency : asset?.code}
+              available={onramp ? undefined : sellAvailable}
+              placeholder="25.00"
             />
             {errorLine}
-            {primary('Find routes', onFindRoute, !canFind)}
+            {primary('Find best route', onFindRoute, !canFind)}
           </>
         )}
 
@@ -406,18 +572,26 @@ export function RampWidgetTemplate({
                 key={i}
                 rejection={r}
                 accentColor={accentColor}
-                disabled={startingQuoteId != null || trustingAsset !== null || creatingWallet}
+                disabled={startingQuoteId != null || trustingAsset !== null || walletBusy !== null}
                 trusting={trustKey(r) === trustingAsset}
-                creatingWallet={creatingWallet}
+                walletBusy={walletBusy === i}
+                custodyChoice={custodyChoice}
                 onVerify={onVerifyRoute}
                 onTrust={onTrustAsset}
-                onCreateWallet={onCreateWallet}
+                onWalletStep={onWalletStep && ((step, custody) => onWalletStep(step, i, custody))}
               />
             ))}
             {quotes.length === 0 && <Text style={[styles.note, { color: colors.muted }]}>{rampNoRouteText(rejected)}</Text>}
             {startingQuoteId && <ActivityIndicator color={accentColor} />}
+            {notice && (
+              <View style={styles.noticeRow}>
+                <ActivityIndicator size="small" color={accentColor} />
+                <Text style={[styles.note, { color: colors.muted }]}>{notice}</Text>
+              </View>
+            )}
             {errorLine}
-            {secondary('Back', onBack)}
+            {/* A dead end keeps a button out: the step bar alone is too quiet as the only way forward. */}
+            {(errorMsg || !quotes.length) && primary('Back', onBack)}
           </>
         )}
 
@@ -447,20 +621,21 @@ export function RampWidgetTemplate({
                   />
                 )}
                 {f.hint ? <Text style={[styles.note, { color: colors.muted }]}>{f.hint}</Text> : null}
+                {rampFieldError(f, fieldValues[f.key]) ? (
+                  <Text style={[styles.note, { color: colors.error }]}>{rampFieldError(f, fieldValues[f.key])}</Text>
+                ) : null}
               </View>
             ))}
             {errorLine}
             {primary(isLoading ? 'Starting…' : 'Continue', onContactContinue, missingField || isLoading)}
-            {secondary('Back', onBack)}
           </>
         )}
 
         {step === 'status' && order && view && (
           <>
-            <Text style={[styles.label, { color: colors.text }]}>{view.title}</Text>
             {order.legs.map((leg) => {
               const status = rampLegStatus(leg);
-              return (
+              const row = (
                 <View key={leg.index} style={[styles.row, { alignItems: 'center', marginBottom: 6 }]}>
                   <View
                     style={[
@@ -482,13 +657,76 @@ export function RampWidgetTemplate({
                   {status === 'active' && !settled && <ActivityIndicator size="small" color={accentColor} />}
                 </View>
               );
+              const note = rampLegNote(leg);
+              const steps = (status === 'active' && !settled ? leg.steps : null) ?? [];
+              const timeLeft = running === leg && !settled ? rampLegTimeLeft(leg, now) : null;
+              if (!note && !steps.length && timeLeft === null) return row;
+              return (
+                <View key={leg.index}>
+                  {row}
+                  {note && <Text style={[styles.legNote, { color: colors.muted }]}>{note}</Text>}
+                  {steps.map((s) => (
+                    <View key={s.kind} style={styles.legStep}>
+                      <Text style={{ flex: 1, fontSize: 13, color: s.status === 'pending' ? colors.muted : colors.text }}>
+                        {rampStepTitle(s, leg)}
+                      </Text>
+                      {s.status === 'confirming' && <ActivityIndicator size="small" color={accentColor} />}
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: s.status === 'awaiting_approval' ? accentColor : colors.muted,
+                          fontWeight: s.status === 'awaiting_approval' ? '600' : '400',
+                        }}
+                      >
+                        {rampStepStatusText(s)}
+                      </Text>
+                    </View>
+                  ))}
+                  {timeLeft !== null && <Text style={[styles.legNote, { color: colors.muted }]}>{timeLeftText(timeLeft)}</Text>}
+                </View>
+              );
             })}
+            {nextApproval && !order.pendingAction && (
+              <Text style={[styles.note, { color: colors.muted }]}>
+                Next: {nextApproval}. You approve it on this device when it comes up.
+              </Text>
+            )}
 
+            {receive &&
+              copyRow(
+                order.state === 'completed' ? 'You received' : 'You receive',
+                `${receive.estimated ? '~' : ''}${receive.amount} ${receive.unit}`,
+              )}
             {order.failure && (
               <>
-                <Text style={[styles.note, { color: colors.text }]}>{rampResolutionText(order.failure)}</Text>
+                <Text style={[styles.note, { color: colors.text }]}>{rampOrderResolutionText(order)}</Text>
                 {copyRow('Order', order.id)}
+                {stopped &&
+                  !settled &&
+                  waitsOnRecovery &&
+                  recoveryMissing !== false &&
+                  onSetUpRecovery &&
+                  secondary('Set up recovery', onSetUpRecovery)}
+                {stopped && !settled && waitsOnRecovery && recoveryMissing === true && (
+                  <Text style={[styles.note, { color: colors.muted }]}>Once it is set up, the order goes on by itself.</Text>
+                )}
+                {stopped &&
+                  !settled &&
+                  order.failure.resolutionOwner === 'END_USER' &&
+                  onRetryOrder &&
+                  primary(
+                    retrying ? 'Trying again…' : 'Try again',
+                    onRetryOrder,
+                    retrying || (waitsOnRecovery && recoveryMissing === true),
+                  )}
               </>
+            )}
+            {!settled && view.action?.kind === 'FIAT_PAYMENT' && view.expiresAt && (
+              <Text style={[styles.note, { color: colors.muted }]}>
+                {Date.parse(view.expiresAt) > Date.now()
+                  ? `Pay before ${new Date(view.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+                  : 'This payment window has closed. If you have not paid, start a new operation.'}
+              </Text>
             )}
 
             {!settled && scannable && (
@@ -506,16 +744,27 @@ export function RampWidgetTemplate({
                 )}
               </View>
             )}
+            {!settled && view.codeMissing && (
+              <Text style={[styles.note, { color: colors.error }]}>
+                The payment code could not be shown. Refresh; if it still does not appear, contact this app's support.
+              </Text>
+            )}
             {!settled && scannable?.payload && scannable.payloadLabel && copyRow(scannable.payloadLabel, scannable.payload)}
             {!settled && view.details.map((d) => copyRow(d.label, d.value))}
 
             {!settled && view.canSign && primary(signing ? 'Waiting for your wallet…' : 'Authorize', onSign, signing)}
+            {!settled && view.action?.kind === 'SIGNATURE' && !view.canSign && (
+              <Text style={[styles.note, { color: colors.muted }]}>Preparing a new signature request…</Text>
+            )}
             {!settled && view.canApprove && primary('Approve on this device', onApprove)}
-            {!settled && view.link && primary('Complete verification', () => void Linking.openURL(view.link!))}
+            {!settled && view.link && primary(view.linkLabel ?? 'Open', () => void Linking.openURL(view.link!))}
             {!settled && order.pendingAction?.kind === 'KYC' && !view.link && (
               <Text style={[styles.note, { color: colors.muted }]}>
-                The provider is reviewing your details. This updates on its own.
+                {view.note ?? 'The provider is reviewing your details. This updates on its own.'}
               </Text>
+            )}
+            {pollTrouble && !settled && (
+              <Text style={[styles.note, { color: colors.muted }]}>Having trouble reaching the server. Retrying…</Text>
             )}
             {errorLine}
             {secondary('Start another operation', onNewOrder)}
@@ -535,7 +784,21 @@ export function RampWidgetTemplate({
 }
 
 export function RampWidget({ onClose }: { onClose: () => void }) {
-  const { getClient, copyText, ramp: saved, setRamp: save, styles: pollarStyles, openCosignModal, appConfig } = usePollar();
+  const {
+    getClient,
+    copyText,
+    ramp: saved,
+    setRamp: save,
+    styles: pollarStyles,
+    openCosignModal,
+    setCosignNextStep,
+    openRecoveryModal,
+    recovery,
+    recoveryLocked,
+    appConfig,
+    cosign,
+    refreshWalletBalance,
+  } = usePollar();
   const { theme = 'light', accentColor = '#005DB4' } = pollarStyles;
   const client = getClient();
 
@@ -559,8 +822,19 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<RampQuoteRequirement | null>(null);
   const [trustingAsset, setTrustingAsset] = useState<string | null>(null);
-  const [creatingWallet, setCreatingWallet] = useState(false);
-  // An app that leaves the custody to the user creates the wallet from the wallet menu, where the user picks it.
+  // The dropped route (its index) whose wallet step is running.
+  const [walletBusy, setWalletBusy] = useState<number | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  // A route whose order waits on the new account the user approves on the device: once that
+  // request is approved the route is resumed, since its quote may lapse meanwhile.
+  const [awaitingAccount, setAwaitingAccount] = useState<{ routeKey: string; requestId: string } | null>(null);
+  // A read of the order failed and polling keeps trying; cleared by the next good read.
+  const [pollTrouble, setPollTrouble] = useState(false);
+  // Bumped to start following the order again (after a retry of one that had stopped).
+  const [pollKey, setPollKey] = useState(0);
+  // The approval the user was last prompted for, so each new one prompts once.
+  const promptedApproval = useRef<string | null>(null);
+  // An app that leaves the custody to the user: the user picks it for each wallet step.
   const custodyChoice = appConfig.application?.walletCustodyMode === 'USER_CHOICE';
   const appChains = appConfig.application?.chains;
   // The step opened last: a modal that reports after it was closed or replaced is ignored.
@@ -584,6 +858,27 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   }, [routes, country, fiat]);
   const asset = assets.find((a) => assetKey(a) === assetChoice) ?? assets[0] ?? null;
   const fields = selected ? rampQuoteFields(selected) : [];
+  const sellAvailable = useWalletAvailable(
+    direction === 'OFFRAMP' && asset ? { chain: asset.chain, code: asset.code, issuer: asset.identifier } : null,
+  );
+
+  useEffect(() => {
+    if (direction === 'OFFRAMP') void refreshWalletBalance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction]);
+
+  const flowSteps =
+    fields.length || quotes.some((q) => rampQuoteFields(q).length)
+      ? ['Amount', 'Route', 'Details', 'Complete']
+      : ['Amount', 'Route', 'Complete'];
+  const stepLabel: Partial<Record<RampStep, string>> = {
+    input: 'Amount',
+    loading_quote: 'Amount',
+    select_route: 'Route',
+    contact: 'Details',
+    status: 'Complete',
+  };
+  const flowLabel = stepLabel[step];
 
   useEffect(() => {
     let active = true;
@@ -610,7 +905,8 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let active = true;
     client
-      .listRampOrders({ pending: 'true', limit: 5 })
+      // Every order not final yet: one already paid and moving on its own is still the user's to follow.
+      .listRampOrders({ open: 'true', limit: 5 })
       .then((page) => {
         if (active) setPendingOrders(page.orders);
       })
@@ -625,16 +921,82 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (step !== 'status' || !orderId) return;
     const controller = new AbortController();
-    client.pollRampOrder(orderId, { signal: controller.signal, onUpdate: setOrder }).catch(() => {});
+    client
+      .pollRampOrder(orderId, {
+        signal: controller.signal,
+        onUpdate: (next) => {
+          setOrder(next);
+          setPollTrouble(false);
+        },
+        onError: () => setPollTrouble(true),
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setErrorMsg(rampErrorMessage(error, 'This operation could not be read.'));
+      });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, step, orderId]);
+  }, [client, step, orderId, pollKey]);
 
-  async function handleFindRoute() {
-    if (!fiat || !asset) return;
+  // A co-signed step of the order waits on the user's device: bring its request up the moment it appears.
+  const approval = order?.pendingAction?.kind === 'COSIGN_APPROVAL' ? order.pendingAction.actionId : null;
+  useEffect(() => {
+    if (!approval || promptedApproval.current === approval) return;
+    promptedApproval.current = approval;
+    void client.cosign
+      .pending()
+      .catch(() => undefined)
+      .then(() => openCosignModal());
+  }, [approval, client, openCosignModal]);
+
+  // The approval prompt stays up between two approvals of the order instead of closing and reopening.
+  const nextApproval = step === 'status' && order ? rampNextApproval(order) : null;
+  useEffect(() => {
+    setCosignNextStep(nextApproval);
+  }, [nextApproval, setCosignNextStep]);
+  useEffect(() => () => setCosignNextStep(null), [setCosignNextStep]);
+
+  /** Runs the user's held order again, then follows it. */
+  async function handleRetryOrder() {
+    if (!order || retrying) return;
+    setRetrying(true);
+    setErrorMsg(null);
+    try {
+      setOrder(await client.retryRampOrder(order.id));
+      setPollKey((key) => key + 1);
+    } catch (error) {
+      setErrorMsg(rampErrorMessage(error, 'Could not try again. Please try again.'));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  // An order held until the wallet has a way to be recovered tries again once it has one.
+  const heldForRecovery = step === 'status' && order?.failure?.resolutionAction === 'set_up_recovery';
+  const wasRecoveryLocked = useRef(recoveryLocked);
+  useEffect(() => {
+    if (heldForRecovery && wasRecoveryLocked.current && !recoveryLocked && recovery) void handleRetryOrder();
+    wasRecoveryLocked.current = recoveryLocked;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heldForRecovery, recoveryLocked, recovery]);
+
+  const resolvedRequest = cosign.lastResolved;
+  useEffect(() => {
+    if (!awaitingAccount || resolvedRequest?.id !== awaitingAccount.requestId) return;
+    setAwaitingAccount(null);
+    if (resolvedRequest.status !== 'APPROVED') {
+      setErrorMsg('The new account was not approved, so this route cannot start.');
+      return;
+    }
+    void resumeRoute(awaitingAccount.routeKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingAccount, resolvedRequest]);
+
+  /** Quotes the entered amount and shows the routes; the quotes found, none when it failed. */
+  async function handleFindRoute(): Promise<RampQuote[]> {
+    if (!fiat || !asset) return [];
     if (!DECIMAL.test(amount.trim()) || Number(amount) <= 0) {
       setErrorMsg('Enter an amount greater than zero.');
-      return;
+      return [];
     }
     setStep('loading_quote');
     setErrorMsg(null);
@@ -649,15 +1011,17 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
       setQuotes(result.quotes);
       setRejected(result.rejected);
       setStep('select_route');
+      return result.quotes;
     } catch (error) {
       if (isPollarApiError(error) && error.code === 'SDK_RAMPS_NO_ROUTE') {
         setQuotes([]);
         setRejected(Array.isArray(error.body.rejected) ? (error.body.rejected as RampQuoteRejection[]) : []);
         setStep('select_route');
-        return;
+        return [];
       }
       setErrorMsg(rampErrorMessage(error, 'Could not find a route. Please try again.'));
       setStep('error');
+      return [];
     }
   }
 
@@ -687,7 +1051,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     try {
       const outcome = await client.setTrustline(asset);
       if (outcome.status === 'error') {
-        setErrorMsg(outcome.details ?? `Could not add the ${asset.code} trustline. Please try again.`);
+        setErrorMsg(rampTrustlineErrorText(outcome, asset.code));
         return;
       }
       if (outcome.status === 'cosign_pending') {
@@ -704,37 +1068,66 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
     }
   }
 
-  /** Creates the user's wallet on the app's chains, then quotes again. */
-  async function handleCreateWallet() {
-    if (creatingWallet) return;
-    setCreatingWallet(true);
+  /**
+   * Runs the wallet step a dropped route asks for (create, set up or move the wallet),
+   * then quotes again. A new Turnkey wallet first gets a recovery method: it signs
+   * nothing until it has one.
+   */
+  async function handleWalletStep(walletStep: RampWalletStep, index: number, custody?: CosignCustody) {
+    if (walletBusy !== null) return;
+    setWalletBusy(index);
     setErrorMsg(null);
     try {
-      await client.createWallet();
+      const { recoveryRequired } = await client.runRampWalletStep(walletStep, custody);
+      if (recoveryRequired) {
+        setErrorMsg('Add a way to recover your wallet, then find the route again.');
+        openRecoveryModal();
+        return;
+      }
       await handleFindRoute();
     } catch (error) {
+      const code = isPollarApiError(error) ? error.code : null;
+      if (code === 'SDK_RAMPS_WALLET_NOT_READY') {
+        setErrorMsg('Approve the new account, then find the route again.');
+        openCosignModal();
+        return;
+      }
       setErrorMsg(
-        isPollarApiError(error) && error.code === 'SDK_WALLET_PROVISIONING_DISABLED'
+        code === 'SDK_WALLET_PROVISIONING_DISABLED'
           ? 'This app does not create wallets.'
-          : rampErrorMessage(error, 'Could not create the wallet. Please try again.'),
+          : rampErrorMessage(error, 'Could not prepare the wallet. Please try again.'),
       );
     } finally {
-      setCreatingWallet(false);
+      setWalletBusy(null);
     }
   }
 
-  function handleSelectQuote(quote: RampQuote) {
+  /** Quotes again and continues with the same route on its fresh quote, which is never resumed again. */
+  async function resumeRoute(key: string) {
+    const same = (await handleFindRoute()).find((q) => routeKey(q) === key);
+    if (same) handleSelectQuote(same, true);
+    else setErrorMsg('That route is no longer available. Pick another one.');
+  }
+
+  /** `fresh`: the quote was just taken, so a lapse is reported instead of quoting again. */
+  function handleSelectQuote(quote: RampQuote, fresh = false) {
+    // The server refuses a lapsed quote: take the same route on a new one instead of sending it.
+    if (!fresh && Date.parse(quote.expiresAt) <= Date.now()) {
+      void resumeRoute(routeKey(quote));
+      return;
+    }
     setSelected(quote);
     setErrorMsg(null);
     const missing = rampQuoteFields(quote).some((f) => !f.optional && !(fieldValues[f.key] ?? '').trim());
     if (missing) setStep('contact');
-    else void startOrder(quote);
+    else void startOrder(quote, fresh);
   }
 
-  async function startOrder(quote: RampQuote) {
+  async function startOrder(quote: RampQuote, fresh = false) {
     setIsLoading(true);
     setStartingQuoteId(quote.quoteId);
     setErrorMsg(null);
+    setAwaitingAccount(null);
     try {
       const payee = Object.fromEntries(
         rampQuoteFields(quote)
@@ -744,6 +1137,22 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
       setOrder(await client.createRampOrder({ quoteId: quote.quoteId, ...(Object.keys(payee).length ? { payee } : {}) }));
       setStep('status');
     } catch (error) {
+      // The route's wallet on another chain waits on the user's approval: bring that request up.
+      // Not a failure while the request is there: the route starts again once it is approved.
+      if (isPollarApiError(error) && error.code === 'SDK_RAMPS_WALLET_NOT_READY') {
+        const pending = await client.cosign.pending().catch(() => []);
+        const request = pending.find((r) => r.intent === 'add_accounts');
+        if (request) setAwaitingAccount({ routeKey: routeKey(quote), requestId: request.id });
+        else setErrorMsg(rampErrorMessage(error, 'Could not start the operation. Please try again.'));
+        openCosignModal();
+        setStep('select_route');
+        return;
+      }
+      // Lapsed between the list and the tap (or by the server's clock): same route, new quote.
+      if (isPollarApiError(error) && error.code === 'SDK_RAMPS_QUOTE_EXPIRED' && !fresh) {
+        void resumeRoute(routeKey(quote));
+        return;
+      }
       setErrorMsg(rampErrorMessage(error, 'Could not start the operation. Please try again.'));
       // A refused detail is fixed on the form; an expired quote needs a new one.
       if (isPollarApiError(error) && error.code === 'VALIDATION_ERROR' && rampQuoteFields(quote).length) setStep('contact');
@@ -823,6 +1232,8 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           theme={theme}
           accentColor={accentColor}
           step={step}
+          flowSteps={flowSteps}
+          flowStepIndex={flowLabel ? flowSteps.indexOf(flowLabel) : -1}
           direction={direction}
           routesLoading={routesLoading}
           countries={countries}
@@ -832,6 +1243,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           assets={assets}
           asset={asset}
           amount={amount}
+          sellAvailable={sellAvailable}
           quotes={quotes}
           rejected={rejected}
           startingQuoteId={startingQuoteId}
@@ -842,9 +1254,11 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           isLoading={isLoading}
           signing={signing}
           errorMsg={errorMsg}
+          notice={awaitingAccount ? 'Approve the new account on your device. The order starts once it is approved.' : null}
           onDirectionChange={(next) => {
             setDirection(next);
             setErrorMsg(null);
+            setAwaitingAccount(null);
           }}
           onCountryChange={(next) => {
             setCountry(next);
@@ -861,13 +1275,19 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
             setErrorMsg(null);
           }}
           onFindRoute={() => void handleFindRoute()}
-          onSelectQuote={handleSelectQuote}
+          onSelectQuote={(quote) => handleSelectQuote(quote)}
           onVerifyRoute={handleVerifyRoute}
           trustingAsset={trustingAsset}
           onTrustAsset={(asset) => void handleTrustAsset(asset)}
-          creatingWallet={creatingWallet}
-          onCreateWallet={custodyChoice ? undefined : () => void handleCreateWallet()}
+          walletBusy={walletBusy}
+          custodyChoice={custodyChoice}
+          onWalletStep={(walletStep, index, custody) => void handleWalletStep(walletStep, index, custody)}
           noChains={Array.isArray(appChains) && appChains.length === 0}
+          retrying={retrying}
+          onRetryOrder={() => void handleRetryOrder()}
+          onSetUpRecovery={openRecoveryModal}
+          recoveryMissing={recovery === null ? null : recoveryLocked}
+          pollTrouble={pollTrouble}
           onFieldChange={(key, value) => setFieldValues((current) => ({ ...current, [key]: value }))}
           onContactContinue={() => {
             if (selected) void startOrder(selected);
@@ -879,6 +1299,7 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           }
           onResumeOrder={(id) => void handleResumeOrder(id)}
           onNewOrder={() => {
+            setAwaitingAccount(null);
             setOrder(null);
             setSelected(null);
             setQuotes([]);
@@ -888,7 +1309,14 @@ export function RampWidget({ onClose }: { onClose: () => void }) {
           }}
           onBack={() => {
             setErrorMsg(null);
+            setAwaitingAccount(null);
             setStep(step === 'contact' ? 'select_route' : 'input');
+          }}
+          onStepSelect={(target) => {
+            // Only Amount and Route sit before a step the user can leave; Complete is never left this way.
+            setErrorMsg(null);
+            setAwaitingAccount(null);
+            setStep(target === 'Route' ? 'select_route' : 'input');
           }}
           onRetry={() => {
             setErrorMsg(null);
@@ -931,12 +1359,19 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   header: {
+    gap: 4,
     marginBottom: 16,
     marginTop: 10,
+    // Clear of the close button in the corner.
+    paddingRight: 40,
   },
   title: {
     fontSize: 22,
     fontWeight: '700',
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   iconButton: {
     position: 'absolute',
@@ -954,6 +1389,30 @@ const styles = StyleSheet.create({
   },
   body: {
     marginVertical: 12,
+  },
+  steps: {
+    gap: 8,
+    marginTop: 4,
+  },
+  stepsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stepsTrack: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  stepsItem: {
+    flex: 1,
+    gap: 6,
+    paddingBottom: 2,
+  },
+  stepsSegment: {
+    height: 4,
+    borderRadius: 9999,
+  },
+  stepsName: {
+    fontSize: 12,
   },
   row: {
     flexDirection: 'row',
@@ -975,6 +1434,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginVertical: 8,
+  },
+  noticeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   input: {
     height: 48,
@@ -1017,6 +1481,22 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     borderWidth: 2,
+  },
+  // Indented like the note: past the dot (10) and the row gap (8).
+  legStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 18,
+    marginBottom: 6,
+  },
+  // Indented past the dot (10) and the row gap (8), under the title.
+  legNote: {
+    fontSize: 12,
+    lineHeight: 16,
+    paddingLeft: 18,
+    marginTop: -2,
+    marginBottom: 6,
   },
   statusBox: {
     paddingVertical: 30,

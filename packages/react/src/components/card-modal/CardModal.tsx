@@ -17,6 +17,8 @@ import {
 } from '@pollar/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePollar } from '../../context';
+import { useWalletAvailable } from '../../useWalletAvailable';
+import { AmountField } from '../AmountField';
 import { CopyButton, PollarModalFooter } from '../commons';
 import { KycModal } from '../kyc-modal/KycModal';
 import { buildModalCssVars, modalChrome } from '../modal-theme';
@@ -187,6 +189,9 @@ export function CardModal({ onClose }: CardModalProps) {
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const provider = providers?.[0] ?? null;
+  const fundingAsset = provider?.fundingAssets[0] ?? 'USDC';
+  // Funding signs a Stellar payment from the wallet, so its balance is the Stellar one.
+  const fundAvailable = useWalletAvailable(panel === 'fund' ? { chain: 'STELLAR', code: fundingAsset } : null);
   const card = cards?.[0] ?? null;
 
   // --- Loading ----------------------------------------------------------------
@@ -863,16 +868,15 @@ export function CardModal({ onClose }: CardModalProps) {
               Move {provider.fundingAssets.join(' or ') || 'USDC'} from your wallet to your card. It takes a few minutes to
               cross to the card network.
             </p>
-            <label className="pollar-send-field">
-              <span className="pollar-send-label">Amount (USDC)</span>
-              <input
-                className="pollar-input"
-                inputMode="decimal"
-                placeholder="10"
-                value={fundAmount}
-                onChange={(e) => setFundAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-              />
-            </label>
+            <AmountField
+              id="pollar-card-fund-amount"
+              label="Amount"
+              value={fundAmount}
+              onChange={(value) => setFundAmount(value.replace(/[^0-9.]/g, ''))}
+              unit={fundingAsset}
+              available={fundAvailable}
+              placeholder="10"
+            />
             <div className="pollar-modal-actions">
               <button
                 type="button"
