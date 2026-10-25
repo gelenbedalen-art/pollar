@@ -472,6 +472,23 @@ The script refuses to tag unless:
 The workflow can also be started by hand from the Actions tab (`workflow_dispatch` with a
 `version` input).
 
+### Tag a stable release
+
+Publish the stable packages first with their `*:publish` scripts, `core` before the packages that depend on it. Then:
+
+```bash
+npm run release:tag
+```
+
+Tags the current commit as `v<version>`, the version in `packages/core/package.json`, and pushes the tag. It publishes
+nothing and starts no workflow. The script refuses to tag unless:
+
+- the version is a stable `X.Y.Z`, with no `-rc`
+- `@pollar/core` at that version is already on npm
+- the working tree is clean
+- `HEAD` is already on a remote branch (push it first)
+- the tag does not exist locally or on `origin`
+
 ---
 
 ## License

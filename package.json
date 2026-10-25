@@ -18,6 +18,7 @@
     "stellar-wallets-kit-adapter:publish": "cd packages/stellar-wallets-kit-adapter && npm publish --access public",
     "solana-wallet-standard-adapter:publish": "cd packages/solana-wallet-standard-adapter && npm publish --access public",
     "release:rc": "bash scripts/release-rc.sh",
+    "release:tag": "bash scripts/release-tag.sh",
     "core:update-openapi": "curl -k https://sdk.api.local.pollar.xyz/openapi.v3.json -o /tmp/openapi.json && npx openapi-typescript /tmp/openapi.json -o ./packages/core/src/api/schema.d.ts",
     "test:unit": "npm run test --workspace @pollar/core",
     "pretest:smoke": "npm run build",
