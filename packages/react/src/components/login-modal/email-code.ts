@@ -14,26 +14,47 @@ export interface EmailCodeUpdate {
  * some keyboards' paste, instead write the whole code into the focused box
  * through an input event, not a paste event. That value is spread across the
  * boxes: a full code always from the first box, a shorter run from `index`.
+ *
+ * When the box already held a digit, the new text may land before or after
+ * it. `caret` (the input's selectionStart after the change) says where the
+ * insertion ended, so only the inserted text is used; without it the old
+ * digit is dropped from whichever end it is found at.
  */
-export function applyEmailCodeInput(digits: string[], index: number, value: string): EmailCodeUpdate {
+export function applyEmailCodeInput(digits: string[], index: number, value: string, caret?: number | null): EmailCodeUpdate {
   const last = EMAIL_CODE_LENGTH - 1;
-  const raw = value.replace(/\D/g, '');
+  const previous = digits[index] ?? '';
+  const raw = insertedDigits(value, previous, caret);
   const next = digits.slice();
 
-  const previous = digits[index] ?? '';
-  const isKeystroke = raw.length <= 1 || (raw.length === 2 && previous !== '' && raw.includes(previous));
-  if (isKeystroke) {
-    // Typing over a filled box: keep the digit that was added, wherever the caret was.
-    const typed = raw.length === 2 ? (raw.startsWith(previous) ? raw[1] : raw[0]) : raw;
-    next[index] = typed ?? '';
-    return { digits: next, focus: typed && index < last ? index + 1 : index };
+  // Only non-digits were added: leave the box as it was.
+  if (raw === '' && value.length > previous.length) return { digits: next, focus: index };
+
+  if (raw.length <= 1) {
+    next[index] = raw;
+    return { digits: next, focus: raw && index < last ? index + 1 : index };
   }
 
-  // A full code may arrive appended to a digit already in the box; keep its last 6 digits.
   const start = raw.length >= EMAIL_CODE_LENGTH ? 0 : index;
   const chars = raw.length >= EMAIL_CODE_LENGTH ? raw.slice(-EMAIL_CODE_LENGTH) : raw.slice(0, EMAIL_CODE_LENGTH - index);
   for (let i = 0; i < chars.length; i++) next[start + i] = chars[i] as string;
   return { digits: next, focus: Math.min(start + chars.length, last) };
+}
+
+/** The digits the browser added to a box that held `previous`. */
+function insertedDigits(value: string, previous: string, caret?: number | null): string {
+  const digits = value.replace(/\D/g, '');
+  if (previous === '' || value.length <= previous.length) return digits;
+
+  if (typeof caret === 'number') {
+    const added = value.length - previous.length;
+    return value.slice(Math.max(caret - added, 0), caret).replace(/\D/g, '');
+  }
+
+  // No caret: the old digit sits at one end of the value. When both ends
+  // match, the text was most likely appended, so the first digit goes.
+  if (digits.startsWith(previous)) return digits.slice(previous.length);
+  if (digits.endsWith(previous)) return digits.slice(0, -previous.length);
+  return digits;
 }
 
 /** Spread pasted text across the boxes from the first one. */
