@@ -45,6 +45,13 @@ eq(applyEmailCodeInput(empty, 0, '482913'), { digits: filled('482913'), focus: 5
 // ...also when the focused box is not the first one, or already held a digit.
 eq(applyEmailCodeInput(empty, 3, '482913').digits, filled('482913'));
 eq(applyEmailCodeInput(['7', '', '', '', '', ''], 0, '7482913').digits, filled('482913'));
+// The old digit can sit on either side of the code: with the caret, only the inserted text counts.
+const seven = ['7', '', '', '', '', ''];
+eq(applyEmailCodeInput(seven, 0, '4829137').digits, filled('482913'));
+eq(applyEmailCodeInput(seven, 0, '4829137', 6).digits, filled('482913'));
+eq(applyEmailCodeInput(seven, 0, '7482913', 7).digits, filled('482913'));
+eq(applyEmailCodeInput(['3', '', '', '', '', ''], 0, '4829133', 6).digits, filled('482913'));
+eq(applyEmailCodeInput(['3', '', '', '', '', ''], 0, '3482913', 7).digits, filled('482913'));
 // ...or with separators some providers include.
 eq(applyEmailCodeInput(empty, 0, '482 913').digits, filled('482913'));
 
@@ -56,6 +63,10 @@ eq(applyEmailCodeInput(['4', '', '', '', '', ''], 0, ''), { digits: empty, focus
 // Typing over a filled box keeps the new digit, caret after or before the old one.
 eq(applyEmailCodeInput(['', '', '5', '', '', ''], 2, '58').digits, ['', '', '8', '', '', '']);
 eq(applyEmailCodeInput(['', '', '5', '', '', ''], 2, '85').digits, ['', '', '8', '', '', '']);
+eq(applyEmailCodeInput(['', '', '5', '', '', ''], 2, '58', 2).digits, ['', '', '8', '', '', '']);
+eq(applyEmailCodeInput(['', '', '5', '', '', ''], 2, '85', 1).digits, ['', '', '8', '', '', '']);
+// A non-digit typed into a filled box leaves it as it was.
+eq(applyEmailCodeInput(['', '', '5', '', '', ''], 2, '5a', 2), { digits: ['', '', '5', '', '', ''], focus: 2 });
 
 // A partial run fills from the box it was entered in.
 eq(applyEmailCodeInput(empty, 2, '913'), { digits: ['', '', '9', '1', '3', ''], focus: 5 });
