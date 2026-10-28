@@ -45,7 +45,7 @@ export function EmailCodeInput({ email, onSubmit }: EmailCodeInputProps) {
             aria-label={`Digit ${i + 1} of ${EMAIL_CODE_LENGTH}`}
             value={digit}
             className="pollar-code-input"
-            onChange={(e) => apply(applyEmailCodeInput(digits, i, e.target.value))}
+            onChange={(e) => apply(applyEmailCodeInput(digits, i, e.target.value, e.target.selectionStart))}
             onKeyDown={(e) => handleKeyDown(i, e)}
             onPaste={handlePaste}
           />
