@@ -45,9 +45,16 @@ function insertedDigits(value: string, previous: string, caret?: number | null):
   const digits = value.replace(/\D/g, '');
   if (previous === '' || value.length <= previous.length) return digits;
 
+  // A full code in the box replaced the old digit (autofill over a selected box).
+  if (digits.length === EMAIL_CODE_LENGTH) return digits;
+
   if (typeof caret === 'number') {
     const added = value.length - previous.length;
-    return value.slice(Math.max(caret - added, 0), caret).replace(/\D/g, '');
+    const start = Math.max(caret - added, 0);
+    // What is left around the insertion must be the old digit; otherwise the
+    // old digit was replaced and every digit in the value is new.
+    if (value.slice(0, start) + value.slice(caret) !== previous) return digits;
+    return value.slice(start, caret).replace(/\D/g, '');
   }
 
   // No caret: the old digit sits at one end of the value. When both ends
