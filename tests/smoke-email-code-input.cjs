@@ -52,6 +52,12 @@ eq(applyEmailCodeInput(seven, 0, '4829137', 6).digits, filled('482913'));
 eq(applyEmailCodeInput(seven, 0, '7482913', 7).digits, filled('482913'));
 eq(applyEmailCodeInput(['3', '', '', '', '', ''], 0, '4829133', 6).digits, filled('482913'));
 eq(applyEmailCodeInput(['3', '', '', '', '', ''], 0, '3482913', 7).digits, filled('482913'));
+// Autofill can also replace the digit instead of inserting beside it; the whole code is kept.
+eq(applyEmailCodeInput(seven, 0, '482913', 6), { digits: filled('482913'), focus: 5 });
+eq(applyEmailCodeInput(seven, 0, '482913').digits, filled('482913'));
+eq(applyEmailCodeInput(seven, 0, '712345', 6).digits, filled('712345'));
+// Replaced by a shorter run: every digit is new, filled from the box.
+eq(applyEmailCodeInput(seven, 0, '48', 2).digits, ['4', '8', '', '', '', '']);
 // ...or with separators some providers include.
 eq(applyEmailCodeInput(empty, 0, '482 913').digits, filled('482913'));
 
